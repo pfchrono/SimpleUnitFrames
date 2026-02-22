@@ -1,0 +1,24 @@
+## Title: SimpleUnitFrames
+## Interface: 120000, 120001
+## Version: 1.0.0
+## Author: |cFF8080FFGrevin|r
+## Notes: Simple Unitframe replacement with WIP features.
+## IconTexture: Interface\AddOns\SimpleUnitFrames\Media\AddonIcon
+## SavedVariables: SimpleUnitFramesDB
+## X-oUF: SimpleUnitFrames
+
+# Load Libraries
+Libraries/Init.xml
+
+# Addon Core
+SimpleUnitFrames.lua
+
+# Unit Frames
+Units/Player.lua
+Units/Pet.lua
+Units/Target.lua
+Units/Tot.lua
+Units/Focus.lua
+Units/Party.lua
+Units/Raid.lua
+Units/Boss.lua
