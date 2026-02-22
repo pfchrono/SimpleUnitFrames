@@ -132,6 +132,20 @@ local defaults = {
 		classPowerHeight = 8,
 		classPowerSpacing = 2,
 		castbarHeight = 16,
+		castbar = {
+			iconEnabled = true,
+			iconPosition = "LEFT",
+			iconSize = 20,
+			iconGap = 2,
+			showShield = true,
+			showSafeZone = true,
+			safeZoneAlpha = 0.35,
+			showSpark = true,
+			spellMaxChars = 18,
+			timeDecimals = 1,
+			showDelay = true,
+			colorProfile = "UUF",
+		},
 		powerBgAlpha = 0.35,
 		visibility = {
 			hideVehicle = true,
@@ -181,6 +195,44 @@ local UNIT_TYPE_ORDER = {
 local GROUP_UNIT_TYPES = {
 	party = true,
 	raid = true,
+}
+
+local DEFAULT_UNIT_CASTBAR = {
+	enabled = true,
+	showText = true,
+	showTime = true,
+	reverseFill = false,
+	widthPercent = 100,
+	anchor = "BELOW_FRAME",
+	offsetY = -8,
+	colorProfile = "GLOBAL",
+}
+
+local CASTBAR_COLOR_PROFILES = {
+	Blizzard = {
+		casting = { 1.00, 0.70, 0.00 },
+		channeling = { 0.20, 0.60, 1.00 },
+		complete = { 0.00, 1.00, 0.00 },
+		failed = { 1.00, 0.10, 0.10 },
+		nonInterruptible = { 0.75, 0.75, 0.75 },
+		background = { 0.00, 0.00, 0.00, 0.55 },
+	},
+	UUF = {
+		casting = { 0.95, 0.82, 0.24 },
+		channeling = { 0.31, 0.78, 0.98 },
+		complete = { 0.24, 0.90, 0.24 },
+		failed = { 0.96, 0.25, 0.25 },
+		nonInterruptible = { 0.66, 0.66, 0.66 },
+		background = { 0.02, 0.02, 0.02, 0.65 },
+	},
+	HighContrast = {
+		casting = { 1.00, 0.90, 0.10 },
+		channeling = { 0.10, 0.85, 1.00 },
+		complete = { 0.10, 1.00, 0.25 },
+		failed = { 1.00, 0.15, 0.15 },
+		nonInterruptible = { 0.85, 0.85, 0.85 },
+		background = { 0.00, 0.00, 0.00, 0.72 },
+	},
 }
 
 local PERF_EVENT_PRIORITY = {
@@ -379,6 +431,73 @@ function addon:GetUnitStatusbarTexture(unitType)
 	end
 
 	return self:GetStatusbarTexture()
+end
+
+function addon:GetUnitCastbarSettings(unitType)
+	local unit = self:GetUnitSettings(unitType)
+	if not unit then
+		return DEFAULT_UNIT_CASTBAR
+	end
+
+	if unit.castbar == nil then
+		unit.castbar = CopyTableDeep(DEFAULT_UNIT_CASTBAR)
+	else
+		for key, value in pairs(DEFAULT_UNIT_CASTBAR) do
+			if unit.castbar[key] == nil then
+				unit.castbar[key] = value
+			end
+		end
+	end
+
+	return unit.castbar
+end
+
+function addon:GetCastbarColors()
+	local profileName = self.db and self.db.profile and self.db.profile.castbar and self.db.profile.castbar.colorProfile
+	local palette = CASTBAR_COLOR_PROFILES[profileName or ""] or CASTBAR_COLOR_PROFILES.UUF
+	return palette
+end
+
+function addon:GetUnitCastbarColors(unitType)
+	local unitCfg = self:GetUnitCastbarSettings(unitType)
+	local profileName = unitCfg and unitCfg.colorProfile
+	if not profileName or profileName == "GLOBAL" then
+		return self:GetCastbarColors()
+	end
+	return CASTBAR_COLOR_PROFILES[profileName] or self:GetCastbarColors()
+end
+
+function addon:GetUnitInterruptState(unit)
+	if not unit or not UnitExists or not UnitExists(unit) then
+		return nil
+	end
+
+	if UnitCastingInfo then
+		local _, _, _, _, _, _, _, notInterruptible = UnitCastingInfo(unit)
+		if notInterruptible ~= nil then
+			return not notInterruptible
+		end
+	end
+
+	if UnitChannelInfo then
+		local _, _, _, _, _, _, _, notInterruptible = UnitChannelInfo(unit)
+		if notInterruptible ~= nil then
+			return not notInterruptible
+		end
+	end
+
+	return nil
+end
+
+function addon:GetUnitAuraSize(unitType)
+	local unit = self:GetUnitSettings(unitType)
+	if unit and type(unit.auraSize) == "number" and unit.auraSize > 0 then
+		return unit.auraSize
+	end
+	if unitType == "player" or unitType == "target" then
+		return math.floor((18 * 1.25) + 0.5)
+	end
+	return 18
 end
 
 local function BuildVisibilityDriver(profile)
@@ -1299,10 +1418,79 @@ function addon:ApplyTags(frame)
 	end
 end
 
+function addon:UpdateAbsorbBar(frame)
+	if not (frame and frame.Health and frame.AbsorbBar) then
+		return
+	end
+
+	local unit = frame.unit
+	if not unit or not UnitExists or not UnitExists(unit) then
+		frame.AbsorbBar:Hide()
+		if frame.AbsorbCap then
+			frame.AbsorbCap:Hide()
+		end
+		return
+	end
+
+	local maxHealth = UnitHealthMax and UnitHealthMax(unit) or 0
+	local health = UnitHealth and UnitHealth(unit) or 0
+	local absorb = UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit) or 0
+	if maxHealth <= 0 or health <= 0 or absorb <= 0 then
+		frame.AbsorbBar:Hide()
+		if frame.AbsorbCap then
+			frame.AbsorbCap:Hide()
+		end
+		return
+	end
+
+	local healthPct = math.min(1, math.max(0, health / maxHealth))
+	local absorbPct = math.min(absorb / maxHealth, healthPct)
+	if absorbPct <= 0 then
+		frame.AbsorbBar:Hide()
+		if frame.AbsorbCap then
+			frame.AbsorbCap:Hide()
+		end
+		return
+	end
+
+	local barWidth = frame.Health:GetWidth() or 0
+	if barWidth <= 0 then
+		frame.AbsorbBar:Hide()
+		if frame.AbsorbCap then
+			frame.AbsorbCap:Hide()
+		end
+		return
+	end
+
+	local width = math.max(1, math.floor((barWidth * absorbPct) + 0.5))
+	local statusTex = frame.Health.GetStatusBarTexture and frame.Health:GetStatusBarTexture() or nil
+
+	frame.AbsorbBar:ClearAllPoints()
+	if statusTex then
+		frame.AbsorbBar:SetPoint("TOPRIGHT", statusTex, "TOPRIGHT", 0, 0)
+		frame.AbsorbBar:SetPoint("BOTTOMRIGHT", statusTex, "BOTTOMRIGHT", 0, 0)
+	else
+		frame.AbsorbBar:SetPoint("TOPRIGHT", frame.Health, "TOPRIGHT", 0, 0)
+		frame.AbsorbBar:SetPoint("BOTTOMRIGHT", frame.Health, "BOTTOMRIGHT", 0, 0)
+	end
+	frame.AbsorbBar:SetWidth(width)
+	frame.AbsorbBar:Show()
+
+	if frame.AbsorbCap then
+		frame.AbsorbCap:ClearAllPoints()
+		frame.AbsorbCap:SetPoint("TOPLEFT", frame.AbsorbBar, "TOPLEFT", 0, 0)
+		frame.AbsorbCap:SetPoint("BOTTOMLEFT", frame.AbsorbBar, "BOTTOMLEFT", 0, 0)
+		frame.AbsorbCap:SetShown(width > 0)
+	end
+end
+
 function addon:ApplyMedia(frame)
 	local texture = self:GetUnitStatusbarTexture(frame.sufUnitType)
 	local font = self:GetFont()
 	local sizes = self:GetUnitFontSizes(frame.sufUnitType)
+	local castbarCfg = self.db.profile.castbar or {}
+	local unitCastbarCfg = self:GetUnitCastbarSettings(frame.sufUnitType)
+	local castbarColors = self:GetUnitCastbarColors(frame.sufUnitType)
 
 	if frame.Health then
 		frame.Health:SetStatusBarTexture(texture)
@@ -1317,6 +1505,14 @@ function addon:ApplyMedia(frame)
 		frame.PowerBG:SetVertexColor(0, 0, 0, 0.6)
 	end
 
+	if frame.AbsorbBar then
+		frame.AbsorbBar:SetTexture(texture)
+		frame.AbsorbBar:SetVertexColor(0.25, 0.78, 0.92, 0.55)
+	end
+	if frame.AbsorbCap then
+		frame.AbsorbCap:SetColorTexture(0.85, 0.95, 1.0, 0.95)
+	end
+
 	if frame.AdditionalPower then
 		frame.AdditionalPower:SetStatusBarTexture(texture)
 	end
@@ -1327,12 +1523,155 @@ function addon:ApplyMedia(frame)
 	end
 
 	if frame.Castbar then
-		frame.Castbar:SetStatusBarTexture(texture)
-		if frame.Castbar.Text then
-			frame.Castbar.Text:SetFont(font, sizes.cast, "OUTLINE")
-		end
-		if frame.Castbar.Time then
-			frame.Castbar.Time:SetFont(font, sizes.cast, "OUTLINE")
+		local castbarEnabled = unitCastbarCfg.enabled ~= false
+		frame.Castbar:SetShown(castbarEnabled)
+		if castbarEnabled then
+			frame.Castbar:SetReverseFill(unitCastbarCfg.reverseFill == true)
+			frame.Castbar:SetStatusBarTexture(texture)
+			if frame.Castbar.Bg then
+				frame.Castbar.Bg:SetTexture(texture)
+				local bg = castbarColors.background or { 0, 0, 0, 0.55 }
+				frame.Castbar.Bg:SetVertexColor(bg[1] or 0, bg[2] or 0, bg[3] or 0, bg[4] or 0.55)
+			end
+			local castingColor = castbarColors.casting or { 1, 0.7, 0 }
+			frame.Castbar:SetStatusBarColor(castingColor[1] or 1, castingColor[2] or 0.7, castingColor[3] or 0)
+			if frame.Castbar.Text then
+				frame.Castbar.Text:SetShown(unitCastbarCfg.showText ~= false)
+				frame.Castbar.Text:SetFont(font, sizes.cast, "OUTLINE")
+			end
+			if frame.Castbar.Time then
+				frame.Castbar.Time:SetShown(unitCastbarCfg.showTime ~= false)
+				frame.Castbar.Time:SetFont(font, sizes.cast, "OUTLINE")
+			end
+			if frame.Castbar.Icon then
+				frame.Castbar.Icon:SetShown(castbarCfg.iconEnabled ~= false)
+				frame.Castbar.Icon:SetSize(castbarCfg.iconSize or 20, castbarCfg.iconSize or 20)
+				frame.Castbar.Icon:ClearAllPoints()
+				local gap = castbarCfg.iconGap or 2
+				if castbarCfg.iconPosition == "RIGHT" then
+					frame.Castbar.Icon:SetPoint("LEFT", frame.Castbar, "RIGHT", gap, 0)
+				else
+					frame.Castbar.Icon:SetPoint("RIGHT", frame.Castbar, "LEFT", -gap, 0)
+				end
+			end
+			if frame.Castbar.SafeZone then
+				frame.Castbar.SafeZone:SetColorTexture(1, 0.2, 0.2, castbarCfg.safeZoneAlpha or 0.35)
+				frame.Castbar.SafeZone:SetShown(castbarCfg.showSafeZone ~= false and frame.unit == "player")
+			end
+			if frame.Castbar.Spark then
+				frame.Castbar.Spark:SetShown(castbarCfg.showSpark ~= false)
+			end
+			if frame.Castbar.Shield then
+				frame.Castbar.Shield:SetShown(castbarCfg.showShield ~= false)
+			end
+
+			local function UpdateInterruptVisual(castbar)
+				local isHostile = UnitCanAttack and castbar.unit and UnitCanAttack("player", castbar.unit)
+				local isWatchedUnit = frame.sufUnitType == "target" or frame.sufUnitType == "boss"
+				local interruptible = self:GetUnitInterruptState(castbar.unit)
+				if not isHostile or not isWatchedUnit or interruptible == nil then
+					return
+				end
+
+				if interruptible then
+					local activeColor = castbar.channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
+					activeColor = activeColor or { 1, 0.7, 0 }
+					castbar:SetStatusBarColor(activeColor[1] or 1, activeColor[2] or 0.7, activeColor[3] or 0)
+					if castbar.Shield then
+						castbar.Shield:SetShown(false)
+					end
+				else
+					local niColor = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
+					castbar:SetStatusBarColor(niColor[1] or 0.75, niColor[2] or 0.75, niColor[3] or 0.75)
+					if castbar.Shield then
+						castbar.Shield:SetShown(castbarCfg.showShield ~= false)
+					end
+				end
+			end
+
+			frame.Castbar.CustomTimeText = function(castbar, durationObject)
+				if not castbar.Time then
+					return
+				end
+				if unitCastbarCfg.showTime == false then
+					castbar.Time:SetText("")
+					return
+				end
+				local decimals = math.max(0, math.min(2, tonumber(castbarCfg.timeDecimals) or 1))
+				local fmt = "%." .. decimals .. "f"
+				castbar.Time:SetFormattedText(fmt, durationObject:GetRemainingDuration())
+			end
+			frame.Castbar.CustomDelayText = function(castbar, durationObject)
+				if not castbar.Time then
+					return
+				end
+				if unitCastbarCfg.showTime == false then
+					castbar.Time:SetText("")
+					return
+				end
+				local decimals = math.max(0, math.min(2, tonumber(castbarCfg.timeDecimals) or 1))
+				local baseFmt = "%." .. decimals .. "f"
+				local delayFmt = "%." .. math.max(1, decimals + 1) .. "f"
+				if castbarCfg.showDelay == false then
+					castbar.Time:SetFormattedText(baseFmt, durationObject:GetRemainingDuration())
+					return
+				end
+				castbar.Time:SetFormattedText(baseFmt .. "|cffff0000%s" .. delayFmt .. "|r", durationObject:GetRemainingDuration(), castbar.channeling and "-" or "+", castbar.delay or 0)
+			end
+			frame.Castbar.PostCastStart = function(castbar)
+				local color = castbarColors.casting or { 1, 0.7, 0 }
+				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.7, color[3] or 0)
+				UpdateInterruptVisual(castbar)
+				if not castbar.Text then
+					return
+				end
+				if unitCastbarCfg.showText == false then
+					castbar.Text:SetText("")
+					return
+				end
+				local maxChars = math.max(6, tonumber(castbarCfg.spellMaxChars) or 18)
+				local spellName = castbar.spellName or castbar.Text:GetText() or ""
+				if #spellName > maxChars then
+					spellName = spellName:sub(1, maxChars - 3) .. "..."
+				end
+				castbar.Text:SetText(spellName)
+			end
+			frame.Castbar.PostChannelStart = function(castbar)
+				local color = castbarColors.channeling or castbarColors.casting or { 0.2, 0.6, 1 }
+				castbar:SetStatusBarColor(color[1] or 0.2, color[2] or 0.6, color[3] or 1)
+				UpdateInterruptVisual(castbar)
+			end
+			frame.Castbar.PostCastInterruptible = function(castbar)
+				local color = castbar.channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
+				color = color or { 1, 0.7, 0 }
+				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.7, color[3] or 0)
+				if castbar.Shield then
+					castbar.Shield:SetShown(false)
+				end
+			end
+			frame.Castbar.PostCastNotInterruptible = function(castbar)
+				local color = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
+				castbar:SetStatusBarColor(color[1] or 0.75, color[2] or 0.75, color[3] or 0.75)
+				if castbar.Shield then
+					castbar.Shield:SetShown(castbarCfg.showShield ~= false)
+				end
+			end
+			frame.Castbar.PostCastFailed = function(castbar)
+				local color = castbarColors.failed or { 1, 0.1, 0.1 }
+				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.1, color[3] or 0.1)
+			end
+			frame.Castbar.PostCastInterrupted = frame.Castbar.PostCastFailed
+			frame.Castbar.PostCastStop = function(castbar)
+				local color = castbarColors.complete or { 0, 1, 0 }
+				castbar:SetStatusBarColor(color[1] or 0, color[2] or 1, color[3] or 0)
+			end
+		else
+			if frame.Castbar.Text then
+				frame.Castbar.Text:SetText("")
+			end
+			if frame.Castbar.Time then
+				frame.Castbar.Time:SetText("")
+			end
 		end
 	end
 
@@ -1361,6 +1700,8 @@ function addon:ApplyMedia(frame)
 	if frame.AdditionalPowerValue then
 		frame.AdditionalPowerValue:SetFont(font, math.max(8, sizes.power - 1), "OUTLINE")
 	end
+
+	self:UpdateAbsorbBar(frame)
 end
 
 function addon:ApplyIndicators(frame)
@@ -1509,7 +1850,31 @@ function addon:ApplySize(frame)
 	end
 
 	if frame.Castbar then
+		local castbarUnit = self:GetUnitCastbarSettings(unitType)
+		local widthPercent = tonumber(castbarUnit.widthPercent) or 100
+		widthPercent = math.max(50, math.min(150, widthPercent))
+		local castbarWidth = math.max(40, math.floor((size.width * widthPercent / 100) + 0.5))
+		local offsetY = tonumber(castbarUnit.offsetY) or -8
+		local anchorMode = castbarUnit.anchor or "BELOW_FRAME"
+
 		frame.Castbar:SetHeight(self.db.profile.castbarHeight)
+		frame.Castbar:SetWidth(castbarWidth)
+		frame.Castbar:ClearAllPoints()
+		if anchorMode == "ABOVE_FRAME" then
+			frame.Castbar:SetPoint("BOTTOM", frame, "TOP", 0, offsetY)
+		elseif anchorMode == "BELOW_CLASSPOWER" and frame.ClassPowerAnchor then
+			frame.Castbar:SetPoint("TOP", frame.ClassPowerAnchor, "BOTTOM", 0, offsetY)
+		else
+			frame.Castbar:SetPoint("TOP", frame, "BOTTOM", 0, offsetY)
+		end
+	end
+
+	if frame.Auras then
+		local auraSize = self:GetUnitAuraSize(frame.sufUnitType)
+		frame.Auras.size = auraSize
+		frame.Auras.width = auraSize
+		frame.Auras.height = auraSize
+		frame.Auras:SetHeight(auraSize + 2)
 	end
 
 	if frame.ClassPowerAnchor and frame.ClassPower then
@@ -1519,6 +1884,8 @@ function addon:ApplySize(frame)
 		end
 		self:LayoutClassPower(frame)
 	end
+
+	self:UpdateAbsorbBar(frame)
 end
 
 function addon:UpdateAllFrames()
@@ -1634,6 +2001,15 @@ function addon:ReleaseFramePooledResources(frame)
 	end
 	frame.IndicatorFrame = nil
 
+	if frame.Auras then
+		for i = 1, #frame.Auras do
+			local button = frame.Auras[i]
+			if button and button.__sufPooledFrame and self.performanceLib and self.performanceLib.ReleaseFrame then
+				pcall(self.performanceLib.ReleaseFrame, self.performanceLib, button)
+			end
+			frame.Auras[i] = nil
+		end
+	end
 	if frame.Auras and frame.Auras.__sufPooledFrame and self.performanceLib and self.performanceLib.ReleaseFrame then
 		pcall(self.performanceLib.ReleaseFrame, self.performanceLib, frame.Auras)
 	end
@@ -1644,6 +2020,7 @@ function addon:ReleaseAllPooledResources()
 	for _, frame in ipairs(self.frames or {}) do
 		self:ReleaseFramePooledResources(frame)
 	end
+	self._runtimePoolsReady = nil
 end
 
 local function CreateCastbar(self, height, anchor)
@@ -1666,8 +2043,45 @@ local function CreateCastbar(self, height, anchor)
 	Time:SetPoint("RIGHT", Castbar, "RIGHT", -4, 0)
 	Time:SetJustifyH("RIGHT")
 
+	local Bg = Castbar:CreateTexture(nil, "BACKGROUND")
+	Bg:SetAllPoints(Castbar)
+	Bg:SetTexture(DEFAULT_TEXTURE)
+	Bg:SetVertexColor(0, 0, 0, 0.55)
+
+	local Icon = Castbar:CreateTexture(nil, "ARTWORK")
+	Icon:SetSize(20, 20)
+	Icon:SetPoint("RIGHT", Castbar, "LEFT", -2, 0)
+	Icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+
+	local SafeZone = Castbar:CreateTexture(nil, "ARTWORK")
+	SafeZone:SetColorTexture(1, 0.2, 0.2, 0.35)
+	SafeZone:SetPoint("TOPRIGHT", Castbar, "TOPRIGHT")
+	SafeZone:SetPoint("BOTTOMRIGHT", Castbar, "BOTTOMRIGHT")
+	SafeZone:SetWidth(0)
+
+	local Shield = Castbar:CreateTexture(nil, "OVERLAY")
+	Shield:SetAllPoints(Castbar)
+	Shield:SetTexture("Interface\\CastingBar\\UI-CastingBar-Small-Shield")
+	Shield:SetBlendMode("ADD")
+
+	local Spark = Castbar:CreateTexture(nil, "OVERLAY")
+	Spark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
+	Spark:SetBlendMode("ADD")
+	Spark:SetSize(18, height + 10)
+	Spark:SetPoint("CENTER", Castbar:GetStatusBarTexture(), "RIGHT", 0, 0)
+	Castbar:SetScript("OnSizeChanged", function(bar)
+		if bar.Spark then
+			bar.Spark:SetHeight(bar:GetHeight() + 10)
+		end
+	end)
+
 	Castbar.Text = Text
 	Castbar.Time = Time
+	Castbar.Bg = Bg
+	Castbar.Icon = Icon
+	Castbar.SafeZone = SafeZone
+	Castbar.Shield = Shield
+	Castbar.Spark = Spark
 	self.Castbar = Castbar
 end
 
@@ -1694,15 +2108,86 @@ end
 local function CreateAuras(self)
 	local owner = addon
 	local Auras = owner:AcquireRuntimeFrame("Frame", self, "SUF_AuraContainer")
+	local auraSize = owner:GetUnitAuraSize(self.sufUnitType)
 	Auras:Show()
 	Auras:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 0, 6)
 	Auras:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 6)
-	Auras:SetHeight(20)
-	Auras.size = 18
+	Auras:SetHeight(auraSize + 2)
+	Auras.size = auraSize
+	Auras.width = auraSize
+	Auras.height = auraSize
 	Auras.spacing = 4
 	Auras.numBuffs = 8
 	Auras.numDebuffs = 8
 	Auras.disableCooldown = false
+	Auras.tooltipAnchor = "ANCHOR_BOTTOMRIGHT"
+	Auras.createdButtons = 0
+	Auras.CreateButton = function(element, position)
+		local button = owner:AcquireRuntimeFrame("Button", element, "SUF_AuraButton")
+		button:SetParent(element)
+		button:SetID(position or 0)
+		button:SetSize(element.size or 18, element.size or 18)
+		button:Show()
+
+		if not button.Cooldown then
+			local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+			cd:SetAllPoints()
+			button.Cooldown = cd
+		end
+		button.Cooldown:SetScale(0.86)
+
+		if not button.Icon then
+			local icon = button:CreateTexture(nil, "BORDER")
+			icon:SetAllPoints()
+			button.Icon = icon
+		end
+
+		if not button.Count then
+			local countFrame = CreateFrame("Frame", nil, button)
+			countFrame:SetAllPoints(button)
+			countFrame:SetFrameLevel((button.Cooldown and button.Cooldown:GetFrameLevel() or button:GetFrameLevel()) + 1)
+			local count = countFrame:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+			count:SetPoint("BOTTOMRIGHT", countFrame, "BOTTOMRIGHT", -1, 0)
+			button.Count = count
+		end
+
+		if not button.Overlay then
+			local overlay = button:CreateTexture(nil, "OVERLAY")
+			overlay:SetTexture([[Interface\Buttons\UI-Debuff-Overlays]])
+			overlay:SetAllPoints()
+			overlay:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+			button.Overlay = overlay
+		end
+
+		if not button.Stealable then
+			local stealable = button:CreateTexture(nil, "OVERLAY")
+			stealable:SetTexture([[Interface\TargetingFrame\UI-TargetingFrame-Stealable]])
+			stealable:SetPoint("TOPLEFT", -3, 3)
+			stealable:SetPoint("BOTTOMRIGHT", 3, -3)
+			stealable:SetBlendMode("ADD")
+			button.Stealable = stealable
+		end
+
+		button.UpdateTooltip = function(widget)
+			if GameTooltip and widget.auraInstanceID and widget:GetParent() and widget:GetParent().__owner and widget:GetParent().__owner.unit then
+				GameTooltip:SetUnitAuraByAuraInstanceID(widget:GetParent().__owner.unit, widget.auraInstanceID)
+			end
+		end
+		button:SetScript("OnEnter", function(widget)
+			if GameTooltip and widget:IsVisible() then
+				GameTooltip:SetOwner(widget, widget:GetParent().tooltipAnchor or "ANCHOR_BOTTOMRIGHT")
+				widget:UpdateTooltip()
+			end
+		end)
+		button:SetScript("OnLeave", function()
+			if GameTooltip then
+				GameTooltip:Hide()
+			end
+		end)
+
+		element.createdButtons = (element.createdButtons or 0) + 1
+		return button
+	end
 	self.Auras = Auras
 end
 
@@ -1723,6 +2208,18 @@ function addon:Style(frame, unit)
 	Health.colorClass = true
 	Health.colorReaction = true
 	frame.Health = Health
+
+	local AbsorbBar = Health:CreateTexture(nil, "OVERLAY", nil, 2)
+	AbsorbBar:SetTexture(DEFAULT_TEXTURE)
+	AbsorbBar:SetVertexColor(0.25, 0.78, 0.92, 0.55)
+	AbsorbBar:Hide()
+	frame.AbsorbBar = AbsorbBar
+
+	local AbsorbCap = Health:CreateTexture(nil, "OVERLAY", nil, 3)
+	AbsorbCap:SetColorTexture(0.85, 0.95, 1.0, 0.95)
+	AbsorbCap:SetWidth(2)
+	AbsorbCap:Hide()
+	frame.AbsorbCap = AbsorbCap
 
 	local Power = CreateStatusBar(frame, self.db.profile.powerHeight)
 	Power:SetPoint("TOPLEFT", Health, "BOTTOMLEFT", 0, -2)
@@ -1803,13 +2300,28 @@ function addon:Style(frame, unit)
 		frame.AdditionalPowerValue = AdditionalPowerValue
 	end
 
-	if unit == "player" or unit == "target" then
+	if unit == "player" or unit == "target" or (unit and unit:match("^boss%d*$")) then
 		local anchor = frame.ClassPowerAnchor
 		CreateCastbar(frame, self.db.profile.castbarHeight, anchor)
+	end
+
+	if unit == "player" or unit == "target" then
 		if not frame.Auras then
 			CreateAuras(frame)
 		end
 	end
+
+	local absorbEventFrame = CreateFrame("Frame", nil, frame)
+	absorbEventFrame:RegisterUnitEvent("UNIT_ABSORB_AMOUNT_CHANGED", unit)
+	absorbEventFrame:RegisterUnitEvent("UNIT_HEALTH", unit)
+	absorbEventFrame:RegisterUnitEvent("UNIT_MAXHEALTH", unit)
+	absorbEventFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
+	absorbEventFrame:SetScript("OnEvent", function(_, eventName, eventUnit)
+		if eventName == "PLAYER_ENTERING_WORLD" or eventUnit == unit then
+			self:UpdateAbsorbBar(frame)
+		end
+	end)
+	frame.AbsorbEventFrame = absorbEventFrame
 
 	self:ApplyTags(frame)
 	self:ApplyMedia(frame)
@@ -1863,6 +2375,7 @@ function addon:SpawnFrames()
 
 	self.oUF = oUF
 
+	self:ReleaseAllPooledResources()
 	self.frames = {}
 	self.headers = {}
 	oUF:RegisterStyle("SimpleUnitFrames", function(frame, unit)
@@ -2053,6 +2566,12 @@ function addon:OnPlayerEnteringWorld()
 	self:ScheduleGroupHeaders(0.5)
 end
 
+function addon:RefreshEditModeUnitSystems()
+	-- Avoid direct calls into Blizzard unit-frame refresh routines from insecure code.
+	-- Those calls can taint secure paths (CompactUnitFrame/UnitFrame) and trigger
+	-- "secret value tainted" errors during Edit Mode and roster updates.
+end
+
 function addon:SetFramesVisible(isEditMode)
 	local showBlizzard = isEditMode
 	local alpha = showBlizzard and 1 or 0
@@ -2075,15 +2594,6 @@ function addon:SetFramesVisible(isEditMode)
 	for _, frame in ipairs(blizzardFrames) do
 		if frame then
 			frame:SetAlpha(alpha)
-			if showBlizzard then
-				if frame.Show then
-					frame:Show()
-				end
-			else
-				if frame.Hide then
-					frame:Hide()
-				end
-			end
 		end
 	end
 
@@ -2977,6 +3487,26 @@ function addon:ShowOptions()
 			ui:Slider("Class Power Height", 4, 20, 1, function() return self.db.profile.classPowerHeight end, function(v) self.db.profile.classPowerHeight = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Class Power Spacing", 0, 10, 1, function() return self.db.profile.classPowerSpacing end, function(v) self.db.profile.classPowerSpacing = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Castbar Height", 8, 30, 1, function() return self.db.profile.castbarHeight end, function(v) self.db.profile.castbarHeight = v; self:ScheduleUpdateAll() end)
+			ui:Label("Castbar Enhancements", false)
+			ui:Dropdown("Castbar Color Profile", {
+				{ value = "UUF", text = "UUF" },
+				{ value = "Blizzard", text = "Blizzard" },
+				{ value = "HighContrast", text = "High Contrast" },
+			}, function() return self.db.profile.castbar.colorProfile end, function(v) self.db.profile.castbar.colorProfile = v; self:ScheduleUpdateAll() end)
+			ui:Check("Castbar Icon", function() return self.db.profile.castbar.iconEnabled ~= false end, function(v) self.db.profile.castbar.iconEnabled = v; self:ScheduleUpdateAll() end)
+			ui:Dropdown("Castbar Icon Position", {
+				{ value = "LEFT", text = "Left" },
+				{ value = "RIGHT", text = "Right" },
+			}, function() return self.db.profile.castbar.iconPosition end, function(v) self.db.profile.castbar.iconPosition = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Castbar Icon Size", 12, 40, 1, function() return self.db.profile.castbar.iconSize end, function(v) self.db.profile.castbar.iconSize = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Castbar Icon Gap", 0, 12, 1, function() return self.db.profile.castbar.iconGap end, function(v) self.db.profile.castbar.iconGap = v; self:ScheduleUpdateAll() end)
+			ui:Check("Castbar Shield", function() return self.db.profile.castbar.showShield ~= false end, function(v) self.db.profile.castbar.showShield = v; self:ScheduleUpdateAll() end)
+			ui:Check("Castbar Latency Safe Zone", function() return self.db.profile.castbar.showSafeZone ~= false end, function(v) self.db.profile.castbar.showSafeZone = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Safe Zone Opacity", 0.05, 1, 0.05, function() return self.db.profile.castbar.safeZoneAlpha end, function(v) self.db.profile.castbar.safeZoneAlpha = v; self:ScheduleUpdateAll() end)
+			ui:Check("Castbar Spark", function() return self.db.profile.castbar.showSpark ~= false end, function(v) self.db.profile.castbar.showSpark = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Spell Name Max Chars", 6, 40, 1, function() return self.db.profile.castbar.spellMaxChars end, function(v) self.db.profile.castbar.spellMaxChars = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Cast Time Decimals", 0, 2, 1, function() return self.db.profile.castbar.timeDecimals end, function(v) self.db.profile.castbar.timeDecimals = v; self:ScheduleUpdateAll() end)
+			ui:Check("Show Cast Delay", function() return self.db.profile.castbar.showDelay ~= false end, function(v) self.db.profile.castbar.showDelay = v; self:ScheduleUpdateAll() end)
 			ui:Check("Hide in Vehicle", function() return self.db.profile.visibility.hideVehicle end, function(v) self.db.profile.visibility.hideVehicle = v; self:ScheduleApplyVisibility() end)
 			ui:Check("Hide in Pet Battles", function() return self.db.profile.visibility.hidePetBattle end, function(v) self.db.profile.visibility.hidePetBattle = v; self:ScheduleApplyVisibility() end)
 			ui:Check("Hide with Override Bar", function() return self.db.profile.visibility.hideOverride end, function(v) self.db.profile.visibility.hideOverride = v; self:ScheduleApplyVisibility() end)
@@ -3019,6 +3549,7 @@ function addon:ShowOptions()
 			unitSettings.fontSizes = unitSettings.fontSizes or CopyTableDeep(self.db.profile.fontSizes)
 			unitSettings.portrait = unitSettings.portrait or { mode = "none", size = 32, showClass = false, position = "LEFT" }
 			unitSettings.media = unitSettings.media or { statusbar = self.db.profile.media.statusbar }
+			unitSettings.castbar = unitSettings.castbar or CopyTableDeep(DEFAULT_UNIT_CASTBAR)
 			ui:Label((tabKey == "tot" and "TargetOfTarget" or tabKey:upper()) .. " Options", true)
 			ui:Slider("Frame Width", 80, 400, 1, function() return size.width end, function(v) size.width = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Frame Height", 18, 80, 1, function() return size.height end, function(v) size.height = v; self:ScheduleUpdateAll() end)
@@ -3036,6 +3567,27 @@ function addon:ShowOptions()
 			ui:Slider("Health Font Size", 8, 20, 1, function() return unitSettings.fontSizes.health end, function(v) unitSettings.fontSizes.health = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Power Font Size", 8, 20, 1, function() return unitSettings.fontSizes.power end, function(v) unitSettings.fontSizes.power = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Cast Font Size", 8, 20, 1, function() return unitSettings.fontSizes.cast end, function(v) unitSettings.fontSizes.cast = v; self:ScheduleUpdateAll() end)
+			ui:Label("Castbar", false)
+			ui:Check("Enable Castbar", function() return unitSettings.castbar.enabled ~= false end, function(v) unitSettings.castbar.enabled = v; self:ScheduleUpdateAll() end)
+			ui:Check("Show Cast Spell Text", function() return unitSettings.castbar.showText ~= false end, function(v) unitSettings.castbar.showText = v; self:ScheduleUpdateAll() end)
+			ui:Check("Show Cast Time", function() return unitSettings.castbar.showTime ~= false end, function(v) unitSettings.castbar.showTime = v; self:ScheduleUpdateAll() end)
+			ui:Check("Reverse Cast Fill", function() return unitSettings.castbar.reverseFill == true end, function(v) unitSettings.castbar.reverseFill = v; self:ScheduleUpdateAll() end)
+			ui:Dropdown("Castbar Color Profile", {
+				{ value = "GLOBAL", text = "Use Global" },
+				{ value = "UUF", text = "UUF" },
+				{ value = "Blizzard", text = "Blizzard" },
+				{ value = "HighContrast", text = "High Contrast" },
+			}, function() return unitSettings.castbar.colorProfile end, function(v) unitSettings.castbar.colorProfile = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Castbar Width (% of frame)", 50, 150, 1, function() return unitSettings.castbar.widthPercent end, function(v) unitSettings.castbar.widthPercent = v; self:ScheduleUpdateAll() end)
+			ui:Dropdown("Castbar Anchor", {
+				{ value = "BELOW_FRAME", text = "Below Frame" },
+				{ value = "ABOVE_FRAME", text = "Above Frame" },
+				{ value = "BELOW_CLASSPOWER", text = "Below ClassPower" },
+			}, function() return unitSettings.castbar.anchor end, function(v) unitSettings.castbar.anchor = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Castbar Offset Y", -40, 40, 1, function() return unitSettings.castbar.offsetY end, function(v) unitSettings.castbar.offsetY = v; self:ScheduleUpdateAll() end)
+			if tabKey == "player" or tabKey == "target" then
+				ui:Slider("Aura Icon Size", 12, 40, 1, function() return self:GetUnitAuraSize(tabKey) end, function(v) unitSettings.auraSize = v; self:ScheduleUpdateAll() end)
+			end
 			ui:Check("Show Resting Indicator", function() return unitSettings.showResting end, function(v) unitSettings.showResting = v; self:ScheduleUpdateAll() end)
 			ui:Check("Show PvP Indicator", function() return unitSettings.showPvp end, function(v) unitSettings.showPvp = v; self:ScheduleUpdateAll() end)
 			ui:Dropdown("Portrait Mode", {
@@ -3132,6 +3684,15 @@ function addon:OnInitialize()
 	if self.db.profile.performance.enabled == nil then
 		self.db.profile.performance.enabled = defaults.profile.performance.enabled
 	end
+	if not self.db.profile.castbar then
+		self.db.profile.castbar = CopyTableDeep(defaults.profile.castbar)
+	else
+		for key, value in pairs(defaults.profile.castbar) do
+			if self.db.profile.castbar[key] == nil then
+				self.db.profile.castbar[key] = value
+			end
+		end
+	end
 	self:EnsureDebugConfig()
 	self.debugMessages = self.debugMessages or {}
 
@@ -3147,6 +3708,18 @@ function addon:OnInitialize()
 			end
 			if not self.db.profile.units[unitType].portrait then
 				self.db.profile.units[unitType].portrait = CopyTableDeep(unitDefaults.portrait)
+			end
+			if not self.db.profile.units[unitType].castbar then
+				self.db.profile.units[unitType].castbar = CopyTableDeep(DEFAULT_UNIT_CASTBAR)
+			else
+				for key, value in pairs(DEFAULT_UNIT_CASTBAR) do
+					if self.db.profile.units[unitType].castbar[key] == nil then
+						self.db.profile.units[unitType].castbar[key] = value
+					end
+				end
+			end
+			if self.db.profile.units[unitType].auraSize == nil and unitDefaults.auraSize ~= nil then
+				self.db.profile.units[unitType].auraSize = unitDefaults.auraSize
 			end
 		end
 	end
