@@ -5,6 +5,7 @@
 ## Notes: Simple Unitframe replacement with WIP features.
 ## IconTexture: Interface\AddOns\SimpleUnitFrames\Media\AddonIcon
 ## SavedVariables: SimpleUnitFramesDB
+## OptionalDeps: PerformanceLib
 ## X-oUF: SimpleUnitFrames
 
 # Load Libraries
