@@ -5,6 +5,15 @@
 SimpleUnitFrames is a modular unit frame replacement for World of Warcraft Retail, built on `oUF` with Ace3 configuration and optional `PerformanceLib` integration for event coalescing, dirty batching, profiling, and diagnostics.
 Why I created this was to learn a bit about addons, using Codex to help me. Never did like Lua much during my Mangos and Ascent developement days with GameScript they used for scripting. Yeah privateserver days but thats been a long time ago back during WoTLK days.
 
+## Recent Updates
+
+- Synced SUF framework behavior with newer `oUF` changes and element refinements
+- Expanded performance tooling integration and SUF-side diagnostics workflow
+- Improved event relevance filtering and coalesced update routing for frame pacing
+- Updated options/debug UX and commit automation workflow docs
+- Incoming-heal value text feature is currently disabled by default for stability in secret-value contexts; incoming heal bars remain active
+- Added dedicated `IncomingText` debug channel (off by default) in SUF Debug Settings
+
 ## Screenshots
 
 ### SUF Screen UI
@@ -49,6 +58,7 @@ Why I created this was to learn a bit about addons, using Codex to help me. Neve
   - Real-time logs
   - System filters
   - Exportable diagnostics text
+- Dedicated `IncomingText` debug filter for prediction-value trace output
 - PerformanceLib output sink routing into SUF debug logs for easier sharing
 
 ## Quick Start
@@ -156,6 +166,15 @@ Available custom tags:
 [suf:ehp]
 [suf:ehp:abbr]
 ```
+
+Note: incoming-heal numeric display can be restricted by Blizzard secret-value handling depending on client/runtime state. SUF currently prioritizes stable, taint-safe behavior.
+
+## Known Limitations
+
+- Incoming-heal value text is currently disabled by default while we harden secret-value-safe display paths.
+- Blizzard secret-value handling can block reliable numeric access for some prediction APIs, even when bars visually update.
+- Some advanced performance diagnostics are only available when `PerformanceLib` is installed and enabled.
+- Minimap/LDB behavior depends on optional broker/icon libraries being present in the addon environment.
 
 ## API Reference (Addon Integration)
 
