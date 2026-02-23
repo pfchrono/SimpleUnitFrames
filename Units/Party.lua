@@ -12,14 +12,18 @@ registry.party = function(self)
 	if self.headers and self.headers.party then
 		return
 	end
-	local showPlayerSolo = false
-	local party = oUF:SpawnHeader("SUF_Party", nil, "party",
+	local partyCfg = (self.db and self.db.profile and self.db.profile.party) or {}
+	local showPlayerSolo = partyCfg.showPlayerWhenSolo == true
+	local showPlayerInParty = partyCfg.showPlayerInParty ~= false
+	local showPlayer = showPlayerInParty or showPlayerSolo
+	local yOffset = (self.GetPartyHeaderYOffset and self:GetPartyHeaderYOffset()) or -16
+	local party = oUF:SpawnHeader("SUF_Party", nil,
 		"showParty", true,
 		"showRaid", false,
-		"showPlayer", showPlayerSolo,
+		"showPlayer", showPlayer,
 		"showSolo", showPlayerSolo,
 		"xOffset", 0,
-		"yOffset", -8,
+		"yOffset", yOffset,
 		"point", "TOP",
 		"oUF-initialConfigFunction", [[
 			self:SetWidth(160)

@@ -12,7 +12,7 @@ registry.raid = function(self)
 	if self.headers and self.headers.raid then
 		return
 	end
-	local raid = oUF:SpawnHeader("SUF_Raid", nil, "raid",
+	local raid = oUF:SpawnHeader("SUF_Raid", nil,
 		"showRaid", true,
 		"showParty", false,
 		"showPlayer", false,

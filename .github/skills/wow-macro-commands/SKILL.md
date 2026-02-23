@@ -1,4 +1,3 @@
-```skill
 ---
 name: wow-macro-commands
 description: "Complete reference for WoW Retail macro commands (slash commands), macro conditionals, macro syntax and options, secure command rules, castsequence, #show/#showtooltip, and conditional targeting. Use when writing macros, explaining /cast, /use, /castsequence, conditionals like [mod], [harm], [help], [@unit], or any slash command behavior."
@@ -198,4 +197,3 @@ Control the action bar button's icon and tooltip. Must be on the first line, low
 - Understanding secure vs. insecure command restrictions
 - Implementing `/castsequence`, `/castrandom`, `#showtooltip`
 - Helping with focus, mouseover, or conditional targeting macros
-```

@@ -1,4 +1,3 @@
-```skill
 ---
 name: wow-api-unit-player
 description: "Complete reference for WoW Retail Unit and Player APIs — UnitId tokens, GUIDs, health/power/stats, auras, roles, casting, threat, inspection, paper doll, death/resurrection, and player-specific functions. Use when querying unit identity, health, power, auras, stats, combat state, group membership, casting info, threat, or player character details."
@@ -720,4 +719,3 @@ end
 > - https://warcraft.wiki.gg/wiki/World_of_Warcraft_API#PlayerLocationInfo
 > - https://warcraft.wiki.gg/wiki/UnitId
 > - https://warcraft.wiki.gg/wiki/GUID
-```
