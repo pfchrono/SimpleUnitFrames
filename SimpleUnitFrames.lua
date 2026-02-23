@@ -2193,6 +2193,7 @@ function addon:ShowLauncherHelp()
 	self:Print(addonName .. ": /suf minimap show|hide|toggle|reset")
 	self:Print(addonName .. ": /suf perflib")
 	self:Print(addonName .. ": /suf debug")
+	self:Print(addonName .. ": /suf resources")
 	self:Print(addonName .. ": /suf help")
 end
 
@@ -2234,6 +2235,104 @@ function addon:ApplyLauncherVisibility()
 	end
 end
 
+function addon:GetClassResourceAuditData()
+	local classTag = select(2, UnitClass("player")) or "UNKNOWN"
+	local specIndex = C_SpecializationInfo and C_SpecializationInfo.GetSpecialization and C_SpecializationInfo.GetSpecialization() or nil
+	local specID = specIndex and C_SpecializationInfo and C_SpecializationInfo.GetSpecializationInfo and C_SpecializationInfo.GetSpecializationInfo(specIndex) or nil
+	local powerType = UnitPowerType and UnitPowerType("player") or nil
+	local powerToken = _G[(powerType and ("SPELL_POWER_" .. tostring(powerType))) or ""] or tostring(powerType or "n/a")
+
+	local expected = "None"
+	local active = false
+
+	if classTag == "ROGUE" then
+		expected = "Combo Points"
+		active = true
+	elseif classTag == "DRUID" then
+		expected = "Combo Points (Cat Form)"
+		active = (powerType == (Enum.PowerType.Energy or 3))
+	elseif classTag == "MONK" then
+		expected = "Chi (Windwalker)"
+		active = (specID == 269)
+	elseif classTag == "PALADIN" then
+		expected = "Holy Power"
+		active = true
+	elseif classTag == "MAGE" then
+		expected = "Arcane Charges (Arcane)"
+		active = (specID == 62)
+	elseif classTag == "EVOKER" then
+		expected = "Essence"
+		active = true
+	elseif classTag == "WARLOCK" then
+		expected = "Soul Shards"
+		active = true
+	elseif classTag == "SHAMAN" then
+		expected = "Maelstrom Weapon (Enhancement)"
+		active = (specID == 263)
+	elseif classTag == "DEMONHUNTER" then
+		expected = "Soul Fragments (spec conditional)"
+		active = (specID == 581)
+	elseif classTag == "DEATHKNIGHT" then
+		expected = "Runes (primary resource element)"
+		active = true
+	end
+
+	local hasPlayerFrame = false
+	local classPowerVisible = false
+	local visibleSlots = 0
+	for _, frame in ipairs(self.frames or {}) do
+		if frame and frame.sufUnitType == "player" then
+			hasPlayerFrame = true
+			if frame.ClassPower and HasVisibleClassPower(frame) then
+				classPowerVisible = true
+				for _, bar in ipairs(frame.ClassPower) do
+					if bar and bar.IsShown and bar:IsShown() then
+						visibleSlots = visibleSlots + 1
+					end
+				end
+			end
+			break
+		end
+	end
+
+	return {
+		classTag = classTag,
+		specID = specID,
+		powerToken = powerToken,
+		expected = expected,
+		active = active,
+		hasPlayerFrame = hasPlayerFrame,
+		classPowerVisible = classPowerVisible,
+		visibleSlots = visibleSlots,
+	}
+end
+
+function addon:PrintClassResourceAudit()
+	local data = self:GetClassResourceAuditData()
+	if not data then
+		return
+	end
+
+	local classTag = data.classTag
+	local specID = data.specID
+	local powerToken = data.powerToken
+	local expected = data.expected
+	local active = data.active
+	local hasPlayerFrame = data.hasPlayerFrame
+	local classPowerVisible = data.classPowerVisible
+	local visibleSlots = data.visibleSlots
+
+	self:Print(addonName .. ": Resource audit -> class=" .. tostring(classTag) .. " specID=" .. tostring(specID or "n/a") .. " powerType=" .. tostring(powerToken))
+	self:Print(addonName .. ": Expected class resource: " .. expected .. " | activeContext=" .. tostring(active))
+	self:Print(addonName .. ": Player frame found=" .. tostring(hasPlayerFrame) .. " | classResourceVisible=" .. tostring(classPowerVisible) .. " | visibleSlots=" .. tostring(visibleSlots))
+	if classTag == "DRUID" then
+		self:Print(addonName .. ": Druid combo points only appear in Cat Form (energy power type).")
+	end
+	if classTag == "DEATHKNIGHT" then
+		self:Print(addonName .. ": DK runes are currently not rendered as a dedicated SUF top resource row.")
+	end
+end
+
 function addon:HandleSUFSlash(msg)
 	local input = (msg or ""):match("^%s*(.-)%s*$")
 	if input == "" then
@@ -2252,6 +2351,11 @@ function addon:HandleSUFSlash(msg)
 
 	if command == "debug" then
 		self:ToggleDebugPanel()
+		return
+	end
+
+	if command == "resources" or command == "resource" or command == "classpower" then
+		self:PrintClassResourceAudit()
 		return
 	end
 
@@ -3735,7 +3839,17 @@ function addon:LayoutClassPower(frame)
 		return
 	end
 
-	local count = #frame.ClassPower
+	local count = tonumber(frame.__sufClassPowerVisibleSlots) or 0
+	if count <= 0 then
+		for _, bar in ipairs(frame.ClassPower) do
+			if bar and bar.IsShown and bar:IsShown() then
+				count = count + 1
+			end
+		end
+	end
+	if count <= 0 then
+		count = #frame.ClassPower
+	end
 	if count == 0 then
 		return
 	end
@@ -4272,6 +4386,41 @@ local function CreateAuras(self)
 	self.Auras = Auras
 end
 
+function addon:SetupClassPowerCallbacks(frame)
+	if not (frame and frame.ClassPower and not frame.__sufClassPowerCallbacks) then
+		return
+	end
+
+	frame.__sufClassPowerCallbacks = true
+
+	frame.ClassPower.PostUpdate = function(element, cur, max)
+		local owner = element and element.__owner
+		if not owner then
+			return
+		end
+		local slots = tonumber(max) or 0
+		if slots <= 0 then
+			slots = #element
+		end
+		slots = math.max(1, math.min(#element, slots))
+		if owner.__sufClassPowerVisibleSlots ~= slots then
+			owner.__sufClassPowerVisibleSlots = slots
+			addon:LayoutClassPower(owner)
+		end
+	end
+
+	frame.ClassPower.PostVisibility = function(element, isVisible)
+		local owner = element and element.__owner
+		if not owner then
+			return
+		end
+		if not isVisible then
+			owner.__sufClassPowerVisibleSlots = nil
+		end
+		addon:LayoutClassPower(owner)
+	end
+end
+
 HasVisibleClassPower = function(frame)
 	if not frame or not frame.ClassPower then
 		return false
@@ -4402,6 +4551,7 @@ function addon:Style(frame, unit)
 
 	if unit == "player" then
 		CreateClassPower(frame, self.db.profile.classPowerHeight)
+		self:SetupClassPowerCallbacks(frame)
 		CreateAuras(frame)
 
 		local secondaryGap = math.max(-6, math.min(24, math.floor((unitLayout.secondaryToFrame or 0) + 0.5)))
@@ -4724,6 +4874,23 @@ function addon:OnPlayerEnteringWorld()
 	self:UpdateBlizzardFrames()
 	self:TrySpawnFrames()
 	self:ScheduleGroupHeaders(0.5)
+end
+
+function addon:OnClassResourceContextChanged()
+	for _, frame in ipairs(self.frames or {}) do
+		if frame and frame.sufUnitType == "player" then
+			if frame.ClassPower and frame.ClassPower.ForceUpdate then
+				pcall(frame.ClassPower.ForceUpdate, frame.ClassPower)
+			elseif frame.ForceUpdate then
+				pcall(frame.ForceUpdate, frame, frame.unit)
+			end
+			if frame.AdditionalPower and frame.AdditionalPower.ForceUpdate then
+				pcall(frame.AdditionalPower.ForceUpdate, frame.AdditionalPower)
+			end
+			self:LayoutClassPower(frame)
+			break
+		end
+	end
 end
 
 function addon:RefreshEditModeUnitSystems()
@@ -6090,6 +6257,45 @@ function addon:ShowOptions()
 				frame:BuildTab("performance")
 			end)
 
+			ui:Label("Class Resource Status", false)
+			local function BuildClassResourceStatusText()
+				local data = self:GetClassResourceAuditData() or {}
+				local statusText = "|cffaaaaaaIDLE|r"
+				if not data.hasPlayerFrame then
+					statusText = "|cffff4444NOT SPAWNED|r"
+				elseif data.active and data.classPowerVisible and (tonumber(data.visibleSlots) or 0) > 0 then
+					statusText = "|cff00ff00HEALTHY|r"
+				elseif data.active and not data.classPowerVisible then
+					statusText = "|cffffcc00CONTEXT ACTIVE / BAR HIDDEN|r"
+				elseif (not data.active) and data.classPowerVisible then
+					statusText = "|cffffcc00CONTEXT INACTIVE / BAR VISIBLE|r"
+				end
+				local lines = {
+					("Status: %s"):format(statusText),
+					("Class: %s | SpecID: %s | PowerType: %s"):format(
+						tostring(data.classTag or "UNKNOWN"),
+						tostring(data.specID or "n/a"),
+						tostring(data.powerToken or "n/a")
+					),
+					("Expected: %s | Active Context: %s"):format(
+						tostring(data.expected or "None"),
+						tostring(data.active and true or false)
+					),
+					("Player Frame: %s | Resource Visible: %s | Visible Slots: %s"):format(
+						tostring(data.hasPlayerFrame and true or false),
+						tostring(data.classPowerVisible and true or false),
+						tostring(data.visibleSlots or 0)
+					),
+				}
+				if data.classTag == "DRUID" then
+					lines[#lines + 1] = "Druid combo points are only active in Cat Form."
+				elseif data.classTag == "DEATHKNIGHT" then
+					lines[#lines + 1] = "DK runes use oUF Runes; no dedicated SUF top-row class bar yet."
+				end
+				return table.concat(lines, "\n")
+			end
+			ui:Paragraph(BuildClassResourceStatusText(), true)
+
 			ui:Label("Current Snapshot", false)
 			local function BuildPerformanceSnapshotText()
 				local frameStats = self.performanceLib and self.performanceLib.GetFrameTimeStats and self.performanceLib:GetFrameTimeStats() or {}
@@ -6689,6 +6895,10 @@ function addon:OnEnable()
 	RegisterIfExists("EDIT_MODE_ENTER")
 	RegisterIfExists("EDIT_MODE_EXIT")
 	RegisterIfExists("EDIT_MODE_LAYOUTS_UPDATED")
+	self:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED", "OnClassResourceContextChanged")
+	self:RegisterEvent("UPDATE_SHAPESHIFT_FORM", "OnClassResourceContextChanged")
+	self:RegisterEvent("SPELLS_CHANGED", "OnClassResourceContextChanged")
+	self:RegisterEvent("TRAIT_CONFIG_UPDATED", "OnClassResourceContextChanged")
 	self:RegisterEvent("GROUP_ROSTER_UPDATE", "OnGroupRosterUpdate")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", "OnGroupRosterUpdate")
 
