@@ -149,6 +149,12 @@ local defaults = {
 			colorProfile = "UUF",
 		},
 		powerBgAlpha = 0.35,
+		mainBarsBackground = {
+			enabled = true,
+			texture = "Blizzard",
+			color = { 0.05, 0.05, 0.05 },
+			alpha = 0.40,
+		},
 		visibility = {
 			hideVehicle = true,
 			hidePetBattle = true,
@@ -186,6 +192,7 @@ local defaults = {
 				Performance = true,
 				Events = false,
 				Frames = false,
+				IncomingText = false,
 			},
 		},
 	},
@@ -236,13 +243,29 @@ local DEFAULT_UNIT_LAYOUT = {
 	classToSecondary = 0,
 }
 
+local DEFAULT_UNIT_MAIN_BARS_BACKGROUND = {
+	useGlobal = true,
+	enabled = true,
+	texture = "Blizzard",
+	color = { 0.05, 0.05, 0.05 },
+	alpha = 0.40,
+}
+
 local HasVisibleClassPower
+local INCOMING_VALUE_FEATURE_ENABLED = false
 
 local DEFAULT_HEAL_PREDICTION = {
 	enabled = true,
 	incoming = {
 		enabled = true,
 		split = false,
+		valueMode = "SAFE",
+		showValueText = false,
+		valuePlaceholder = "~",
+		valueFontSize = 10,
+		valueColor = { 0.35, 0.95, 0.45 },
+		valueOffsetX = 2,
+		valueOffsetY = 0,
 		opacity = 0.40,
 		height = 1.00,
 		colorAll = { 0.35, 0.95, 0.45 },
@@ -295,15 +318,15 @@ local CASTBAR_COLOR_PROFILES = {
 }
 
 local PERF_EVENT_PRIORITY = {
-	UNIT_HEALTH = 1,
-	UNIT_POWER_UPDATE = 1,
+	UNIT_HEALTH = 2,
+	UNIT_POWER_UPDATE = 2,
 	UNIT_MAXHEALTH = 2,
 	UNIT_HEAL_PREDICTION = 2,
 	UNIT_ABSORB_AMOUNT_CHANGED = 2,
 	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = 2,
 	UNIT_MAXPOWER = 2,
 	UNIT_DISPLAYPOWER = 3,
-	UNIT_AURA = 2,
+	UNIT_AURA = 3,
 	UNIT_THREAT_SITUATION_UPDATE = 3,
 	UNIT_THREAT_LIST_UPDATE = 3,
 	PLAYER_TOTEM_UPDATE = 3,
@@ -323,15 +346,15 @@ local PERF_DIRTY_PRIORITY = {
 }
 
 local EVENT_COALESCE_CONFIG = {
-	UNIT_HEALTH = { delay = 0.13, priority = 2 },
-	UNIT_HEAL_PREDICTION = { delay = 0.12, priority = 2 },
-	UNIT_ABSORB_AMOUNT_CHANGED = { delay = 0.10, priority = 2 },
-	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = { delay = 0.10, priority = 2 },
-	UNIT_POWER_UPDATE = { delay = 0.13, priority = 2 },
+	UNIT_HEALTH = { delay = 0.16, priority = 3 },
+	UNIT_HEAL_PREDICTION = { delay = 0.14, priority = 3 },
+	UNIT_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
+	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
+	UNIT_POWER_UPDATE = { delay = 0.16, priority = 3 },
 	UNIT_MAXHEALTH = { delay = 0.12, priority = 2 },
 	UNIT_MAXPOWER = { delay = 0.12, priority = 2 },
 	UNIT_DISPLAYPOWER = { delay = 0.12, priority = 3 },
-	UNIT_AURA = { delay = 0.14, priority = 2 },
+	UNIT_AURA = { delay = 0.18, priority = 3 },
 	UNIT_THREAT_SITUATION_UPDATE = { delay = 0.14, priority = 3 },
 	UNIT_THREAT_LIST_UPDATE = { delay = 0.14, priority = 3 },
 	PLAYER_TOTEM_UPDATE = { delay = 0.05, priority = 3 },
@@ -603,6 +626,50 @@ function addon:GetUnitStatusbarTexture(unitType)
 	return self:GetStatusbarTexture()
 end
 
+function addon:GetMainBarsBackgroundSettings()
+	self.db.profile.mainBarsBackground = self.db.profile.mainBarsBackground or CopyTableDeep(defaults.profile.mainBarsBackground)
+	local cfg = self.db.profile.mainBarsBackground
+	if cfg.enabled == nil then cfg.enabled = defaults.profile.mainBarsBackground.enabled end
+	if not cfg.texture then cfg.texture = defaults.profile.mainBarsBackground.texture end
+	if type(cfg.color) ~= "table" then
+		cfg.color = CopyTableDeep(defaults.profile.mainBarsBackground.color)
+	end
+	if cfg.color[1] == nil then cfg.color[1] = defaults.profile.mainBarsBackground.color[1] end
+	if cfg.color[2] == nil then cfg.color[2] = defaults.profile.mainBarsBackground.color[2] end
+	if cfg.color[3] == nil then cfg.color[3] = defaults.profile.mainBarsBackground.color[3] end
+	if type(cfg.alpha) ~= "number" then cfg.alpha = defaults.profile.mainBarsBackground.alpha end
+	cfg.alpha = math.max(0, math.min(1, cfg.alpha))
+	return cfg
+end
+
+function addon:GetUnitMainBarsBackgroundSettings(unitType)
+	local globalCfg = self:GetMainBarsBackgroundSettings()
+	local unit = self:GetUnitSettings(unitType)
+	unit.mainBarsBackground = unit.mainBarsBackground or CopyTableDeep(DEFAULT_UNIT_MAIN_BARS_BACKGROUND)
+	MergeDefaults(unit.mainBarsBackground, DEFAULT_UNIT_MAIN_BARS_BACKGROUND)
+
+	local cfg = unit.mainBarsBackground
+	cfg.alpha = math.max(0, math.min(1, tonumber(cfg.alpha) or globalCfg.alpha or 0.4))
+
+	if cfg.useGlobal then
+		return {
+			useGlobal = true,
+			enabled = globalCfg.enabled,
+			texture = globalCfg.texture,
+			color = { globalCfg.color[1], globalCfg.color[2], globalCfg.color[3] },
+			alpha = globalCfg.alpha,
+		}
+	end
+
+	return {
+		useGlobal = false,
+		enabled = cfg.enabled,
+		texture = cfg.texture,
+		color = { cfg.color[1], cfg.color[2], cfg.color[3] },
+		alpha = cfg.alpha,
+	}
+end
+
 function addon:GetUnitCastbarSettings(unitType)
 	local unit = self:GetUnitSettings(unitType)
 	if not unit then
@@ -703,6 +770,169 @@ function addon:GetAbsorbTextForUnit(unit, useAbbrev)
 	return ""
 end
 
+function addon:GetNumericTextForUnit(unit, apiFn, useAbbrev)
+	if not unit or not UnitExists or not UnitExists(unit) then
+		return ""
+	end
+	if type(apiFn) ~= "function" then
+		return ""
+	end
+
+	local value = SafeNumber(SafeAPICall(apiFn, unit), 0)
+	if value <= 0 then
+		return ""
+	end
+
+	if C_StringUtil and C_StringUtil.TruncateWhenZero then
+		local ok, textValue = pcall(C_StringUtil.TruncateWhenZero, value)
+		if ok and textValue and not IsSecretValue(textValue) and textValue ~= "" then
+			return textValue
+		end
+	end
+
+	if useAbbrev then
+		local okAbbr, abbrText = pcall(FormatCompactValue, value)
+		if okAbbr and abbrText and not IsSecretValue(abbrText) and abbrText ~= "0" then
+			return abbrText
+		end
+	end
+
+	local rawText = SafeText(value, nil)
+	if rawText and rawText ~= "0" then
+		return rawText
+	end
+
+	return ""
+end
+
+function addon:GetIncomingHealsTextForUnit(unit, useAbbrev)
+	return self:GetNumericTextForUnit(unit, UnitGetIncomingHeals, useAbbrev)
+end
+
+function addon:GetHealAbsorbsTextForUnit(unit, useAbbrev)
+	return self:GetNumericTextForUnit(unit, UnitGetTotalHealAbsorbs, useAbbrev)
+end
+
+function addon:GetEffectiveHealthTextForUnit(unit, useAbbrev)
+	if not unit or not UnitExists or not UnitExists(unit) then
+		return ""
+	end
+
+	local healthValue = SafeNumber(SafeAPICall(UnitHealth, unit), 0)
+	local absorbValue = SafeNumber(SafeAPICall(UnitGetTotalAbsorbs, unit), 0)
+	local totalValue = healthValue + absorbValue
+	if totalValue <= 0 then
+		return ""
+	end
+
+	if useAbbrev then
+		local okAbbr, abbrText = pcall(FormatCompactValue, totalValue)
+		if okAbbr and abbrText and not IsSecretValue(abbrText) and abbrText ~= "0" then
+			return abbrText
+		end
+	end
+
+	local rawText = SafeText(totalValue, nil)
+	if rawText and rawText ~= "0" then
+		return rawText
+	end
+
+	return ""
+end
+
+function addon:TrackRecentHealthGain(unit)
+	if type(UnitGUID) ~= "function" or not unit then
+		return
+	end
+	local guid = UnitGUID(unit)
+	if not guid then
+		return
+	end
+	if type(UnitHealth) ~= "function" then
+		return
+	end
+
+	local currentHealth = SafeNumber(SafeAPICall(UnitHealth, unit), nil)
+	if not currentHealth then
+		return
+	end
+	local now = (GetTime and GetTime()) or 0
+	local window = 1.5
+	local store = self._incomingHealthTrendByGUID or {}
+	self._incomingHealthTrendByGUID = store
+	local entry = store[guid]
+	if not entry then
+		store[guid] = {
+			lastHealth = currentHealth,
+			lastAt = now,
+			recentGain = 0,
+			recentUntil = 0,
+		}
+		return
+	end
+
+	local lastHealth = SafeNumber(entry.lastHealth, currentHealth) or currentHealth
+	local gain = currentHealth - lastHealth
+	if gain > 0 then
+		entry.recentGain = (SafeNumber(entry.recentGain, 0) or 0) + gain
+		entry.recentUntil = now + window
+	end
+	entry.lastHealth = currentHealth
+	entry.lastAt = now
+end
+
+function addon:GetHealthDeltaIncomingEstimateForUnit(unit)
+	if type(UnitGUID) ~= "function" or not unit then
+		return nil, false
+	end
+	local guid = UnitGUID(unit)
+	if not guid then
+		return nil, false
+	end
+
+	local store = self._incomingHealthTrendByGUID
+	if type(store) ~= "table" then
+		return nil, false
+	end
+	local entry = store[guid]
+	if type(entry) ~= "table" then
+		return nil, false
+	end
+
+	local now = (GetTime and GetTime()) or 0
+	local window = 1.5
+	local recentUntil = SafeNumber(entry.recentUntil, 0) or 0
+	local remaining = recentUntil - now
+	if remaining <= 0 then
+		entry.recentGain = 0
+		entry.recentUntil = 0
+		return nil, false
+	end
+
+	local amount = SafeNumber(entry.recentGain, nil)
+	if not amount or amount <= 0 then
+		entry.recentGain = 0
+		entry.recentUntil = 0
+		return nil, false
+	end
+
+	-- Short decay curve so the estimate fades naturally.
+	local ratio = math.max(0, math.min(1, remaining / window))
+	local estimate = amount * ratio
+	if estimate <= 1 then
+		return nil, false
+	end
+	return estimate, true
+end
+
+function addon:RegisterIncomingEstimateFrame()
+	self._incomingHealthTrendByGUID = self._incomingHealthTrendByGUID or {}
+end
+
+function addon:UnregisterIncomingEstimateFrame()
+	self._incomingHealthTrendByGUID = nil
+end
+
 function addon:RegisterCustomTags()
 	if self._customTagsRegistered then
 		return
@@ -719,8 +949,32 @@ function addon:RegisterCustomTags()
 	ouf.Tags.Methods["suf:absorbs:abbr"] = function(unit)
 		return addon:GetAbsorbTextForUnit(unit, true)
 	end
+	ouf.Tags.Methods["suf:incoming"] = function(unit)
+		return addon:GetIncomingHealsTextForUnit(unit, false)
+	end
+	ouf.Tags.Methods["suf:incoming:abbr"] = function(unit)
+		return addon:GetIncomingHealsTextForUnit(unit, true)
+	end
+	ouf.Tags.Methods["suf:healabsorbs"] = function(unit)
+		return addon:GetHealAbsorbsTextForUnit(unit, false)
+	end
+	ouf.Tags.Methods["suf:healabsorbs:abbr"] = function(unit)
+		return addon:GetHealAbsorbsTextForUnit(unit, true)
+	end
+	ouf.Tags.Methods["suf:ehp"] = function(unit)
+		return addon:GetEffectiveHealthTextForUnit(unit, false)
+	end
+	ouf.Tags.Methods["suf:ehp:abbr"] = function(unit)
+		return addon:GetEffectiveHealthTextForUnit(unit, true)
+	end
 	ouf.Tags.Events["suf:absorbs"] = "UNIT_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:absorbs:abbr"] = "UNIT_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:incoming"] = "UNIT_HEAL_PREDICTION UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:incoming:abbr"] = "UNIT_HEAL_PREDICTION UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:healabsorbs"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:healabsorbs:abbr"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:ehp"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:ehp:abbr"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED PLAYER_ENTERING_WORLD"
 
 	self._customTagsRegistered = true
 end
@@ -1022,6 +1276,35 @@ function addon:IsFrameEventRelevant(frame, eventName)
 	return true
 end
 
+function addon:HasRelevantFrameForUnitEvent(eventName, unitToken)
+	if type(unitToken) ~= "string" or unitToken == "" then
+		return false
+	end
+
+	local frames = self.frames or {}
+	local unitType = ResolveUnitType(unitToken)
+	local hasTypeMatch = false
+
+	for i = 1, #frames do
+		local frame = frames[i]
+		if frame then
+			if frame.unit == unitToken then
+				if self:IsFrameEventRelevant(frame, eventName) then
+					return true
+				end
+			end
+			if unitType and frame.sufUnitType == unitType and self:IsFrameEventRelevant(frame, eventName) then
+				hasTypeMatch = true
+			end
+			if unitToken == "target" and frame.sufUnitType == "tot" and self:IsFrameEventRelevant(frame, eventName) then
+				hasTypeMatch = true
+			end
+		end
+	end
+
+	return hasTypeMatch
+end
+
 function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	if not frame then
 		return
@@ -1046,8 +1329,8 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	for eventName in pairs(dirtyEvents) do
 		if eventName == "UNIT_HEALTH" or eventName == "UNIT_MAXHEALTH" or eventName == "UNIT_THREAT_SITUATION_UPDATE" or eventName == "UNIT_THREAT_LIST_UPDATE" or eventName == "UNIT_HEAL_PREDICTION" or eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
 			touched = SafeUpdateElement(frame, "Health", eventName) or touched
-			touched = SafeUpdateElement(frame, "HealthPrediction", eventName) or touched
 			self:UpdateAbsorbValue(frame)
+			self:UpdateIncomingHealValue(frame)
 		elseif eventName == "UNIT_POWER_UPDATE" or eventName == "UNIT_MAXPOWER" or eventName == "UNIT_DISPLAYPOWER" or eventName == "RUNE_POWER_UPDATE" or eventName == "PLAYER_TOTEM_UPDATE" then
 			touched = SafeUpdateElement(frame, "Power", eventName) or touched
 			touched = SafeUpdateElement(frame, "AdditionalPower", eventName) or touched
@@ -1364,9 +1647,22 @@ function addon:RegisterPerformanceEventFrame()
 			if UNIT_SCOPED_EVENTS[eventName] then
 				local unitToken = ...
 				if type(unitToken) ~= "string" or unitToken == "" then
-					if not NON_UNIT_EVENT_TARGETS[eventName] then
+					local fallbackUnits = NON_UNIT_EVENT_TARGETS[eventName]
+					if not fallbackUnits then
 						return
 					end
+					local hasRelevantFallback = false
+					for i = 1, #fallbackUnits do
+						if self:HasRelevantFrameForUnitEvent(eventName, fallbackUnits[i]) then
+							hasRelevantFallback = true
+							break
+						end
+					end
+					if not hasRelevantFallback then
+						return
+					end
+				elseif not self:HasRelevantFrameForUnitEvent(eventName, unitToken) then
+					return
 				end
 			end
 			self:DispatchSUFEvent("PERF_EVENT_INPUT", eventName, ...)
@@ -1451,6 +1747,11 @@ end
 
 function addon:IsDebugEnabled()
 	return self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled
+end
+
+function addon:IsIncomingTextDebugEnabled()
+	self:EnsureDebugConfig()
+	return self:IsDebugEnabled() and self.db.profile.debug and self.db.profile.debug.systems and self.db.profile.debug.systems.IncomingText
 end
 
 function addon:DebugLog(system, message, tier)
@@ -2384,42 +2685,67 @@ function addon:ApplyTags(frame)
 	if not tags then
 		return
 	end
+	local function ApplyTagSafe(fontString, tagText, fallbackTag)
+		if not fontString then
+			return
+		end
+		frame:Untag(fontString)
+		local value = (type(tagText) == "string" and tagText ~= "") and tagText or (fallbackTag or "")
+		if value == "" then
+			fontString:SetText("")
+			return
+		end
+		local ok = pcall(frame.Tag, frame, fontString, value)
+		if not ok and fallbackTag and fallbackTag ~= value then
+			local fallbackOk = pcall(frame.Tag, frame, fontString, fallbackTag)
+			if not fallbackOk then
+				fontString:SetText("")
+			end
+		elseif not ok then
+			fontString:SetText("")
+		end
+	end
 
 	if frame.NameText then
-		frame:Untag(frame.NameText)
-		frame:Tag(frame.NameText, tags.name)
+		ApplyTagSafe(frame.NameText, tags.name, "[name]")
 	end
 
 	if frame.LevelText then
-		frame:Untag(frame.LevelText)
-		frame:Tag(frame.LevelText, tags.level)
+		ApplyTagSafe(frame.LevelText, tags.level, "[level]")
 	end
 
 	if frame.HealthValue then
-		frame:Untag(frame.HealthValue)
-		frame:Tag(frame.HealthValue, tags.health)
+		ApplyTagSafe(frame.HealthValue, tags.health, "[curhp]")
 	end
 
 	if frame.PowerValue then
-		frame:Untag(frame.PowerValue)
-		frame:Tag(frame.PowerValue, tags.power)
+		ApplyTagSafe(frame.PowerValue, tags.power, "[curpp]")
 	end
 
 	if frame.AdditionalPowerValue then
-		frame:Untag(frame.AdditionalPowerValue)
-		frame:Tag(frame.AdditionalPowerValue, "[curmana]")
+		ApplyTagSafe(frame.AdditionalPowerValue, "[curmana]", "[curmana]")
 	end
 
 	if frame.AbsorbValue then
 		frame:Untag(frame.AbsorbValue)
 		local absorbTag = self.db and self.db.profile and self.db.profile.absorbValueTag or "[suf:absorbs:abbr]"
 		if absorbTag and absorbTag ~= "" then
-			frame:Tag(frame.AbsorbValue, absorbTag)
-			frame.AbsorbValue.__isSUFTaggedAbsorb = true
+			local ok = pcall(frame.Tag, frame, frame.AbsorbValue, absorbTag)
+			if ok then
+				frame.AbsorbValue.__isSUFTaggedAbsorb = true
+			else
+				frame.AbsorbValue:SetText("")
+				frame.AbsorbValue.__isSUFTaggedAbsorb = false
+			end
 		else
 			frame.AbsorbValue:SetText("")
 			frame.AbsorbValue.__isSUFTaggedAbsorb = false
 		end
+	end
+
+	if frame.IncomingHealValue then
+		frame:Untag(frame.IncomingHealValue)
+		frame.IncomingHealValue:SetText("")
 	end
 end
 
@@ -2482,6 +2808,50 @@ local function UpdateBarTextureOutline(bar, shown)
 	end
 end
 
+local function GetHealthPredictionWidgets(frame)
+	if not frame then
+		return nil
+	end
+
+	local health = frame.Health
+	local legacy = frame.HealthPrediction
+	if not health and not legacy then
+		return nil
+	end
+
+	return {
+		healingAll = (health and health.HealingAll) or (legacy and legacy.healingAll),
+		healingPlayer = (health and health.HealingPlayer) or (legacy and legacy.healingPlayer),
+		healingOther = (health and health.HealingOther) or (legacy and legacy.healingOther),
+		damageAbsorb = (health and health.DamageAbsorb) or (legacy and legacy.damageAbsorb),
+		healAbsorb = (health and health.HealAbsorb) or (legacy and legacy.healAbsorb),
+		overDamageAbsorbIndicator = (health and health.OverDamageAbsorbIndicator) or (legacy and legacy.overDamageAbsorbIndicator),
+		overHealAbsorbIndicator = (health and health.OverHealAbsorbIndicator) or (legacy and legacy.overHealAbsorbIndicator),
+	}
+end
+
+function addon:UpdateMainBarsBackgroundAnchors(frame)
+	if not (frame and frame.MainBarsBackground) then
+		return
+	end
+
+	local topAnchor = frame.Health or frame
+	if frame.AdditionalPower and frame.AdditionalPower.IsShown and frame.AdditionalPower:IsShown() then
+		topAnchor = frame.AdditionalPower
+	end
+	if frame.ClassPowerAnchor and HasVisibleClassPower and HasVisibleClassPower(frame) then
+		topAnchor = frame.ClassPowerAnchor
+	end
+
+	local bottomAnchor = frame.Power or frame.Health or frame
+
+	frame.MainBarsBackground:ClearAllPoints()
+	frame.MainBarsBackground:SetPoint("TOPLEFT", topAnchor, "TOPLEFT", 0, 0)
+	frame.MainBarsBackground:SetPoint("TOPRIGHT", topAnchor, "TOPRIGHT", 0, 0)
+	frame.MainBarsBackground:SetPoint("BOTTOMLEFT", bottomAnchor, "BOTTOMLEFT", 0, 0)
+	frame.MainBarsBackground:SetPoint("BOTTOMRIGHT", bottomAnchor, "BOTTOMRIGHT", 0, 0)
+end
+
 function addon:UpdateAbsorbValue(frame, unitToken)
 	if not frame or not frame.AbsorbValue then
 		return
@@ -2536,9 +2906,344 @@ function addon:UpdateAbsorbValue(frame, unitToken)
 	frame.AbsorbValue:SetText("")
 end
 
+function addon:UpdateIncomingHealValue(frame, unitToken)
+	if not frame or not frame.IncomingHealValue then
+		return
+	end
+	if not INCOMING_VALUE_FEATURE_ENABLED then
+		frame.IncomingHealValue:SetText("")
+		frame.IncomingHealValue:Hide()
+		return
+	end
+	local function Trace(reason, details)
+		if not self:IsIncomingTextDebugEnabled() then
+			return
+		end
+		local now = (GetTime and GetTime()) or 0
+		local sameReason = frame._sufIncomingDebugReason == reason
+		local nextAt = frame._sufIncomingDebugNext or 0
+		if sameReason and now < nextAt then
+			return
+		end
+		frame._sufIncomingDebugReason = reason
+		frame._sufIncomingDebugNext = now + 0.75
+		local unitName = tostring(frame.sufUnitType or frame.unit or "unknown")
+		self:DebugLog("IncomingText", ("IncomingText[%s]: %s%s"):format(unitName, tostring(reason), details and (" | " .. details) or ""), 2)
+	end
+	local function RawCall(fn, ...)
+		if type(fn) ~= "function" then
+			return nil, false
+		end
+		local ok, result = pcall(fn, ...)
+		if not ok then
+			return nil, false
+		end
+		return result, true
+	end
+	local function RawDebug(value)
+		if value == nil then
+			return "<nil>"
+		end
+		if IsSecretValue(value) then
+			return "<secret>"
+		end
+		return tostring(value)
+	end
+
+	local hpCfg = self:GetUnitHealPredictionSettings(frame.sufUnitType)
+	local incomingCfg = hpCfg and hpCfg.incoming
+	if not (hpCfg and hpCfg.enabled and incomingCfg and incomingCfg.enabled and incomingCfg.showValueText ~= false) then
+		frame.IncomingHealValue:SetText("")
+		frame.IncomingHealValue:Hide()
+		Trace("CONFIG_HIDDEN", ("hpEnabled=%s incomingEnabled=%s showValueText=%s"):format(
+			tostring(hpCfg and hpCfg.enabled),
+			tostring(incomingCfg and incomingCfg.enabled),
+			tostring(incomingCfg and incomingCfg.showValueText)
+		))
+		return
+	end
+
+	local unit = unitToken or frame.unit
+	if not unit or not UnitExists or not UnitExists(unit) then
+		frame.IncomingHealValue:SetText("")
+		frame.IncomingHealValue:Hide()
+		Trace("NO_UNIT", ("unit=%s"):format(tostring(unit)))
+		return
+	end
+
+	if self.TrackRecentHealthGain then
+		self:TrackRecentHealthGain(unit)
+	end
+
+	local hpWidgets = GetHealthPredictionWidgets(frame)
+	local valueMode = tostring(incomingCfg and incomingCfg.valueMode or "SAFE")
+	if valueMode ~= "SAFE" and valueMode ~= "HYBRID_ESTIMATE" and valueMode ~= "SELF_ONLY" and valueMode ~= "SYMBOLIC" then
+		valueMode = "SAFE"
+	end
+
+	local function GetTextureWidth(statusBar)
+		if not statusBar or not statusBar.GetStatusBarTexture then
+			return 0
+		end
+		local tex = statusBar:GetStatusBarTexture()
+		if not tex or not tex.GetWidth then
+			return 0
+		end
+		return SafeNumber(tex:GetWidth(), 0) or 0
+	end
+
+	local function BuildSymbolicText()
+		if not frame or not frame.Health then
+			return "~"
+		end
+		local healthTex = frame.Health.GetStatusBarTexture and frame.Health:GetStatusBarTexture() or nil
+		local healthWidth = (healthTex and healthTex.GetWidth and SafeNumber(healthTex:GetWidth(), 0)) or 0
+		healthWidth = healthWidth > 0 and healthWidth or (SafeNumber(frame.Health.GetWidth and frame.Health:GetWidth(), 0) or 0)
+		if healthWidth <= 0 then
+			return "~"
+		end
+
+		local incomingWidth = 0
+		local visibleCount = 0
+		local totalVisible = false
+		local splitVisible = false
+		local function IsShownSafe(widget)
+			if not widget or not widget.IsShown then
+				return false
+			end
+			local ok, shown = pcall(widget.IsShown, widget)
+			return ok and shown and true or false
+		end
+		if hpWidgets then
+			if incomingCfg and incomingCfg.split then
+				if IsShownSafe(hpWidgets.healingPlayer) then
+					visibleCount = visibleCount + 1
+				end
+				if IsShownSafe(hpWidgets.healingOther) then
+					visibleCount = visibleCount + 1
+				end
+				splitVisible = visibleCount > 0
+				incomingWidth = math.max(incomingWidth, GetTextureWidth(hpWidgets.healingPlayer))
+				incomingWidth = math.max(incomingWidth, GetTextureWidth(hpWidgets.healingOther))
+			else
+				totalVisible = IsShownSafe(hpWidgets.healingAll)
+				incomingWidth = math.max(incomingWidth, GetTextureWidth(hpWidgets.healingAll))
+			end
+		end
+
+		-- Fallback for clients where incoming texture width does not give usable values.
+		if incomingWidth <= 0 then
+			if splitVisible and visibleCount >= 2 then
+				return "~~~"
+			elseif splitVisible or totalVisible then
+				return "~~"
+			end
+			return "~"
+		end
+
+		local ratio = incomingWidth / healthWidth
+		if ratio >= 0.50 then
+			return "~~~"
+		elseif ratio >= 0.20 then
+			return "~~"
+		end
+		return "~"
+	end
+
+	local function ApplyTextFromRaw(rawValue, allowPlaceholder)
+		if rawValue == nil then
+			return false
+		end
+
+		if IsSecretValue(rawValue) then
+			if not allowPlaceholder then
+				return false
+			end
+			-- Secret values must not be compared/inspected; use a safe placeholder.
+			local placeholder
+			if valueMode == "SYMBOLIC" then
+				placeholder = BuildSymbolicText()
+			else
+				placeholder = incomingCfg and incomingCfg.valuePlaceholder or "~"
+			end
+			placeholder = SafeText(placeholder, "~") or "~"
+			if placeholder == "" then
+				placeholder = "~"
+			end
+			if #placeholder > 8 then
+				placeholder = string.sub(placeholder, 1, 8)
+			end
+			local okSet = pcall(frame.IncomingHealValue.SetText, frame.IncomingHealValue, placeholder)
+			if okSet then
+				frame.IncomingHealValue:Show()
+				return true
+			end
+			return false
+		end
+
+		if C_StringUtil and C_StringUtil.TruncateWhenZero then
+			local ok, textValue = pcall(C_StringUtil.TruncateWhenZero, rawValue)
+			if ok and textValue and not IsSecretValue(textValue) and textValue ~= "" and textValue ~= "0" then
+				frame.IncomingHealValue:SetText(textValue)
+				frame.IncomingHealValue:Show()
+				return true
+			end
+		end
+
+		local numeric = SafeNumber(rawValue, nil)
+		if numeric and numeric > 0 then
+			local okAbbr, abbrText = pcall(FormatCompactValue, numeric)
+			if okAbbr and abbrText and not IsSecretValue(abbrText) and abbrText ~= "0" then
+				frame.IncomingHealValue:SetText(abbrText)
+				frame.IncomingHealValue:Show()
+				return true
+			end
+			local rawText = SafeText(numeric, nil)
+			if rawText and rawText ~= "0" then
+				frame.IncomingHealValue:SetText(rawText)
+				frame.IncomingHealValue:Show()
+				return true
+			end
+		end
+		return false
+	end
+
+	local function EstimateIncomingFromKnownCasters(unitID)
+		if type(UnitGetIncomingHeals) ~= "function" or type(UnitExists) ~= "function" then
+			return nil, false
+		end
+
+		local total = 0
+		local found = false
+		local function AddCaster(caster)
+			if not caster or not UnitExists(caster) then
+				return
+			end
+			local raw = SafeAPICall(UnitGetIncomingHeals, unitID, caster)
+			local value = SafeNumber(raw, nil)
+			if value and value > 0 then
+				total = total + value
+				found = true
+			end
+		end
+
+		AddCaster("player")
+		AddCaster("pet")
+		if IsInRaid and IsInRaid() then
+			for i = 1, 40 do
+				AddCaster("raid" .. i)
+				AddCaster("raidpet" .. i)
+			end
+		elseif IsInGroup and IsInGroup() then
+			for i = 1, 4 do
+				AddCaster("party" .. i)
+				AddCaster("partypet" .. i)
+			end
+		end
+
+		if found then
+			return total, true
+		end
+		return nil, false
+	end
+
+	local incomingValue = nil
+	local barCallOk = false
+	if hpWidgets then
+		-- Prefer total incoming from healingAll; it's updated even when split display is enabled.
+		if hpWidgets.healingAll and hpWidgets.healingAll.GetValue then
+			incomingValue, barCallOk = RawCall(hpWidgets.healingAll.GetValue, hpWidgets.healingAll)
+		end
+	end
+
+	local apiIncoming = nil
+	local apiCallOk = false
+	local estimateIncoming = nil
+	local estimateCallOk = false
+	local deltaIncoming = nil
+	local deltaOk = false
+	local selfIncoming = nil
+	local selfOk = false
+	local allowPlaceholder = (valueMode == "SAFE")
+	local shown = ApplyTextFromRaw(incomingValue, allowPlaceholder)
+	if not shown then
+		apiIncoming, apiCallOk = RawCall(UnitGetIncomingHeals, unit)
+		shown = ApplyTextFromRaw(apiIncoming, allowPlaceholder)
+	end
+	if not shown and valueMode == "SELF_ONLY" then
+		selfIncoming, selfOk = RawCall(UnitGetIncomingHeals, unit, "player")
+		-- SELF_ONLY is intentionally "self contribution", not total, so keep it numeric only.
+		shown = ApplyTextFromRaw(selfIncoming, false)
+		if shown and frame.IncomingHealValue and frame.IncomingHealValue.GetText and frame.IncomingHealValue.SetText then
+			local currentText = SafeText(frame.IncomingHealValue:GetText(), nil)
+			if currentText and currentText ~= "" and currentText ~= "~" then
+				frame.IncomingHealValue:SetText(currentText .. "+")
+			end
+		end
+	end
+	if not shown and valueMode == "HYBRID_ESTIMATE" then
+		estimateIncoming, estimateCallOk = EstimateIncomingFromKnownCasters(unit)
+		shown = ApplyTextFromRaw(estimateIncoming, false)
+	end
+	if not shown and valueMode == "HYBRID_ESTIMATE" and self.GetHealthDeltaIncomingEstimateForUnit then
+		deltaIncoming, deltaOk = self:GetHealthDeltaIncomingEstimateForUnit(unit)
+		shown = ApplyTextFromRaw(deltaIncoming, false)
+	end
+	if not shown and valueMode == "HYBRID_ESTIMATE" then
+		shown = ApplyTextFromRaw(incomingValue, true)
+	end
+	if not shown and valueMode == "SYMBOLIC" then
+		local symbolic = BuildSymbolicText()
+		local okSet = pcall(frame.IncomingHealValue.SetText, frame.IncomingHealValue, symbolic)
+		if okSet then
+			frame.IncomingHealValue:Show()
+			shown = true
+		end
+	end
+	if not shown then
+		frame.IncomingHealValue:SetText("")
+		frame.IncomingHealValue:Hide()
+		Trace("NO_VALUE", ("mode=%s barRaw=%s barOk=%s apiRaw=%s apiOk=%s selfRaw=%s selfOk=%s estimateRaw=%s estimateOk=%s deltaRaw=%s deltaOk=%s unit=%s"):format(
+			tostring(valueMode),
+			RawDebug(incomingValue),
+			tostring(barCallOk),
+			RawDebug(apiIncoming),
+			tostring(apiCallOk),
+			RawDebug(selfIncoming),
+			tostring(selfOk),
+			RawDebug(estimateIncoming),
+			tostring(estimateCallOk),
+			RawDebug(deltaIncoming),
+			tostring(deltaOk),
+			tostring(unit)
+		))
+		return
+	end
+
+	Trace("SHOW", ("mode=%s text=%s barRaw=%s barOk=%s apiRaw=%s apiOk=%s selfRaw=%s selfOk=%s estimateRaw=%s estimateOk=%s deltaRaw=%s deltaOk=%s visible=%s unit=%s"):format(
+		tostring(valueMode),
+		tostring(SafeText(frame.IncomingHealValue:GetText(), "<secret>")),
+		RawDebug(incomingValue),
+		tostring(barCallOk),
+		RawDebug(apiIncoming),
+		tostring(apiCallOk),
+		RawDebug(selfIncoming),
+		tostring(selfOk),
+		RawDebug(estimateIncoming),
+		tostring(estimateCallOk),
+		RawDebug(deltaIncoming),
+		tostring(deltaOk),
+		tostring(frame.IncomingHealValue:IsShown()),
+		tostring(unit)
+	))
+end
+
 function addon:ApplyMedia(frame)
 	local profileStart = debugprofilestop and debugprofilestop() or nil
 	local texture = self:GetUnitStatusbarTexture(frame.sufUnitType)
+	local bgCfg = self:GetUnitMainBarsBackgroundSettings(frame.sufUnitType)
+	local hpCfgGlobal = self:GetUnitHealPredictionSettings(frame.sufUnitType)
+	local incomingCfgGlobal = hpCfgGlobal and hpCfgGlobal.incoming or DEFAULT_HEAL_PREDICTION.incoming
 	local font = self:GetFont()
 	local sizes = self:GetUnitFontSizes(frame.sufUnitType)
 	local castbarCfg = self.db.profile.castbar or {}
@@ -2558,8 +3263,34 @@ function addon:ApplyMedia(frame)
 		frame.PowerBG:SetVertexColor(0, 0, 0, 0.6)
 	end
 
-	if frame.HealthPrediction then
-		local hpCfg = self:GetUnitHealPredictionSettings(frame.sufUnitType)
+	if frame.IncomingHealValue then
+		local incomingFontSize = tonumber(incomingCfgGlobal and incomingCfgGlobal.valueFontSize) or math.max(8, (sizes and sizes.health or 11) - 1)
+		frame.IncomingHealValue:SetFont(font, math.max(8, math.min(20, incomingFontSize)), "OUTLINE")
+		local valueColor = incomingCfgGlobal and incomingCfgGlobal.valueColor or DEFAULT_HEAL_PREDICTION.incoming.valueColor
+		frame.IncomingHealValue:SetTextColor(valueColor[1] or 0.35, valueColor[2] or 0.95, valueColor[3] or 0.45, 0.95)
+	end
+
+	if frame.MainBarsBackground then
+		if bgCfg.enabled == false then
+			frame.MainBarsBackground:Hide()
+		else
+			local bgTexture = DEFAULT_TEXTURE
+			if LSM and bgCfg.texture then
+				local lsmTexture = LSM:Fetch("statusbar", bgCfg.texture)
+				if lsmTexture then
+					bgTexture = lsmTexture
+				end
+			end
+			frame.MainBarsBackground:SetTexture(bgTexture)
+			local c = bgCfg.color or defaults.profile.mainBarsBackground.color
+			frame.MainBarsBackground:SetVertexColor(c[1] or 0.05, c[2] or 0.05, c[3] or 0.05, bgCfg.alpha or 0.4)
+			frame.MainBarsBackground:Show()
+		end
+	end
+
+	local hpWidgets = GetHealthPredictionWidgets(frame)
+	if hpWidgets then
+		local hpCfg = hpCfgGlobal
 		local incomingCfg = hpCfg.incoming
 		local absorbCfg = hpCfg.absorbs
 		local healAbsorbCfg = hpCfg.healAbsorbs
@@ -2567,81 +3298,124 @@ function addon:ApplyMedia(frame)
 		local incomingInset = math.floor((healthHeight * (1 - math.max(0.3, math.min(1, incomingCfg.height or 1)))) * 0.5 + 0.5)
 		local absorbInset = math.floor((healthHeight * (1 - math.max(0.3, math.min(1, absorbCfg.height or 1)))) * 0.5 + 0.5)
 		local healAbsorbInset = math.floor((healthHeight * (1 - math.max(0.3, math.min(1, healAbsorbCfg.height or 1)))) * 0.5 + 0.5)
+		local predictionLevel = (frame.Health:GetFrameLevel() or frame:GetFrameLevel() or 1) + 4
+
+		local function RaisePredictionBar(bar)
+			if not bar then
+				return
+			end
+			bar:SetFrameStrata(frame.Health:GetFrameStrata())
+			bar:SetFrameLevel(predictionLevel)
+			local texObj = bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+			if texObj and texObj.SetDrawLayer then
+				texObj:SetDrawLayer("ARTWORK", 7)
+			end
+		end
 
 		local statusTex = frame.Health:GetStatusBarTexture()
 
-		if frame.HealthPrediction.healingAll then
-			frame.HealthPrediction.healingAll:SetStatusBarTexture(texture)
+		if hpWidgets.healingAll then
+			hpWidgets.healingAll:SetStatusBarTexture(texture)
+			RaisePredictionBar(hpWidgets.healingAll)
 			local c = incomingCfg.colorAll
-			frame.HealthPrediction.healingAll:SetStatusBarColor(c[1] or 0.35, c[2] or 0.95, c[3] or 0.45, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
-			frame.HealthPrediction.healingAll:ClearAllPoints()
-			frame.HealthPrediction.healingAll:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
-			frame.HealthPrediction.healingAll:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
-			frame.HealthPrediction.healingAll:SetPoint("LEFT", statusTex, "RIGHT")
+			hpWidgets.healingAll:SetStatusBarColor(c[1] or 0.35, c[2] or 0.95, c[3] or 0.45, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
+			hpWidgets.healingAll:ClearAllPoints()
+			hpWidgets.healingAll:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
+			hpWidgets.healingAll:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
+			hpWidgets.healingAll:SetPoint("LEFT", statusTex, "RIGHT")
 			local shownAll = hpCfg.enabled and incomingCfg.enabled and not incomingCfg.split
-			frame.HealthPrediction.healingAll:SetShown(shownAll)
-			UpdateBarTextureOutline(frame.HealthPrediction.healingAll, shownAll)
+			hpWidgets.healingAll:SetShown(shownAll)
+			UpdateBarTextureOutline(hpWidgets.healingAll, shownAll)
 		end
-		if frame.HealthPrediction.healingPlayer then
-			frame.HealthPrediction.healingPlayer:SetStatusBarTexture(texture)
+		if hpWidgets.healingPlayer then
+			hpWidgets.healingPlayer:SetStatusBarTexture(texture)
+			RaisePredictionBar(hpWidgets.healingPlayer)
 			local c = incomingCfg.colorPlayer
-			frame.HealthPrediction.healingPlayer:SetStatusBarColor(c[1] or 0.35, c[2] or 0.95, c[3] or 0.45, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
-			frame.HealthPrediction.healingPlayer:ClearAllPoints()
-			frame.HealthPrediction.healingPlayer:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
-			frame.HealthPrediction.healingPlayer:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
-			frame.HealthPrediction.healingPlayer:SetPoint("LEFT", statusTex, "RIGHT")
+			hpWidgets.healingPlayer:SetStatusBarColor(c[1] or 0.35, c[2] or 0.95, c[3] or 0.45, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
+			hpWidgets.healingPlayer:ClearAllPoints()
+			hpWidgets.healingPlayer:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
+			hpWidgets.healingPlayer:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
+			hpWidgets.healingPlayer:SetPoint("LEFT", statusTex, "RIGHT")
 			local shownPlayer = hpCfg.enabled and incomingCfg.enabled and incomingCfg.split
-			frame.HealthPrediction.healingPlayer:SetShown(shownPlayer)
-			UpdateBarTextureOutline(frame.HealthPrediction.healingPlayer, shownPlayer)
+			hpWidgets.healingPlayer:SetShown(shownPlayer)
+			UpdateBarTextureOutline(hpWidgets.healingPlayer, shownPlayer)
 		end
-		if frame.HealthPrediction.healingOther then
-			frame.HealthPrediction.healingOther:SetStatusBarTexture(texture)
+		if hpWidgets.healingOther then
+			hpWidgets.healingOther:SetStatusBarTexture(texture)
+			RaisePredictionBar(hpWidgets.healingOther)
 			local c = incomingCfg.colorOther
-			frame.HealthPrediction.healingOther:SetStatusBarColor(c[1] or 0.20, c[2] or 0.75, c[3] or 0.35, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
-			frame.HealthPrediction.healingOther:ClearAllPoints()
-			frame.HealthPrediction.healingOther:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
-			frame.HealthPrediction.healingOther:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
-			local healAnchor = frame.HealthPrediction.healingPlayer and frame.HealthPrediction.healingPlayer:GetStatusBarTexture() or statusTex
-			frame.HealthPrediction.healingOther:SetPoint("LEFT", healAnchor, "RIGHT")
+			hpWidgets.healingOther:SetStatusBarColor(c[1] or 0.20, c[2] or 0.75, c[3] or 0.35, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
+			hpWidgets.healingOther:ClearAllPoints()
+			hpWidgets.healingOther:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
+			hpWidgets.healingOther:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
+			local healAnchor = hpWidgets.healingPlayer and hpWidgets.healingPlayer:GetStatusBarTexture() or statusTex
+			hpWidgets.healingOther:SetPoint("LEFT", healAnchor, "RIGHT")
 			local shownOther = hpCfg.enabled and incomingCfg.enabled and incomingCfg.split
-			frame.HealthPrediction.healingOther:SetShown(shownOther)
-			UpdateBarTextureOutline(frame.HealthPrediction.healingOther, shownOther)
+			hpWidgets.healingOther:SetShown(shownOther)
+			UpdateBarTextureOutline(hpWidgets.healingOther, shownOther)
 		end
-		if frame.HealthPrediction.damageAbsorb then
-			frame.HealthPrediction.damageAbsorb:SetStatusBarTexture(texture)
+
+		if frame.IncomingHealValue then
+			frame.IncomingHealValue:ClearAllPoints()
+			local incomingAnchor = statusTex
+			local valueOffsetX = tonumber(incomingCfg.valueOffsetX) or 2
+			local valueOffsetY = tonumber(incomingCfg.valueOffsetY) or 0
+			if incomingCfg.split then
+				if hpWidgets.healingOther and hpWidgets.healingOther.GetStatusBarTexture then
+					incomingAnchor = hpWidgets.healingOther:GetStatusBarTexture() or incomingAnchor
+				elseif hpWidgets.healingPlayer and hpWidgets.healingPlayer.GetStatusBarTexture then
+					incomingAnchor = hpWidgets.healingPlayer:GetStatusBarTexture() or incomingAnchor
+				end
+			else
+				if hpWidgets.healingAll and hpWidgets.healingAll.GetStatusBarTexture then
+					incomingAnchor = hpWidgets.healingAll:GetStatusBarTexture() or incomingAnchor
+				end
+			end
+			if not incomingAnchor then
+				incomingAnchor = frame.Health
+			end
+			frame.IncomingHealValue:SetPoint("LEFT", incomingAnchor, "RIGHT", valueOffsetX, valueOffsetY)
+			frame.IncomingHealValue:SetJustifyH("LEFT")
+		end
+
+		if hpWidgets.damageAbsorb then
+			hpWidgets.damageAbsorb:SetStatusBarTexture(texture)
+			RaisePredictionBar(hpWidgets.damageAbsorb)
 			local c = absorbCfg.color
-			frame.HealthPrediction.damageAbsorb:SetStatusBarColor(c[1] or 0.35, c[2] or 0.92, c[3] or 1.00, math.max(0.20, math.min(1, (absorbCfg.opacity or 0.55) + 0.15)))
-			frame.HealthPrediction.damageAbsorb:ClearAllPoints()
-			frame.HealthPrediction.damageAbsorb:SetPoint("TOP", frame.Health, "TOP", 0, -absorbInset)
-			frame.HealthPrediction.damageAbsorb:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, absorbInset)
-			frame.HealthPrediction.damageAbsorb:SetPoint("RIGHT", statusTex, "RIGHT")
-			frame.HealthPrediction.damageAbsorb:SetReverseFill(true)
-			frame.HealthPrediction.damageAbsorb:SetShown(hpCfg.enabled and absorbCfg.enabled)
+			hpWidgets.damageAbsorb:SetStatusBarColor(c[1] or 0.35, c[2] or 0.92, c[3] or 1.00, math.max(0.20, math.min(1, (absorbCfg.opacity or 0.55) + 0.15)))
+			hpWidgets.damageAbsorb:ClearAllPoints()
+			hpWidgets.damageAbsorb:SetPoint("TOP", frame.Health, "TOP", 0, -absorbInset)
+			hpWidgets.damageAbsorb:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, absorbInset)
+			hpWidgets.damageAbsorb:SetPoint("RIGHT", statusTex, "RIGHT")
+			hpWidgets.damageAbsorb:SetReverseFill(true)
+			hpWidgets.damageAbsorb:SetShown(hpCfg.enabled and absorbCfg.enabled)
 		end
-		if frame.HealthPrediction.healAbsorb then
-			frame.HealthPrediction.healAbsorb:SetStatusBarTexture(texture)
+		if hpWidgets.healAbsorb then
+			hpWidgets.healAbsorb:SetStatusBarTexture(texture)
+			RaisePredictionBar(hpWidgets.healAbsorb)
 			local c = healAbsorbCfg.color
-			frame.HealthPrediction.healAbsorb:SetStatusBarColor(c[1] or 0.95, c[2] or 0.25, c[3] or 0.25, math.max(0.05, math.min(1, healAbsorbCfg.opacity or 0.55)))
-			frame.HealthPrediction.healAbsorb:ClearAllPoints()
-			frame.HealthPrediction.healAbsorb:SetPoint("TOP", frame.Health, "TOP", 0, -healAbsorbInset)
-			frame.HealthPrediction.healAbsorb:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, healAbsorbInset)
-			frame.HealthPrediction.healAbsorb:SetPoint("RIGHT", statusTex, "LEFT")
-			frame.HealthPrediction.healAbsorb:SetShown(hpCfg.enabled and healAbsorbCfg.enabled)
+			hpWidgets.healAbsorb:SetStatusBarColor(c[1] or 0.95, c[2] or 0.25, c[3] or 0.25, math.max(0.05, math.min(1, healAbsorbCfg.opacity or 0.55)))
+			hpWidgets.healAbsorb:ClearAllPoints()
+			hpWidgets.healAbsorb:SetPoint("TOP", frame.Health, "TOP", 0, -healAbsorbInset)
+			hpWidgets.healAbsorb:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, healAbsorbInset)
+			hpWidgets.healAbsorb:SetPoint("RIGHT", statusTex, "LEFT")
+			hpWidgets.healAbsorb:SetShown(hpCfg.enabled and healAbsorbCfg.enabled)
 		end
-		if frame.HealthPrediction.overDamageAbsorbIndicator then
-			frame.HealthPrediction.overDamageAbsorbIndicator:SetTexture("Interface\\RaidFrame\\Shield-Overshield")
-			frame.HealthPrediction.overDamageAbsorbIndicator:SetBlendMode("ADD")
-			frame.HealthPrediction.overDamageAbsorbIndicator:SetVertexColor(1, 1, 1, math.max(0.25, math.min(1, absorbCfg.glowOpacity or 0.95)))
-			frame.HealthPrediction.overDamageAbsorbIndicator:SetShown(hpCfg.enabled and absorbCfg.enabled and absorbCfg.showGlow ~= false)
+		if hpWidgets.overDamageAbsorbIndicator then
+			hpWidgets.overDamageAbsorbIndicator:SetTexture("Interface\\RaidFrame\\Shield-Overshield")
+			hpWidgets.overDamageAbsorbIndicator:SetBlendMode("ADD")
+			hpWidgets.overDamageAbsorbIndicator:SetVertexColor(1, 1, 1, math.max(0.25, math.min(1, absorbCfg.glowOpacity or 0.95)))
+			hpWidgets.overDamageAbsorbIndicator:SetShown(hpCfg.enabled and absorbCfg.enabled and absorbCfg.showGlow ~= false)
 		end
-		if frame.HealthPrediction.overHealAbsorbIndicator then
-			frame.HealthPrediction.overHealAbsorbIndicator:SetTexture("Interface\\RaidFrame\\Absorb-Overabsorb")
-			frame.HealthPrediction.overHealAbsorbIndicator:SetBlendMode("ADD")
-			frame.HealthPrediction.overHealAbsorbIndicator:SetVertexColor(1, 1, 1, math.max(0.1, math.min(1, healAbsorbCfg.glowOpacity or 0.95)))
-			frame.HealthPrediction.overHealAbsorbIndicator:SetShown(hpCfg.enabled and healAbsorbCfg.enabled and healAbsorbCfg.showGlow ~= false)
+		if hpWidgets.overHealAbsorbIndicator then
+			hpWidgets.overHealAbsorbIndicator:SetTexture("Interface\\RaidFrame\\Absorb-Overabsorb")
+			hpWidgets.overHealAbsorbIndicator:SetBlendMode("ADD")
+			hpWidgets.overHealAbsorbIndicator:SetVertexColor(1, 1, 1, math.max(0.1, math.min(1, healAbsorbCfg.glowOpacity or 0.95)))
+			hpWidgets.overHealAbsorbIndicator:SetShown(hpCfg.enabled and healAbsorbCfg.enabled and healAbsorbCfg.showGlow ~= false)
 		end
 
 		self:UpdateAbsorbValue(frame)
+		self:UpdateIncomingHealValue(frame)
 	end
 
 	if frame.AdditionalPower then
@@ -3071,6 +3845,8 @@ function addon:ApplySize(frame)
 		frame.Auras:SetPoint("BOTTOMRIGHT", topAnchor, "TOPRIGHT", 0, 4)
 	end
 
+	self:UpdateMainBarsBackgroundAnchors(frame)
+
 	if profileStart then
 		local profileEnd = debugprofilestop() or profileStart
 		self:RecordProfilerEvent("suf:apply.size", profileEnd - profileStart)
@@ -3088,9 +3864,7 @@ function addon:UpdateAllFrames()
 		self:ApplyPortrait(frame)
 		frame:UpdateAllElements("SimpleUnitFrames_Update")
 		self:UpdateAbsorbValue(frame)
-		if frame.HealthPrediction and frame.HealthPrediction.ForceUpdate then
-			pcall(frame.HealthPrediction.ForceUpdate, frame.HealthPrediction)
-		end
+		self:UpdateIncomingHealValue(frame)
 		if frameStart then
 			local frameEnd = debugprofilestop() or frameStart
 			self:RecordProfilerEvent("suf:update.frame", frameEnd - frameStart)
@@ -3317,9 +4091,9 @@ local function CreateHealthPrediction(self)
 	if not self.Health then
 		return
 	end
-	local predictionLevel = (self.Health:GetFrameLevel() or 1) + 1
+	local predictionLevel = (self.Health:GetFrameLevel() or 1) + 4
 
-	local healingAll = CreateFrame("StatusBar", nil, self.Health)
+	local healingAll = CreateFrame("StatusBar", nil, self)
 	healingAll:SetPoint("TOP")
 	healingAll:SetPoint("BOTTOM")
 	healingAll:SetPoint("LEFT", self.Health:GetStatusBarTexture(), "RIGHT")
@@ -3328,7 +4102,7 @@ local function CreateHealthPrediction(self)
 	healingAll:SetStatusBarColor(0.35, 0.95, 0.45, 0.40)
 	healingAll:SetFrameLevel(predictionLevel)
 
-	local healingPlayer = CreateFrame("StatusBar", nil, self.Health)
+	local healingPlayer = CreateFrame("StatusBar", nil, self)
 	healingPlayer:SetPoint("TOP")
 	healingPlayer:SetPoint("BOTTOM")
 	healingPlayer:SetPoint("LEFT", self.Health:GetStatusBarTexture(), "RIGHT")
@@ -3337,7 +4111,7 @@ local function CreateHealthPrediction(self)
 	healingPlayer:SetStatusBarColor(0.35, 0.95, 0.45, 0.40)
 	healingPlayer:SetFrameLevel(predictionLevel)
 
-	local healingOther = CreateFrame("StatusBar", nil, self.Health)
+	local healingOther = CreateFrame("StatusBar", nil, self)
 	healingOther:SetPoint("TOP")
 	healingOther:SetPoint("BOTTOM")
 	healingOther:SetPoint("LEFT", healingPlayer:GetStatusBarTexture(), "RIGHT")
@@ -3346,7 +4120,7 @@ local function CreateHealthPrediction(self)
 	healingOther:SetStatusBarColor(0.20, 0.75, 0.35, 0.40)
 	healingOther:SetFrameLevel(predictionLevel)
 
-	local damageAbsorb = CreateFrame("StatusBar", nil, self.Health)
+	local damageAbsorb = CreateFrame("StatusBar", nil, self)
 	damageAbsorb:SetPoint("TOP")
 	damageAbsorb:SetPoint("BOTTOM")
 	damageAbsorb:SetPoint("RIGHT", self.Health:GetStatusBarTexture(), "RIGHT")
@@ -3356,7 +4130,7 @@ local function CreateHealthPrediction(self)
 	damageAbsorb:SetStatusBarColor(0.35, 0.92, 1.00, 0.70)
 	damageAbsorb:SetFrameLevel(predictionLevel)
 
-	local healAbsorb = CreateFrame("StatusBar", nil, self.Health)
+	local healAbsorb = CreateFrame("StatusBar", nil, self)
 	healAbsorb:SetPoint("TOP")
 	healAbsorb:SetPoint("BOTTOM")
 	healAbsorb:SetPoint("RIGHT", self.Health:GetStatusBarTexture(), "LEFT")
@@ -3366,7 +4140,7 @@ local function CreateHealthPrediction(self)
 	healAbsorb:SetStatusBarColor(0.95, 0.25, 0.25, 0.55)
 	healAbsorb:SetFrameLevel(predictionLevel)
 
-	local overDamageAbsorbIndicator = self.Health:CreateTexture(nil, "OVERLAY")
+	local overDamageAbsorbIndicator = self:CreateTexture(nil, "OVERLAY")
 	overDamageAbsorbIndicator:SetPoint("TOP")
 	overDamageAbsorbIndicator:SetPoint("BOTTOM")
 	overDamageAbsorbIndicator:SetPoint("RIGHT", self.Health, "RIGHT", 7, 0)
@@ -3375,7 +4149,7 @@ local function CreateHealthPrediction(self)
 	overDamageAbsorbIndicator:SetBlendMode("ADD")
 	overDamageAbsorbIndicator:SetVertexColor(1, 1, 1, 0.95)
 
-	local overHealAbsorbIndicator = self.Health:CreateTexture(nil, "OVERLAY")
+	local overHealAbsorbIndicator = self:CreateTexture(nil, "OVERLAY")
 	overHealAbsorbIndicator:SetPoint("TOP")
 	overHealAbsorbIndicator:SetPoint("BOTTOM")
 	overHealAbsorbIndicator:SetPoint("LEFT", self.Health, "LEFT", -7, 0)
@@ -3384,19 +4158,32 @@ local function CreateHealthPrediction(self)
 	overHealAbsorbIndicator:SetBlendMode("ADD")
 	overHealAbsorbIndicator:SetVertexColor(1, 1, 1, 0.95)
 
-	self.HealthPrediction = {
-		healingAll = healingAll,
-		healingPlayer = healingPlayer,
-		healingOther = healingOther,
-		damageAbsorb = damageAbsorb,
-		damageAbsorbClampMode = 2,
-		healAbsorb = healAbsorb,
-		healAbsorbClampMode = 1,
-		healAbsorbMode = 1,
-		overDamageAbsorbIndicator = overDamageAbsorbIndicator,
-		overHealAbsorbIndicator = overHealAbsorbIndicator,
-		incomingHealOverflow = 1.05,
-	}
+	local function HookIncomingBar(bar)
+		if not bar or bar._sufIncomingHooked then
+			return
+		end
+		bar._sufIncomingHooked = true
+		bar:HookScript("OnValueChanged", function()
+			if addon and addon.UpdateIncomingHealValue then
+				addon:UpdateIncomingHealValue(self, self.unit)
+			end
+		end)
+	end
+	HookIncomingBar(healingAll)
+	HookIncomingBar(healingPlayer)
+	HookIncomingBar(healingOther)
+
+	self.Health.HealingAll = healingAll
+	self.Health.HealingPlayer = healingPlayer
+	self.Health.HealingOther = healingOther
+	self.Health.DamageAbsorb = damageAbsorb
+	self.Health.damageAbsorbClampMode = 2
+	self.Health.HealAbsorb = healAbsorb
+	self.Health.healAbsorbClampMode = 1
+	self.Health.healAbsorbMode = 1
+	self.Health.OverDamageAbsorbIndicator = overDamageAbsorbIndicator
+	self.Health.OverHealAbsorbIndicator = overHealAbsorbIndicator
+	self.Health.incomingHealOverflow = 1.05
 end
 
 local function CreateAuras(self)
@@ -3516,9 +4303,14 @@ function addon:Style(frame, unit)
 	Health.colorReaction = true
 	frame.Health = Health
 	CreateHealthPrediction(frame)
-	if frame.HealthPrediction then
-		frame.HealthPrediction.PostUpdate = function()
-			addon:UpdateAbsorbValue(frame)
+	if frame.Health then
+		local originalPostUpdate = frame.Health.PostUpdate
+		frame.Health.PostUpdate = function(element, unit)
+			if originalPostUpdate then
+				originalPostUpdate(element, unit)
+			end
+			addon:UpdateAbsorbValue(frame, unit)
+			addon:UpdateIncomingHealValue(frame, unit)
 		end
 	end
 
@@ -3532,6 +4324,11 @@ function addon:Style(frame, unit)
 	PowerBG:SetAllPoints(Power)
 	PowerBG:SetColorTexture(0, 0, 0, 0.6)
 	frame.PowerBG = PowerBG
+
+	local MainBarsBackground = frame:CreateTexture(nil, "BACKGROUND")
+	MainBarsBackground:SetDrawLayer("BACKGROUND", -8)
+	MainBarsBackground:SetColorTexture(0.05, 0.05, 0.05, 0.4)
+	frame.MainBarsBackground = MainBarsBackground
 
 	local TextOverlay = self:AcquireRuntimeFrame("Frame", frame, "SUF_TextOverlay")
 	TextOverlay:Show()
@@ -3555,6 +4352,12 @@ function addon:Style(frame, unit)
 	HealthValue:SetPoint("BOTTOMLEFT", Health, "BOTTOMLEFT", 4, 2)
 	HealthValue:SetDrawLayer("OVERLAY", 7)
 	frame.HealthValue = HealthValue
+
+	local IncomingHealValue = CreateFontString(TextOverlay, 10, "OUTLINE")
+	IncomingHealValue:SetPoint("LEFT", Health, "RIGHT", 2, 0)
+	IncomingHealValue:SetJustifyH("LEFT")
+	IncomingHealValue:SetDrawLayer("OVERLAY", 7)
+	frame.IncomingHealValue = IncomingHealValue
 
 	local AbsorbValue = CreateFontString(TextOverlay, 10, "OUTLINE")
 	AbsorbValue:SetPoint("BOTTOMRIGHT", Health, "BOTTOMRIGHT", -4, 2)
@@ -3917,6 +4720,7 @@ end
 
 function addon:OnPlayerEnteringWorld()
 	self.isLoggedIn = true
+	self._incomingHealthTrendByGUID = {}
 	self:UpdateBlizzardFrames()
 	self:TrySpawnFrames()
 	self:ScheduleGroupHeaders(0.5)
@@ -4656,8 +5460,11 @@ function addon:ShowOptions()
 	frame:SetFrameStrata("DIALOG")
 	frame.TitleText:SetText("SimpleUnitFrames Options")
 
-	local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+	local close = frame.CloseButton
+	if not close then
+		close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
+		close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
+	end
 	close:SetScript("OnClick", function()
 		self:SetTestMode(false)
 		frame:Hide()
@@ -4667,10 +5474,9 @@ function addon:ShowOptions()
 	if not okResize or not resize then
 		resize = CreateFrame("Button", nil, frame)
 		resize:SetSize(16, 16)
-		local tex = resize:CreateTexture(nil, "ARTWORK")
-		tex:SetAllPoints()
-		tex:SetColorTexture(0.8, 0.8, 0.8, 0.7)
-		resize:SetNormalTexture(tex)
+		resize:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+		resize:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+		resize:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
 	end
 	resize:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 5)
 	resize:SetScript("OnMouseDown", function(_, button)
@@ -4842,6 +5648,21 @@ function addon:ShowOptions()
 			c:SetScript("OnClick", function(w)
 				setter(w:GetChecked() and true or false)
 			end)
+		end
+
+		function builder:Button(label, onClick, span)
+			local height = 36
+			local x, y, width = self:Reserve(height, span == true)
+			local b = CreateFrame("Button", nil, self.page, "UIPanelButtonTemplate")
+			b:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y - 2)
+			b:SetSize(span and math.max(160, width) or math.max(120, width), 24)
+			b:SetText(label or "Button")
+			b:SetScript("OnClick", function()
+				if type(onClick) == "function" then
+					onClick()
+				end
+			end)
+			return b
 		end
 
 		function builder:Dropdown(label, options, getter, setter)
@@ -5040,6 +5861,61 @@ function addon:ShowOptions()
 			end
 			return "Other"
 		end
+		local TAG_PRESETS = {
+			{
+				value = "COMPACT",
+				text = "Compact",
+				tags = { name = "[raidcolor][name]", level = "[level]", health = "[curhp]", power = "[curpp]" },
+			},
+			{
+				value = "HEALER",
+				text = "Healer",
+				tags = { name = "[raidcolor][name]", level = "[difficulty][level]", health = "[perhp]% | [suf:incoming:abbr]", power = "[curpp]" },
+			},
+			{
+				value = "TANK",
+				text = "Tank",
+				tags = { name = "[raidcolor][name]", level = "[difficulty][level]", health = "[curhp]/[maxhp]", power = "[curpp] | [suf:ehp:abbr]" },
+			},
+			{
+				value = "DPS",
+				text = "DPS",
+				tags = { name = "[raidcolor][name]", level = "[level]", health = "[curhp] ([perhp]%)", power = "[curpp]" },
+			},
+			{
+				value = "ABSORB_FOCUS",
+				text = "Absorb Focus",
+				tags = { name = "[raidcolor][name]", level = "[level]", health = "[curhp] +[suf:absorbs:abbr]", power = "[curpp]" },
+			},
+			{
+				value = "MINIMAL",
+				text = "Minimal",
+				tags = { name = "[name]", level = "", health = "[perhp]%", power = "" },
+			},
+		}
+		local function GetTagPresetByValue(value)
+			for i = 1, #TAG_PRESETS do
+				if TAG_PRESETS[i].value == value then
+					return TAG_PRESETS[i]
+				end
+			end
+			return TAG_PRESETS[1]
+		end
+		local function ApplyUnitTagPreset(unitKey, presetValue)
+			if not (self.db and self.db.profile and self.db.profile.tags and self.db.profile.tags[unitKey]) then
+				return
+			end
+			local preset = GetTagPresetByValue(presetValue)
+			if not preset or not preset.tags then
+				return
+			end
+			local tags = self.db.profile.tags[unitKey]
+			tags.name = preset.tags.name or ""
+			tags.level = preset.tags.level or ""
+			tags.health = preset.tags.health or ""
+			tags.power = preset.tags.power or ""
+			self:ScheduleUpdateAll()
+		end
 
 		if tabKey == "global" then
 			ui:Label("Global Options", true)
@@ -5053,6 +5929,43 @@ function addon:ShowOptions()
 			else
 				ui:Edit("Font Name", function() return self.db.profile.media.font end, function(v) self.db.profile.media.font = v; self:ScheduleUpdateAll() end)
 			end
+			ui:Label("Main Bars Background", false)
+			ui:Check("Enable Main Bars Background", function() return self:GetMainBarsBackgroundSettings().enabled ~= false end, function(v)
+				local cfg = self:GetMainBarsBackgroundSettings()
+				cfg.enabled = v and true or false
+				self:ScheduleUpdateAll()
+			end)
+			if #statusbarOptions > 0 then
+				ui:Dropdown("Main Bars Background Texture", statusbarOptions, function()
+					return self:GetMainBarsBackgroundSettings().texture
+				end, function(v)
+					local cfg = self:GetMainBarsBackgroundSettings()
+					cfg.texture = v
+					self:ScheduleUpdateAll()
+				end)
+			else
+				ui:Edit("Main Bars Background Texture", function()
+					return self:GetMainBarsBackgroundSettings().texture
+				end, function(v)
+					local cfg = self:GetMainBarsBackgroundSettings()
+					cfg.texture = v
+					self:ScheduleUpdateAll()
+				end)
+			end
+			ui:Color("Main Bars Background Color", function()
+				return self:GetMainBarsBackgroundSettings().color
+			end, function(r, g, b)
+				local cfg = self:GetMainBarsBackgroundSettings()
+				cfg.color[1], cfg.color[2], cfg.color[3] = r, g, b
+				self:ScheduleUpdateAll()
+			end)
+			ui:Slider("Main Bars Background Opacity", 0, 1, 0.05, function()
+				return self:GetMainBarsBackgroundSettings().alpha
+			end, function(v)
+				local cfg = self:GetMainBarsBackgroundSettings()
+				cfg.alpha = v
+				self:ScheduleUpdateAll()
+			end)
 			ui:Slider("Power Bar Height", 4, 20, 1, function() return self.db.profile.powerHeight end, function(v) self.db.profile.powerHeight = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Class Power Height", 4, 20, 1, function() return self.db.profile.classPowerHeight end, function(v) self.db.profile.classPowerHeight = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Class Power Spacing", 0, 10, 1, function() return self.db.profile.classPowerSpacing end, function(v) self.db.profile.classPowerSpacing = v; self:ScheduleUpdateAll() end)
@@ -5100,6 +6013,12 @@ function addon:ShowOptions()
 			ui:Dropdown("Absorb Value Tag", {
 				{ value = "[suf:absorbs:abbr]", text = "Abbreviated ([suf:absorbs:abbr])" },
 				{ value = "[suf:absorbs]", text = "Raw ([suf:absorbs])" },
+				{ value = "[suf:ehp:abbr]", text = "Effective HP ([suf:ehp:abbr])" },
+				{ value = "[suf:ehp]", text = "Effective HP Raw ([suf:ehp])" },
+				{ value = "[suf:incoming:abbr]", text = "Incoming Heals ([suf:incoming:abbr])" },
+				{ value = "[suf:incoming]", text = "Incoming Heals Raw ([suf:incoming])" },
+				{ value = "[suf:healabsorbs:abbr]", text = "Heal Absorbs ([suf:healabsorbs:abbr])" },
+				{ value = "[suf:healabsorbs]", text = "Heal Absorbs Raw ([suf:healabsorbs])" },
 				{ value = "", text = "Hidden" },
 			}, function()
 				return self.db.profile.absorbValueTag or "[suf:absorbs:abbr]"
@@ -5302,8 +6221,71 @@ function addon:ShowOptions()
 					ui:Paragraph(table.concat(list, ", "), true)
 				end
 			end
+			local usedTags = {}
+			for _, unitKey in ipairs(UNIT_TYPE_ORDER) do
+				local unitTags = self.db.profile.tags and self.db.profile.tags[unitKey]
+				if unitTags then
+					local fields = { "name", "level", "health", "power" }
+					for fieldIndex = 1, #fields do
+						local fieldValue = unitTags[fields[fieldIndex]]
+						if type(fieldValue) == "string" then
+							for token in string.gmatch(fieldValue, "%[([^%]]+)%]") do
+								usedTags[token] = true
+							end
+						end
+					end
+				end
+			end
+			local availableNotUsed = {}
+			for i = 1, #allTags do
+				local tagName = allTags[i]
+				if not usedTags[tagName] and string.sub(tagName, 1, 4) ~= "suf:" then
+					availableNotUsed[#availableNotUsed + 1] = tagName
+				end
+			end
+			ui:Label("Available but Not in Current Tag Strings", false)
+			if #availableNotUsed > 0 then
+				local preview = {}
+				local limit = math.min(#availableNotUsed, 60)
+				for i = 1, limit do
+					preview[#preview + 1] = availableNotUsed[i]
+				end
+				ui:Paragraph(table.concat(preview, ", "), true)
+				if #availableNotUsed > limit then
+					ui:Paragraph(string.format("...plus %d more tags.", #availableNotUsed - limit), true)
+				end
+			else
+				ui:Paragraph("All currently available non-SUF tags are already in use by your unit tag strings.", true)
+			end
+
 			ui:Label("SUF Custom Tags", false)
-			ui:Paragraph("suf:absorbs, suf:absorbs:abbr", true)
+			local sufTagDescriptions = {
+				["suf:absorbs"] = "Total absorbs (raw)",
+				["suf:absorbs:abbr"] = "Total absorbs (abbreviated)",
+				["suf:incoming"] = "Incoming heals (raw)",
+				["suf:incoming:abbr"] = "Incoming heals (abbreviated)",
+				["suf:healabsorbs"] = "Heal absorbs (raw)",
+				["suf:healabsorbs:abbr"] = "Heal absorbs (abbreviated)",
+				["suf:ehp"] = "Effective health (health + absorbs, raw)",
+				["suf:ehp:abbr"] = "Effective health (health + absorbs, abbreviated)",
+			}
+			local sufTags = {}
+			for i = 1, #allTags do
+				local tagName = allTags[i]
+				if string.sub(tagName, 1, 4) == "suf:" then
+					sufTags[#sufTags + 1] = tagName
+				end
+			end
+			if #sufTags > 0 then
+				local lines = {}
+				for i = 1, #sufTags do
+					local tagName = sufTags[i]
+					lines[#lines + 1] = tagName .. " - " .. (sufTagDescriptions[tagName] or "SUF custom tag")
+				end
+				ui:Paragraph(table.concat(lines, "\n"), true)
+			else
+				ui:Paragraph("No SUF custom tags are currently registered.", true)
+			end
 		elseif tabKey == "credits" then
 			ui:Label("Credits", true)
 			ui:Paragraph("SimpleUnitFrames (SUF)\nPrimary Author: Grevin", true)
@@ -5319,6 +6301,7 @@ function addon:ShowOptions()
 			unitSettings.media = unitSettings.media or { statusbar = self.db.profile.media.statusbar }
 			unitSettings.castbar = unitSettings.castbar or CopyTableDeep(DEFAULT_UNIT_CASTBAR)
 			unitSettings.layout = unitSettings.layout or CopyTableDeep(DEFAULT_UNIT_LAYOUT)
+			unitSettings.mainBarsBackground = unitSettings.mainBarsBackground or CopyTableDeep(DEFAULT_UNIT_MAIN_BARS_BACKGROUND)
 			unitSettings.healPrediction = unitSettings.healPrediction or CopyTableDeep(DEFAULT_HEAL_PREDICTION)
 			ui:Label((tabKey == "tot" and "TargetOfTarget" or tabKey:upper()) .. " Options", true)
 			ui:Slider("Frame Width", 80, 400, 1, function() return size.width end, function(v) size.width = v; self:ScheduleUpdateAll() end)
@@ -5327,6 +6310,65 @@ function addon:ShowOptions()
 			ui:Edit("Level Tag", function() return tags.level end, function(v) tags.level = v; self:ScheduleUpdateAll() end)
 			ui:Edit("Health Tag", function() return tags.health end, function(v) tags.health = v; self:ScheduleUpdateAll() end)
 			ui:Edit("Power Tag", function() return tags.power end, function(v) tags.power = v; self:ScheduleUpdateAll() end)
+			self._tagPresetSelection = self._tagPresetSelection or {}
+			if not self._tagPresetSelection[tabKey] then
+				self._tagPresetSelection[tabKey] = "COMPACT"
+			end
+			ui:Label("Tag Presets", false)
+			ui:Dropdown("Preset", TAG_PRESETS, function()
+				return self._tagPresetSelection[tabKey] or "COMPACT"
+			end, function(v)
+				self._tagPresetSelection[tabKey] = v
+			end)
+			ui:Button("Apply Selected Preset", function()
+				ApplyUnitTagPreset(tabKey, self._tagPresetSelection[tabKey] or "COMPACT")
+				frame:BuildTab(tabKey)
+			end, true)
+			ui:Label("Main Bars Background", false)
+			ui:Check("Use Global Main Bars Background", function()
+				return unitSettings.mainBarsBackground.useGlobal ~= false
+			end, function(v)
+				unitSettings.mainBarsBackground.useGlobal = v and true or false
+				self:ScheduleUpdateAll()
+				frame:BuildTab(tabKey)
+			end)
+			if unitSettings.mainBarsBackground.useGlobal ~= false then
+				ui:Paragraph("Using Global Main Bars Background settings.", true)
+			else
+				ui:Check("Enable Main Bars Background", function()
+					return unitSettings.mainBarsBackground.enabled ~= false
+				end, function(v)
+					unitSettings.mainBarsBackground.enabled = v and true or false
+					self:ScheduleUpdateAll()
+				end)
+				if #statusbarOptions > 0 then
+					ui:Dropdown("Main Bars Background Texture", statusbarOptions, function()
+						return unitSettings.mainBarsBackground.texture
+					end, function(v)
+						unitSettings.mainBarsBackground.texture = v
+						self:ScheduleUpdateAll()
+					end)
+				else
+					ui:Edit("Main Bars Background Texture", function()
+						return unitSettings.mainBarsBackground.texture
+					end, function(v)
+						unitSettings.mainBarsBackground.texture = v
+						self:ScheduleUpdateAll()
+					end)
+				end
+				ui:Color("Main Bars Background Color", function()
+					return unitSettings.mainBarsBackground.color
+				end, function(r, g, b)
+					unitSettings.mainBarsBackground.color[1], unitSettings.mainBarsBackground.color[2], unitSettings.mainBarsBackground.color[3] = r, g, b
+					self:ScheduleUpdateAll()
+				end)
+				ui:Slider("Main Bars Background Opacity", 0, 1, 0.05, function()
+					return unitSettings.mainBarsBackground.alpha
+				end, function(v)
+					unitSettings.mainBarsBackground.alpha = v
+					self:ScheduleUpdateAll()
+				end)
+			end
 			if #statusbarOptions > 0 then
 				ui:Dropdown("Statusbar Texture", statusbarOptions, function() return unitSettings.media.statusbar end, function(v) unitSettings.media.statusbar = v; self:ScheduleUpdateAll() end)
 			else
@@ -5363,6 +6405,50 @@ function addon:ShowOptions()
 			ui:Check("Enable Heal Prediction", function() return unitSettings.healPrediction.enabled ~= false end, function(v) unitSettings.healPrediction.enabled = v; self:ScheduleUpdateAll() end)
 			ui:Check("Incoming Heals", function() return unitSettings.healPrediction.incoming.enabled ~= false end, function(v) unitSettings.healPrediction.incoming.enabled = v; self:ScheduleUpdateAll() end)
 			ui:Check("Split Incoming Heals", function() return unitSettings.healPrediction.incoming.split == true end, function(v) unitSettings.healPrediction.incoming.split = v; self:ScheduleUpdateAll() end)
+			ui:Dropdown("Incoming Value Mode", {
+				{ value = "SAFE", text = "Safe (Placeholder on Secret)" },
+				{ value = "SYMBOLIC", text = "Symbolic (~ / ~~ / ~~~)" },
+				{ value = "SELF_ONLY", text = "Self Only (Show Your Incoming +)" },
+				{ value = "HYBRID_ESTIMATE", text = "Hybrid (Try Estimate, Then Placeholder)" },
+			}, function()
+				local mode = unitSettings.healPrediction.incoming.valueMode
+				if mode == "HYBRID_ESTIMATE" or mode == "SELF_ONLY" or mode == "SYMBOLIC" then
+					return mode
+				end
+				return "SAFE"
+			end, function(v)
+				if v == "HYBRID_ESTIMATE" then
+					unitSettings.healPrediction.incoming.valueMode = "HYBRID_ESTIMATE"
+				elseif v == "SYMBOLIC" then
+					unitSettings.healPrediction.incoming.valueMode = "SYMBOLIC"
+				elseif v == "SELF_ONLY" then
+					unitSettings.healPrediction.incoming.valueMode = "SELF_ONLY"
+				else
+					unitSettings.healPrediction.incoming.valueMode = "SAFE"
+				end
+				self:ScheduleUpdateAll()
+			end)
+			ui:Check("Incoming Value Text", function() return unitSettings.healPrediction.incoming.showValueText ~= false end, function(v) unitSettings.healPrediction.incoming.showValueText = v; self:ScheduleUpdateAll() end)
+			ui:Edit("Incoming Value Placeholder (Secret)", function() return unitSettings.healPrediction.incoming.valuePlaceholder or "~" end, function(v)
+				local text = SafeText(v, "~") or "~"
+				if text == "" then
+					text = "~"
+				end
+				if #text > 8 then
+					text = string.sub(text, 1, 8)
+				end
+				unitSettings.healPrediction.incoming.valuePlaceholder = text
+				self:ScheduleUpdateAll()
+			end)
+			ui:Slider("Incoming Value Font Size", 8, 20, 1, function() return unitSettings.healPrediction.incoming.valueFontSize or 10 end, function(v) unitSettings.healPrediction.incoming.valueFontSize = v; self:ScheduleUpdateAll() end)
+			ui:Color("Incoming Value Color", function()
+				return unitSettings.healPrediction.incoming.valueColor
+			end, function(r, g, b)
+				unitSettings.healPrediction.incoming.valueColor[1], unitSettings.healPrediction.incoming.valueColor[2], unitSettings.healPrediction.incoming.valueColor[3] = r, g, b
+				self:ScheduleUpdateAll()
+			end)
+			ui:Slider("Incoming Value Offset X", -30, 30, 1, function() return unitSettings.healPrediction.incoming.valueOffsetX or 2 end, function(v) unitSettings.healPrediction.incoming.valueOffsetX = v; self:ScheduleUpdateAll() end)
+			ui:Slider("Incoming Value Offset Y", -20, 20, 1, function() return unitSettings.healPrediction.incoming.valueOffsetY or 0 end, function(v) unitSettings.healPrediction.incoming.valueOffsetY = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Incoming Opacity", 0.05, 1, 0.05, function() return unitSettings.healPrediction.incoming.opacity end, function(v) unitSettings.healPrediction.incoming.opacity = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Incoming Height", 0.3, 1, 0.05, function() return unitSettings.healPrediction.incoming.height end, function(v) unitSettings.healPrediction.incoming.height = v; self:ScheduleUpdateAll() end)
 			ui:Color("Incoming All Color", function() return unitSettings.healPrediction.incoming.colorAll end, function(r, g, b) unitSettings.healPrediction.incoming.colorAll[1], unitSettings.healPrediction.incoming.colorAll[2], unitSettings.healPrediction.incoming.colorAll[3] = r, g, b; self:ScheduleUpdateAll() end)
@@ -5585,6 +6671,7 @@ function addon:OnEnable()
 			self:RegisterEvent("ADDON_LOADED", "OnAddonLoaded")
 		end
 	end
+	self:RegisterIncomingEstimateFrame()
 
 	if IsLoggedIn and IsLoggedIn() then
 		C_Timer.After(0, function()
@@ -5623,6 +6710,7 @@ function addon:OnAddonLoaded(event, loadedAddon)
 end
 
 function addon:OnDisable()
+	self:UnregisterIncomingEstimateFrame()
 	self:UnregisterPerformanceEventFrame()
 	self:UnregisterPerformanceCoalescedHandlers()
 	self:TeardownMLCoalescerIntegration()

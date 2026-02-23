@@ -1,6 +1,23 @@
+![SimpleUnitFrames Banner](Media/SUFBanner.png)
+
 # SimpleUnitFrames (SUF)
 
 SimpleUnitFrames is a modular unit frame replacement for World of Warcraft Retail, built on `oUF` with Ace3 configuration and optional `PerformanceLib` integration for event coalescing, dirty batching, profiling, and diagnostics.
+Why I created this was to learn a bit about addons, using Codex to help me. Never did like Lua much during my Mangos and Ascent developement days with GameScript they used for scripting. Yeah privateserver days but thats been a long time ago back during WoTLK days.
+
+## Screenshots
+
+### SUF Screen UI
+![SUF Screen UI](Media/Screenshots/suf-screen-ui.png)
+
+### SUF Performance Stats
+![SUF Performance Stats](Media/Screenshots/suf-stats.png)
+
+### SUF Options
+![SUF Options](Media/Screenshots/suf-options.png)
+
+### SUF Debug Console
+![SUF Debug Console](Media/Screenshots/suf-debug.png)
 
 ## Features
 
@@ -14,6 +31,9 @@ SimpleUnitFrames is a modular unit frame replacement for World of Warcraft Retai
 ### Options & UX
 - Movable, resizable custom `/suf` options window
 - Tabbed configuration for global and per-unit settings
+- Tags reference tab with grouped oUF tags + SUF custom tags
+- Per-unit tag preset system (compact/healer/tank/dps/minimal styles)
+- Credits tab and Performance tab inside SUF options
 - Import/export profile tools
 - Minimap/LDB launcher support:
   - Left click: open SUF options
@@ -23,6 +43,8 @@ SimpleUnitFrames is a modular unit frame replacement for World of Warcraft Retai
 - Optional `PerformanceLib` runtime integration
 - SUF EventBus bridge for coalesced event workflows
 - ML/coalescer adaptive hooks when available
+- Relevance-gated unit event queueing to reduce unnecessary event pressure
+- Tuned coalescing priorities/delays for noisy combat events
 - `/sufdebug` panel with:
   - Real-time logs
   - System filters
@@ -75,6 +97,66 @@ When `PerformanceLib` is installed:
 /perflib profile start|stop|analyze [scope]
 ```
 
+SUF options also include a **PerformanceLib** tab with:
+- active preset selection
+- snapshot metrics
+- shortcuts to PerfLib and SUF debug tools
+
+## Commit Message Automation
+
+This repo includes a local commit message generator and optional git hook.
+
+Manual generation:
+
+```powershell
+pwsh -File scripts/generate-commit-message.ps1
+```
+
+By default, this tries `codex exec` first and falls back to local generation if Codex is unavailable.
+
+Generate from working-tree changes instead of staged:
+
+```powershell
+pwsh -File scripts/generate-commit-message.ps1 -AllChanges
+```
+
+Force local fallback generator only:
+
+```powershell
+pwsh -File scripts/generate-commit-message.ps1 -NoCodex
+```
+
+Enable automatic prefill on `git commit`:
+
+```powershell
+pwsh -File scripts/install-git-hooks.ps1
+```
+
+After enabling hooks, `prepare-commit-msg` will prefill commit messages from staged changes.
+
+VS Code tasks are included:
+- `SUF: Generate Commit Message (Staged)`
+- `SUF: Generate Commit Message (Staged, Local Fallback Only)`
+- `SUF: Generate Commit Message (All Changes)`
+- `SUF: Install Git Hooks`
+
+Run them from `Terminal -> Run Task...` (or Command Palette: `Tasks: Run Task`).
+
+## SUF Custom Tags
+
+Available custom tags:
+
+```text
+[suf:absorbs]
+[suf:absorbs:abbr]
+[suf:incoming]
+[suf:incoming:abbr]
+[suf:healabsorbs]
+[suf:healabsorbs:abbr]
+[suf:ehp]
+[suf:ehp:abbr]
+```
+
 ## API Reference (Addon Integration)
 
 If you are extending SUF internally/modules:
@@ -125,7 +207,7 @@ addon:ApplyImportedProfile(data)
 
 ## Compatibility
 
-- WoW Retail interface versions: `120000`, `120001`
+- WoW Retail interface version: `120001`
 - Saved variables: `SimpleUnitFramesDB`
 
 ## Credits
@@ -138,4 +220,3 @@ addon:ApplyImportedProfile(data)
 
 SimpleUnitFrames follows the project repository license.  
 `PerformanceLib` integration remains under its own library license terms.
-

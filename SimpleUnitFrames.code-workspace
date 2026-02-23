@@ -1,0 +1,20 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../PerformanceLib"
+		},
+		{
+			"path": "../WoWAddonAPIAgents"
+		},
+		{
+			"path": "../wow-ui-source"
+		},
+		{
+			"path": "../wow-ui-source-live"
+		}
+	],
+	"settings": {}
+}

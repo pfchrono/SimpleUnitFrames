@@ -1,0 +1,79 @@
+{
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "SUF: Generate Commit Message (Staged)",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/generate-commit-message.ps1"
+			],
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared",
+				"clear": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "SUF: Generate Commit Message (Staged, Local Fallback Only)",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/generate-commit-message.ps1",
+				"-NoCodex"
+			],
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared",
+				"clear": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "SUF: Generate Commit Message (All Changes)",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/generate-commit-message.ps1",
+				"-AllChanges"
+			],
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared",
+				"clear": false
+			},
+			"problemMatcher": []
+		},
+		{
+			"label": "SUF: Install Git Hooks",
+			"type": "shell",
+			"command": "pwsh",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}/scripts/install-git-hooks.ps1"
+			],
+			"presentation": {
+				"reveal": "always",
+				"panel": "shared",
+				"clear": false
+			},
+			"problemMatcher": []
+		}
+	]
+}
