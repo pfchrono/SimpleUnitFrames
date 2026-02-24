@@ -8,9 +8,13 @@ Why I created this was to learn a bit about addons, using Codex to help me. Neve
 ## Recent Updates
 
 - Synced SUF framework behavior with newer `oUF` changes and element refinements
+- Added broad plugin compatibility shims for newer Retail/oUF environments:
+  - aura iteration fallback when `oUF.AuraFiltered` is unavailable
+  - aura unpack fallback when `oUF:UnpackAuraData` is unavailable
+  - secret-value helper fallbacks when `oUF:NotSecretValue` / `oUF:IsSecretValue` are unavailable
 - Expanded performance tooling integration and SUF-side diagnostics workflow
 - Improved event relevance filtering and coalesced update routing for frame pacing
-- Updated options/debug UX and commit automation workflow docs
+- Added additional plugin/runtime libraries for UI polish and extensibility
 - Incoming-heal value text feature is currently disabled by default for stability in secret-value contexts; incoming heal bars remain active
 - Added dedicated `IncomingText` debug channel (off by default) in SUF Debug Settings
 
@@ -112,46 +116,6 @@ SUF options also include a **PerformanceLib** tab with:
 - snapshot metrics
 - shortcuts to PerfLib and SUF debug tools
 
-## Commit Message Automation
-
-This repo includes a local commit message generator and optional git hook.
-
-Manual generation:
-
-```powershell
-pwsh -File scripts/generate-commit-message.ps1
-```
-
-By default, this tries `codex exec` first and falls back to local generation if Codex is unavailable.
-
-Generate from working-tree changes instead of staged:
-
-```powershell
-pwsh -File scripts/generate-commit-message.ps1 -AllChanges
-```
-
-Force local fallback generator only:
-
-```powershell
-pwsh -File scripts/generate-commit-message.ps1 -NoCodex
-```
-
-Enable automatic prefill on `git commit`:
-
-```powershell
-pwsh -File scripts/install-git-hooks.ps1
-```
-
-After enabling hooks, `prepare-commit-msg` will prefill commit messages from staged changes.
-
-VS Code tasks are included:
-- `SUF: Generate Commit Message (Staged)`
-- `SUF: Generate Commit Message (Staged, Local Fallback Only)`
-- `SUF: Generate Commit Message (All Changes)`
-- `SUF: Install Git Hooks`
-
-Run them from `Terminal -> Run Task...` (or Command Palette: `Tasks: Run Task`).
-
 ## SUF Custom Tags
 
 Available custom tags:
@@ -223,6 +187,13 @@ addon:ApplyImportedProfile(data)
 ### Included Utility
 - `TaintLess`
 - `LibDispel-1.0`
+- `UTF8`
+- `LibAceConfigHelper`
+- `LibSimpleSticky`
+- `LibTranslit-1.0`
+- `LibAnim`
+- `LibCustomGlow-1.0`
+- `LibActionButton-1.0`
 
 ## Compatibility
 
@@ -232,8 +203,9 @@ addon:ApplyImportedProfile(data)
 ## Credits
 
 - **Grevin** - SimpleUnitFrames author and project lead
-- **Grevin** **PerformanceLib** - performance systems leveraged by SUF integration
-- **Ace3/oUF/Lib authors** - foundational framework and library ecosystem
+- **PerformanceLib authors/contributors** - performance systems leveraged by SUF integration
+- **UnhaltedUnitFrames (UUF)** - architecture and feature-reference source, plus SUF-specific custom ports and personal changes beyond UUF mainline
+- **Ace3/oUF/library authors** - foundational framework and ecosystem support
 
 ## License
 

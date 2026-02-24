@@ -24,6 +24,9 @@ local LibSerialize = LibStub("LibSerialize", true)
 local LibDeflate = LibStub("LibDeflate", true)
 local LDB = LibStub("LibDataBroker-1.1", true)
 local LibDBIcon = LibStub("LibDBIcon-1.0", true)
+local LibSimpleSticky = LibStub("LibSimpleSticky-1.0", true)
+local LibTranslit = LibStub("LibTranslit-1.0", true)
+local LibCustomGlow = LibStub("LibCustomGlow-1.0", true)
 
 local addon = AceAddon:NewAddon("SimpleUnitFrames", "AceEvent-3.0", "AceConsole-3.0")
 
@@ -178,6 +181,104 @@ local defaults = {
 			enabled = true,
 			optionsAutoRefresh = true,
 		},
+		enhancements = {
+			stickyWindows = true,
+			stickyRange = 15,
+			translitNames = false,
+			translitMarker = "",
+			castbarNonInterruptibleGlow = true,
+			uiOpenAnimation = true,
+			uiOpenAnimationDuration = 0.18,
+			uiOpenAnimationOffsetY = 12,
+		},
+		plugins = {
+			raidDebuffs = {
+				enabled = true,
+				size = 18,
+				glow = true,
+				glowMode = "ALL",
+			},
+			auraWatch = {
+				enabled = true,
+				size = 10,
+				numBuffs = 3,
+				numDebuffs = 3,
+				showDebuffType = true,
+				customSpellList = "",
+				replaceDefaults = false,
+			},
+			fader = {
+				enabled = false,
+				minAlpha = 0.45,
+				maxAlpha = 1.0,
+				smooth = 0.2,
+				combat = true,
+				hover = true,
+				playerTarget = true,
+				unitTarget = false,
+				casting = false,
+			},
+			units = {
+				party = {
+					useGlobal = true,
+					raidDebuffs = {
+						enabled = true,
+						size = 18,
+						glow = true,
+						glowMode = "ALL",
+					},
+					auraWatch = {
+						enabled = true,
+						size = 10,
+						numBuffs = 3,
+						numDebuffs = 3,
+						showDebuffType = true,
+						customSpellList = "",
+						replaceDefaults = false,
+					},
+					fader = {
+						enabled = false,
+						minAlpha = 0.45,
+						maxAlpha = 1.0,
+						smooth = 0.2,
+						combat = true,
+						hover = true,
+						playerTarget = true,
+						unitTarget = false,
+						casting = false,
+					},
+				},
+				raid = {
+					useGlobal = true,
+					raidDebuffs = {
+						enabled = true,
+						size = 18,
+						glow = true,
+						glowMode = "ALL",
+					},
+					auraWatch = {
+						enabled = true,
+						size = 10,
+						numBuffs = 3,
+						numDebuffs = 3,
+						showDebuffType = true,
+						customSpellList = "",
+						replaceDefaults = false,
+					},
+					fader = {
+						enabled = false,
+						minAlpha = 0.45,
+						maxAlpha = 1.0,
+						smooth = 0.2,
+						combat = true,
+						hover = true,
+						playerTarget = true,
+						unitTarget = false,
+						casting = false,
+					},
+				},
+			},
+		},
 		minimap = {
 			hide = false,
 			minimapPos = 220,
@@ -249,6 +350,15 @@ local DEFAULT_UNIT_MAIN_BARS_BACKGROUND = {
 	texture = "Blizzard",
 	color = { 0.05, 0.05, 0.05 },
 	alpha = 0.40,
+}
+
+local DEFAULT_AURAWATCH_WATCHED = {
+	[17] = { enabled = true, anyUnit = true, point = "TOPLEFT", xOffset = 1, yOffset = -1 }, -- Power Word: Shield
+	[774] = { enabled = true, anyUnit = true, point = "TOP", xOffset = 0, yOffset = -1 }, -- Rejuvenation
+	[139] = { enabled = true, anyUnit = true, point = "TOPRIGHT", xOffset = -1, yOffset = -1 }, -- Renew
+	[1022] = { enabled = true, anyUnit = true, point = "BOTTOMLEFT", xOffset = 1, yOffset = 1 }, -- Blessing of Protection
+	[6940] = { enabled = true, anyUnit = true, point = "BOTTOM", xOffset = 0, yOffset = 1 }, -- Blessing of Sacrifice
+	[33206] = { enabled = true, anyUnit = true, point = "BOTTOMRIGHT", xOffset = -1, yOffset = 1 }, -- Pain Suppression
 }
 
 local HasVisibleClassPower
@@ -735,6 +845,295 @@ function addon:GetUnitHealPredictionSettings(unitType)
 	return unit.healPrediction
 end
 
+function addon:GetPluginSettings()
+	self.db.profile.plugins = self.db.profile.plugins or CopyTableDeep(defaults.profile.plugins)
+	MergeDefaults(self.db.profile.plugins, defaults.profile.plugins)
+	return self.db.profile.plugins
+end
+
+local function IsGroupUnitType(unitType)
+	return unitType == "party" or unitType == "raid"
+end
+
+local function TrimString(value)
+	if type(value) ~= "string" then
+		return ""
+	end
+	return (value:gsub("^%s+", ""):gsub("%s+$", ""))
+end
+
+local function TruncateUTF8(text, maxChars)
+	local s = SafeText(text, "")
+	if s == "" then
+		return s
+	end
+	local limit = tonumber(maxChars) or 0
+	if limit <= 0 then
+		return s
+	end
+
+	if string.utf8len and string.utf8sub then
+		local okLen, length = pcall(string.utf8len, s)
+		if okLen and length and length > limit then
+			if limit <= 3 then
+				local okTiny, tiny = pcall(string.utf8sub, s, 1, limit)
+				return okTiny and tiny or s
+			end
+			local okSub, truncated = pcall(string.utf8sub, s, 1, limit - 3)
+			if okSub and truncated then
+				return truncated .. "..."
+			end
+		elseif okLen and length then
+			return s
+		end
+	end
+
+	if #s > limit then
+		if limit <= 3 then
+			return s:sub(1, limit)
+		end
+		return s:sub(1, limit - 3) .. "..."
+	end
+	return s
+end
+
+function addon:GetUnitPluginSettings(unitType)
+	local plugins = self:GetPluginSettings()
+	if not IsGroupUnitType(unitType) then
+		return plugins
+	end
+
+	plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
+	MergeDefaults(plugins.units, defaults.profile.plugins.units)
+
+	local unitCfg = plugins.units[unitType] or CopyTableDeep(defaults.profile.plugins.units[unitType])
+	plugins.units[unitType] = unitCfg
+	unitCfg.raidDebuffs = unitCfg.raidDebuffs or {}
+	unitCfg.auraWatch = unitCfg.auraWatch or {}
+	unitCfg.fader = unitCfg.fader or {}
+
+	if unitCfg.useGlobal ~= false then
+		return plugins
+	end
+
+	local merged = {
+		raidDebuffs = CopyTableDeep(plugins.raidDebuffs),
+		auraWatch = CopyTableDeep(plugins.auraWatch),
+		fader = CopyTableDeep(plugins.fader),
+	}
+	MergeDefaults(unitCfg, merged)
+
+	for key, value in pairs(unitCfg.raidDebuffs or {}) do
+		merged.raidDebuffs[key] = value
+	end
+	for key, value in pairs(unitCfg.auraWatch or {}) do
+		merged.auraWatch[key] = value
+	end
+	for key, value in pairs(unitCfg.fader or {}) do
+		merged.fader[key] = value
+	end
+
+	return merged
+end
+
+function addon:SeedUnitPluginOverridesFromGlobal(unitType)
+	if not IsGroupUnitType(unitType) then
+		return
+	end
+	local plugins = self:GetPluginSettings()
+	plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
+	local unitCfg = plugins.units[unitType] or {}
+	plugins.units[unitType] = unitCfg
+
+	unitCfg.useGlobal = false
+	unitCfg.raidDebuffs = CopyTableDeep(plugins.raidDebuffs or defaults.profile.plugins.raidDebuffs)
+	unitCfg.auraWatch = CopyTableDeep(plugins.auraWatch or defaults.profile.plugins.auraWatch)
+	unitCfg.fader = CopyTableDeep(plugins.fader or defaults.profile.plugins.fader)
+end
+
+function addon:NormalizePluginConfig()
+	local plugins = self:GetPluginSettings()
+	local function ClampNumber(value, minValue, maxValue, fallback)
+		local n = tonumber(value)
+		if not n then
+			return fallback
+		end
+		if minValue and n < minValue then
+			n = minValue
+		end
+		if maxValue and n > maxValue then
+			n = maxValue
+		end
+		return n
+	end
+
+	plugins.raidDebuffs.size = ClampNumber(plugins.raidDebuffs.size, 12, 36, defaults.profile.plugins.raidDebuffs.size)
+	if plugins.raidDebuffs.glowMode ~= "DISPELLABLE" and plugins.raidDebuffs.glowMode ~= "PRIORITY" then
+		plugins.raidDebuffs.glowMode = "ALL"
+	end
+	plugins.auraWatch.size = ClampNumber(plugins.auraWatch.size, 8, 22, defaults.profile.plugins.auraWatch.size)
+	plugins.auraWatch.numBuffs = ClampNumber(plugins.auraWatch.numBuffs, 0, 8, defaults.profile.plugins.auraWatch.numBuffs)
+	plugins.auraWatch.numDebuffs = ClampNumber(plugins.auraWatch.numDebuffs, 0, 8, defaults.profile.plugins.auraWatch.numDebuffs)
+	plugins.fader.minAlpha = ClampNumber(plugins.fader.minAlpha, 0.05, 1, defaults.profile.plugins.fader.minAlpha)
+	plugins.fader.maxAlpha = ClampNumber(plugins.fader.maxAlpha, 0.05, 1, defaults.profile.plugins.fader.maxAlpha)
+	plugins.fader.smooth = ClampNumber(plugins.fader.smooth, 0, 1, defaults.profile.plugins.fader.smooth)
+	plugins.auraWatch.customSpellList = SafeText(plugins.auraWatch.customSpellList, "")
+	local enhancement = self:GetEnhancementSettings()
+	enhancement.uiOpenAnimationDuration = ClampNumber(enhancement.uiOpenAnimationDuration, 0.05, 0.60, 0.18)
+	enhancement.uiOpenAnimationOffsetY = ClampNumber(enhancement.uiOpenAnimationOffsetY, -40, 40, 12)
+
+	local unitPlugins = plugins.units or {}
+	for unitType, unitCfg in pairs(unitPlugins) do
+		if IsGroupUnitType(unitType) then
+			unitCfg.raidDebuffs = unitCfg.raidDebuffs or {}
+			unitCfg.auraWatch = unitCfg.auraWatch or {}
+			unitCfg.fader = unitCfg.fader or {}
+			unitCfg.raidDebuffs.size = ClampNumber(unitCfg.raidDebuffs.size, 12, 36, plugins.raidDebuffs.size)
+			if unitCfg.raidDebuffs.glowMode ~= "DISPELLABLE" and unitCfg.raidDebuffs.glowMode ~= "PRIORITY" then
+				unitCfg.raidDebuffs.glowMode = "ALL"
+			end
+			unitCfg.auraWatch.size = ClampNumber(unitCfg.auraWatch.size, 8, 22, plugins.auraWatch.size)
+			unitCfg.auraWatch.numBuffs = ClampNumber(unitCfg.auraWatch.numBuffs, 0, 8, plugins.auraWatch.numBuffs)
+			unitCfg.auraWatch.numDebuffs = ClampNumber(unitCfg.auraWatch.numDebuffs, 0, 8, plugins.auraWatch.numDebuffs)
+			unitCfg.fader.minAlpha = ClampNumber(unitCfg.fader.minAlpha, 0.05, 1, plugins.fader.minAlpha)
+			unitCfg.fader.maxAlpha = ClampNumber(unitCfg.fader.maxAlpha, 0.05, 1, plugins.fader.maxAlpha)
+			unitCfg.fader.smooth = ClampNumber(unitCfg.fader.smooth, 0, 1, plugins.fader.smooth)
+			unitCfg.auraWatch.customSpellList = SafeText(unitCfg.auraWatch.customSpellList, "")
+		end
+	end
+end
+
+local function SafeSetFaderOption(fader, key, value)
+	if not (fader and fader.SetOption) then
+		return
+	end
+	pcall(fader.SetOption, fader, key, value)
+end
+
+function addon:BuildAuraWatchWatchedList(customValue, replaceDefaults)
+	local watched = replaceDefaults and {} or CopyTableDeep(DEFAULT_AURAWATCH_WATCHED)
+	if type(customValue) == "table" then
+		for key, value in pairs(customValue) do
+			local spellID = tonumber(key)
+			if spellID and spellID > 0 then
+				if type(value) == "table" then
+					watched[spellID] = CopyTableDeep(value)
+					if watched[spellID].enabled == nil then
+						watched[spellID].enabled = true
+					end
+					if watched[spellID].anyUnit == nil then
+						watched[spellID].anyUnit = true
+					end
+				elseif value == true then
+					watched[spellID] = { enabled = true, anyUnit = true }
+				elseif value == false then
+					watched[spellID] = nil
+				end
+			end
+		end
+		return watched
+	end
+
+	local parsed = self:ParseAuraWatchSpellTokens(customValue)
+	for i = 1, #parsed.removes do
+		watched[parsed.removes[i]] = nil
+	end
+	for i = 1, #parsed.adds do
+		local spellID = parsed.adds[i]
+		local existing = watched[spellID]
+		if type(existing) == "table" then
+			existing.enabled = true
+			if existing.anyUnit == nil then
+				existing.anyUnit = true
+			end
+		else
+			watched[spellID] = { enabled = true, anyUnit = true }
+		end
+	end
+
+	return watched
+end
+
+function addon:ParseAuraWatchSpellTokens(customValue)
+	local result = {
+		adds = {},
+		removes = {},
+		invalid = {},
+	}
+
+	local text = TrimString(SafeText(customValue, ""))
+	if text == "" then
+		return result
+	end
+
+	for token in text:gmatch("[^,%s;]+") do
+		local value = TrimString(token)
+		local isRemove = value:sub(1, 1) == "-"
+		if value:sub(1, 1) == "+" or isRemove then
+			value = value:sub(2)
+		end
+		local spellID = tonumber(value)
+		if spellID and spellID > 0 then
+			if isRemove then
+				result.removes[#result.removes + 1] = spellID
+			else
+				result.adds[#result.adds + 1] = spellID
+			end
+		else
+			result.invalid[#result.invalid + 1] = token
+		end
+	end
+
+	return result
+end
+
+function addon:GetSpellNameForValidation(spellID)
+	if C_Spell and C_Spell.GetSpellInfo then
+		local info = C_Spell.GetSpellInfo(spellID)
+		if info and info.name then
+			return info.name
+		end
+	end
+	if GetSpellInfo then
+		local name = GetSpellInfo(spellID)
+		if name then
+			return name
+		end
+	end
+	return nil
+end
+
+function addon:ValidateAuraWatchSpellList(customValue)
+	local parsed = self:ParseAuraWatchSpellTokens(customValue)
+	local validAdds, validRemoves, invalidIDs = {}, {}, {}
+
+	for i = 1, #parsed.adds do
+		local id = parsed.adds[i]
+		local name = self:GetSpellNameForValidation(id)
+		if name then
+			validAdds[#validAdds + 1] = id
+		else
+			invalidIDs[#invalidIDs + 1] = id
+		end
+	end
+	for i = 1, #parsed.removes do
+		local id = parsed.removes[i]
+		local name = self:GetSpellNameForValidation(id)
+		if name then
+			validRemoves[#validRemoves + 1] = id
+		else
+			invalidIDs[#invalidIDs + 1] = id
+		end
+	end
+
+	return {
+		validAdds = validAdds,
+		validRemoves = validRemoves,
+		invalidIDs = invalidIDs,
+		invalidTokens = parsed.invalid,
+	}
+end
+
 function addon:GetAbsorbTextForUnit(unit, useAbbrev)
 	if not unit or not UnitExists or not UnitExists(unit) then
 		return ""
@@ -933,6 +1332,28 @@ function addon:UnregisterIncomingEstimateFrame()
 	self._incomingHealthTrendByGUID = nil
 end
 
+function addon:GetDisplayNameForUnit(unit)
+	if not unit then
+		return ""
+	end
+
+	local unitName = SafeText(UnitName and UnitName(unit), "")
+	if unitName == "" then
+		return ""
+	end
+
+	local enhancement = self:GetEnhancementSettings()
+	if enhancement and enhancement.translitNames and LibTranslit and LibTranslit.Transliterate then
+		local mark = SafeText(enhancement.translitMarker, "")
+		local ok, transliterated = pcall(LibTranslit.Transliterate, LibTranslit, unitName, mark)
+		if ok and type(transliterated) == "string" and transliterated ~= "" then
+			return transliterated
+		end
+	end
+
+	return unitName
+end
+
 function addon:RegisterCustomTags()
 	if self._customTagsRegistered then
 		return
@@ -967,6 +1388,9 @@ function addon:RegisterCustomTags()
 	ouf.Tags.Methods["suf:ehp:abbr"] = function(unit)
 		return addon:GetEffectiveHealthTextForUnit(unit, true)
 	end
+	ouf.Tags.Methods["suf:name"] = function(unit)
+		return addon:GetDisplayNameForUnit(unit)
+	end
 	ouf.Tags.Events["suf:absorbs"] = "UNIT_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:absorbs:abbr"] = "UNIT_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:incoming"] = "UNIT_HEAL_PREDICTION UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
@@ -975,6 +1399,7 @@ function addon:RegisterCustomTags()
 	ouf.Tags.Events["suf:healabsorbs:abbr"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:ehp"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:ehp:abbr"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:name"] = "UNIT_NAME_UPDATE PLAYER_ENTERING_WORLD GROUP_ROSTER_UPDATE"
 
 	self._customTagsRegistered = true
 end
@@ -1881,11 +2306,7 @@ function addon:ShowDebugExportDialog()
 		local frame = CreateFrame("Frame", "SUFDebugExportFrame", UIParent, "BasicFrameTemplateWithInset")
 		frame:SetSize(520, 420)
 		frame:SetPoint("CENTER")
-		frame:SetMovable(true)
-		frame:EnableMouse(true)
-		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", frame.StartMoving)
-		frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+		self:EnableMovableFrame(frame, true)
 		frame:SetFrameStrata("DIALOG")
 
 		SetSUFWindowTitle(frame, "SUF Debug Export")
@@ -1915,6 +2336,7 @@ function addon:ShowDebugExportDialog()
 	self.debugExportFrame.editBox:SetCursorPosition(0)
 	self.debugExportFrame.editBox:HighlightText()
 	self.debugExportFrame:Show()
+	self:PlayWindowOpenAnimation(self.debugExportFrame)
 end
 
 function addon:ShowDebugSettings()
@@ -1923,11 +2345,7 @@ function addon:ShowDebugSettings()
 		local frame = CreateFrame("Frame", "SUFDebugSettingsFrame", UIParent, "BasicFrameTemplateWithInset")
 		frame:SetSize(320, 360)
 		frame:SetPoint("CENTER", UIParent, "CENTER", -360, 0)
-		frame:SetMovable(true)
-		frame:EnableMouse(true)
-		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", frame.StartMoving)
-		frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+		self:EnableMovableFrame(frame, true)
 
 		SetSUFWindowTitle(frame, "SUF Debug Settings")
 
@@ -1990,6 +2408,7 @@ function addon:ShowDebugSettings()
 	end
 	child:SetHeight(math.max(math.abs(y) + 8, 1))
 	frame:Show()
+	self:PlayWindowOpenAnimation(frame)
 end
 
 function addon:ShowDebugPanel()
@@ -1998,11 +2417,7 @@ function addon:ShowDebugPanel()
 		local frame = CreateFrame("Frame", "SUFDebugPanel", UIParent, "BasicFrameTemplateWithInset")
 		frame:SetSize(620, 420)
 		frame:SetPoint("CENTER", UIParent, "CENTER", 260, 0)
-		frame:SetMovable(true)
-		frame:EnableMouse(true)
-		frame:RegisterForDrag("LeftButton")
-		frame:SetScript("OnDragStart", frame.StartMoving)
-		frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+		self:EnableMovableFrame(frame, true)
 
 		SetSUFWindowTitle(frame, "|cFF00B0F7SUF Debug Console|r")
 
@@ -2114,6 +2529,7 @@ function addon:ShowDebugPanel()
 	end
 	SetSUFWindowTitle(self.debugPanel, "|cFF00B0F7SUF Debug Console|r")
 	self.debugPanel:Show()
+	self:PlayWindowOpenAnimation(self.debugPanel)
 	self.db.profile.debug.showPanel = true
 	self:RefreshDebugPanel()
 end
@@ -2811,7 +3227,12 @@ function addon:ApplyTags(frame)
 	end
 
 	if frame.NameText then
-		ApplyTagSafe(frame.NameText, tags.name, "[name]")
+		local nameTag = tags.name
+		if self:GetEnhancementSettings().translitNames then
+			nameTag = SafeText(nameTag, "[name]")
+			nameTag = nameTag:gsub("%[name%]", "[suf:name]")
+		end
+		ApplyTagSafe(frame.NameText, nameTag, self:GetEnhancementSettings().translitNames and "[suf:name]" or "[name]")
 	end
 
 	if frame.LevelText then
@@ -3342,6 +3763,278 @@ function addon:UpdateIncomingHealValue(frame, unitToken)
 	))
 end
 
+local NON_INTERRUPT_GLOW_KEY = "suf_castbar_non_interrupt"
+local RAID_DEBUFF_GLOW_KEY = "suf_raiddebuff_glow"
+
+local function StopCastbarNonInterruptGlow(castbar)
+	if not (LibCustomGlow and castbar) then
+		return
+	end
+	pcall(LibCustomGlow.PixelGlow_Stop, LibCustomGlow, castbar, NON_INTERRUPT_GLOW_KEY)
+end
+
+local function StartCastbarNonInterruptGlow(castbar, color)
+	if not (LibCustomGlow and castbar) then
+		return
+	end
+	StopCastbarNonInterruptGlow(castbar)
+	local glowColor = color or { 1, 0.2, 0.2, 0.90 }
+	pcall(
+		LibCustomGlow.PixelGlow_Start,
+		LibCustomGlow,
+		castbar,
+		glowColor,
+		8,
+		0.18,
+		8,
+		2,
+		0,
+		0,
+		false,
+		NON_INTERRUPT_GLOW_KEY,
+		castbar:GetFrameLevel() + 6
+	)
+end
+
+local function StopRaidDebuffGlow(element)
+	if not (LibCustomGlow and element) then
+		return
+	end
+	pcall(LibCustomGlow.PixelGlow_Stop, LibCustomGlow, element, RAID_DEBUFF_GLOW_KEY)
+end
+
+local function StartRaidDebuffGlow(element)
+	if not (LibCustomGlow and element) then
+		return
+	end
+	StopRaidDebuffGlow(element)
+	pcall(
+		LibCustomGlow.PixelGlow_Start,
+		LibCustomGlow,
+		element,
+		{ 1.0, 0.25, 0.25, 0.95 },
+		6,
+		0.22,
+		6,
+		2,
+		0,
+		0,
+		false,
+		RAID_DEBUFF_GLOW_KEY,
+		element:GetFrameLevel() + 4
+	)
+end
+
+local SUF_DISPEL_FILTER = nil
+
+local function IsDispellableDebuffType(debuffType)
+	if not debuffType then
+		return false
+	end
+	if SUF_DISPEL_FILTER == nil then
+		local lib = LibStub and LibStub("LibDispel-1.0", true) or nil
+		if lib and lib.GetMyDispelTypes then
+			SUF_DISPEL_FILTER = lib:GetMyDispelTypes() or false
+		else
+			SUF_DISPEL_FILTER = false
+		end
+	end
+	return type(SUF_DISPEL_FILTER) == "table" and SUF_DISPEL_FILTER[debuffType] and true or false
+end
+
+local function IsPriorityRaidDebuff(name, spellID)
+	local rd = _G and _G.oUF_RaidDebuffs
+	if not (rd and rd.DebuffData) then
+		return false
+	end
+	if spellID and rd.DebuffData[spellID] then
+		return true
+	end
+	if name and rd.DebuffData[name] then
+		return true
+	end
+	return false
+end
+
+local function CreateAuraWatchIconElement(element)
+	local button = CreateFrame("Button", nil, element)
+	button:EnableMouse(false)
+	button:Hide()
+
+	local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
+	cd:SetAllPoints()
+	cd:SetReverse(true)
+	cd:SetDrawBling(false)
+	cd:SetDrawEdge(false)
+
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+
+	local countFrame = CreateFrame("Frame", nil, button)
+	countFrame:SetAllPoints(button)
+	countFrame:SetFrameLevel(cd:GetFrameLevel() + 1)
+
+	local count = countFrame:CreateFontString(nil, "OVERLAY", "NumberFontNormal")
+	count:SetPoint("BOTTOMRIGHT", countFrame, "BOTTOMRIGHT", -1, 0)
+
+	local overlay = button:CreateTexture(nil, "OVERLAY")
+	overlay:SetTexture([[Interface\Buttons\UI-Debuff-Overlays]])
+	overlay:SetAllPoints()
+	overlay:SetTexCoord(.296875, .5703125, 0, .515625)
+
+	button.overlay = overlay
+	button.icon = icon
+	button.count = count
+	button.cd = cd
+	return button
+end
+
+function addon:EnsureRaidDebuffsElement(frame)
+	if not frame then
+		return nil
+	end
+	if frame.RaidDebuffs then
+		return frame.RaidDebuffs
+	end
+
+	local parent = frame.IndicatorFrame or frame
+	local element = CreateFrame("Frame", nil, parent, "BackdropTemplate")
+	element:SetSize(18, 18)
+	element:SetPoint("CENTER", frame.Health or frame, "CENTER", 0, 0)
+	element:SetFrameLevel((parent:GetFrameLevel() or frame:GetFrameLevel() or 1) + 6)
+	if element.SetBackdrop then
+		element:SetBackdrop({
+			edgeFile = "Interface\\Buttons\\WHITE8x8",
+			edgeSize = 1,
+		})
+	end
+	element:SetBackdropBorderColor(0, 0, 0, 1)
+
+	local icon = element:CreateTexture(nil, "ARTWORK")
+	icon:SetAllPoints()
+	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+	element.icon = icon
+
+	local cd = CreateFrame("Cooldown", nil, element, "CooldownFrameTemplate")
+	cd:SetAllPoints()
+	cd:SetDrawBling(false)
+	cd:SetDrawEdge(false)
+	element.cd = cd
+
+	local count = element:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
+	count:SetPoint("BOTTOMRIGHT", element, "BOTTOMRIGHT", -1, 1)
+	element.count = count
+
+	local time = element:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+	time:SetPoint("TOP", element, "BOTTOM", 0, -1)
+	element.time = time
+	element.PostUpdate = function(widget, name, _, _, debuffType, _, _, spellID)
+		if not name then
+			StopRaidDebuffGlow(widget)
+			return
+		end
+		local owner = widget.__owner
+		if not owner or not owner.sufUnitType then
+			StopRaidDebuffGlow(widget)
+			return
+		end
+		local pluginCfg = addon:GetUnitPluginSettings(owner.sufUnitType)
+		if pluginCfg and pluginCfg.raidDebuffs and pluginCfg.raidDebuffs.glow == false then
+			StopRaidDebuffGlow(widget)
+			return
+		end
+		local mode = pluginCfg and pluginCfg.raidDebuffs and pluginCfg.raidDebuffs.glowMode or "ALL"
+		if mode == "DISPELLABLE" then
+			if not IsDispellableDebuffType(debuffType) then
+				StopRaidDebuffGlow(widget)
+				return
+			end
+		elseif mode == "PRIORITY" then
+			if not IsPriorityRaidDebuff(name, spellID) then
+				StopRaidDebuffGlow(widget)
+				return
+			end
+		end
+		StartRaidDebuffGlow(widget)
+	end
+	element.__owner = frame
+
+	frame.RaidDebuffs = element
+	return element
+end
+
+function addon:EnsureAuraWatchElement(frame)
+	if not frame then
+		return nil
+	end
+	if frame.AuraWatch then
+		return frame.AuraWatch
+	end
+
+	local parent = frame.IndicatorFrame or frame
+	local element = CreateFrame("Frame", nil, parent)
+	element:SetAllPoints(frame)
+	element:SetFrameLevel((parent:GetFrameLevel() or frame:GetFrameLevel() or 1) + 4)
+	element.CreateIcon = CreateAuraWatchIconElement
+	element.watched = CopyTableDeep(DEFAULT_AURAWATCH_WATCHED)
+	frame.AuraWatch = element
+	return element
+end
+
+function addon:ApplyPluginElements(frame)
+	if not frame or not frame.sufUnitType then
+		return
+	end
+
+	local plugins = self:GetUnitPluginSettings(frame.sufUnitType)
+	local isGroup = IsGroupUnitType(frame.sufUnitType)
+
+	if frame.RaidDebuffs then
+		frame.RaidDebuffs:SetShown(isGroup and plugins.raidDebuffs.enabled ~= false)
+		if frame.RaidDebuffs:IsShown() then
+			local size = math.max(12, math.min(36, tonumber(plugins.raidDebuffs.size) or 18))
+			frame.RaidDebuffs:SetSize(size, size)
+			frame.RaidDebuffs:ClearAllPoints()
+			frame.RaidDebuffs:SetPoint("CENTER", frame.Health or frame, "CENTER", 0, 0)
+		else
+			StopRaidDebuffGlow(frame.RaidDebuffs)
+		end
+	end
+
+	if frame.AuraWatch then
+		frame.AuraWatch:SetShown(isGroup and plugins.auraWatch.enabled ~= false)
+		local watched = self:BuildAuraWatchWatchedList(plugins.auraWatch.customSpells or plugins.auraWatch.customSpellList, plugins.auraWatch.replaceDefaults)
+		if frame.AuraWatch.SetNewTable then
+			frame.AuraWatch:SetNewTable(watched)
+		else
+			frame.AuraWatch.watched = watched
+		end
+		frame.AuraWatch.size = math.max(8, math.min(22, tonumber(plugins.auraWatch.size) or 10))
+		frame.AuraWatch.numBuffs = math.max(0, math.min(8, tonumber(plugins.auraWatch.numBuffs) or 3))
+		frame.AuraWatch.numDebuffs = math.max(0, math.min(8, tonumber(plugins.auraWatch.numDebuffs) or 3))
+		frame.AuraWatch.showDebuffType = plugins.auraWatch.showDebuffType ~= false
+		if frame.AuraWatch.ForceUpdate then
+			frame.AuraWatch:ForceUpdate()
+		end
+	end
+
+	if frame.Fader and frame.Fader.SetOption then
+		local faderCfg = plugins.fader or defaults.profile.plugins.fader
+		local enabled = faderCfg.enabled == true
+		SafeSetFaderOption(frame.Fader, "MinAlpha", tonumber(faderCfg.minAlpha) or 0.45)
+		SafeSetFaderOption(frame.Fader, "MaxAlpha", tonumber(faderCfg.maxAlpha) or 1)
+		SafeSetFaderOption(frame.Fader, "Smooth", tonumber(faderCfg.smooth) or 0.2)
+		SafeSetFaderOption(frame.Fader, "Hover", enabled and (faderCfg.hover ~= false) or false)
+		SafeSetFaderOption(frame.Fader, "Combat", enabled and (faderCfg.combat ~= false) or false)
+		SafeSetFaderOption(frame.Fader, "Casting", enabled and (faderCfg.casting == true) or false)
+		SafeSetFaderOption(frame.Fader, "PlayerTarget", enabled and (faderCfg.playerTarget ~= false) or false)
+		SafeSetFaderOption(frame.Fader, "UnitTarget", enabled and (faderCfg.unitTarget == true) or false)
+		if frame.Fader.ForceUpdate then
+			frame.Fader:ForceUpdate("SUF_FaderApply")
+		end
+	end
+end
+
 function addon:ApplyMedia(frame)
 	local profileStart = debugprofilestop and debugprofilestop() or nil
 	local texture = self:GetUnitStatusbarTexture(frame.sufUnitType)
@@ -3579,6 +4272,7 @@ function addon:ApplyMedia(frame)
 				local isWatchedUnit = frame.sufUnitType == "target" or frame.sufUnitType == "boss"
 				local interruptible = self:GetUnitInterruptState(castbar.unit)
 				if not isHostile or not isWatchedUnit or interruptible == nil then
+					StopCastbarNonInterruptGlow(castbar)
 					return
 				end
 
@@ -3586,12 +4280,18 @@ function addon:ApplyMedia(frame)
 					local activeColor = castbar.channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
 					activeColor = activeColor or { 1, 0.7, 0 }
 					castbar:SetStatusBarColor(activeColor[1] or 1, activeColor[2] or 0.7, activeColor[3] or 0)
+					StopCastbarNonInterruptGlow(castbar)
 					if castbar.Shield then
 						castbar.Shield:SetShown(false)
 					end
 				else
 					local niColor = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
 					castbar:SetStatusBarColor(niColor[1] or 0.75, niColor[2] or 0.75, niColor[3] or 0.75)
+					if self:GetEnhancementSettings().castbarNonInterruptibleGlow ~= false then
+						StartCastbarNonInterruptGlow(castbar, { niColor[1] or 0.75, niColor[2] or 0.75, niColor[3] or 0.75, 0.90 })
+					else
+						StopCastbarNonInterruptGlow(castbar)
+					end
 					if castbar.Shield then
 						castbar.Shield:SetShown(castbarCfg.showShield ~= false)
 					end
@@ -3657,9 +4357,7 @@ function addon:ApplyMedia(frame)
 					return
 				end
 				local spellName = SafeText(rawName, "")
-				if #spellName > maxChars then
-					spellName = spellName:sub(1, maxChars - 3) .. "..."
-				end
+				spellName = TruncateUTF8(spellName, maxChars)
 				castbar.Text:SetText(spellName)
 			end
 			frame.Castbar.PostChannelStart = function(castbar)
@@ -3671,6 +4369,7 @@ function addon:ApplyMedia(frame)
 				local color = castbar.channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
 				color = color or { 1, 0.7, 0 }
 				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.7, color[3] or 0)
+				StopCastbarNonInterruptGlow(castbar)
 				if castbar.Shield then
 					castbar.Shield:SetShown(false)
 				end
@@ -3678,6 +4377,11 @@ function addon:ApplyMedia(frame)
 			frame.Castbar.PostCastNotInterruptible = function(castbar)
 				local color = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
 				castbar:SetStatusBarColor(color[1] or 0.75, color[2] or 0.75, color[3] or 0.75)
+				if self:GetEnhancementSettings().castbarNonInterruptibleGlow ~= false then
+					StartCastbarNonInterruptGlow(castbar, { color[1] or 0.75, color[2] or 0.75, color[3] or 0.75, 0.90 })
+				else
+					StopCastbarNonInterruptGlow(castbar)
+				end
 				if castbar.Shield then
 					castbar.Shield:SetShown(castbarCfg.showShield ~= false)
 				end
@@ -3685,13 +4389,16 @@ function addon:ApplyMedia(frame)
 			frame.Castbar.PostCastFailed = function(castbar)
 				local color = castbarColors.failed or { 1, 0.1, 0.1 }
 				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.1, color[3] or 0.1)
+				StopCastbarNonInterruptGlow(castbar)
 			end
 			frame.Castbar.PostCastInterrupted = frame.Castbar.PostCastFailed
 			frame.Castbar.PostCastStop = function(castbar)
 				local color = castbarColors.complete or { 0, 1, 0 }
 				castbar:SetStatusBarColor(color[1] or 0, color[2] or 1, color[3] or 0)
+				StopCastbarNonInterruptGlow(castbar)
 			end
 		else
+			StopCastbarNonInterruptGlow(frame.Castbar)
 			if frame.Castbar.Text then
 				frame.Castbar.Text:SetText("")
 			end
@@ -3731,6 +4438,8 @@ function addon:ApplyMedia(frame)
 	if frame.AdditionalPowerValue then
 		frame.AdditionalPowerValue:SetFont(font, math.max(8, sizes.power - 1), "OUTLINE")
 	end
+
+	self:ApplyPluginElements(frame)
 
 	if profileStart then
 		local profileEnd = debugprofilestop() or profileStart
@@ -3971,14 +4680,7 @@ function addon:UpdateAllFrames()
 	local totalStart = debugprofilestop and debugprofilestop() or nil
 	for _, frame in ipairs(self.frames) do
 		local frameStart = debugprofilestop and debugprofilestop() or nil
-		self:ApplyTags(frame)
-		self:ApplyMedia(frame)
-		self:ApplySize(frame)
-		self:ApplyIndicators(frame)
-		self:ApplyPortrait(frame)
-		frame:UpdateAllElements("SimpleUnitFrames_Update")
-		self:UpdateAbsorbValue(frame)
-		self:UpdateIncomingHealValue(frame)
+		self:UpdateSingleFrame(frame)
 		if frameStart then
 			local frameEnd = debugprofilestop() or frameStart
 			self:RecordProfilerEvent("suf:update.frame", frameEnd - frameStart)
@@ -4110,6 +4812,17 @@ function addon:ReleaseFramePooledResources(frame)
 		pcall(self.performanceLib.ReleaseFrame, self.performanceLib, frame.Auras)
 	end
 	frame.Auras = nil
+
+	if frame.RaidDebuffs then
+		StopRaidDebuffGlow(frame.RaidDebuffs)
+		frame.RaidDebuffs:Hide()
+		frame.RaidDebuffs = nil
+	end
+
+	if frame.AuraWatch then
+		frame.AuraWatch:Hide()
+		frame.AuraWatch = nil
+	end
 end
 
 function addon:ReleaseAllPooledResources()
@@ -4433,6 +5146,272 @@ HasVisibleClassPower = function(frame)
 	return false
 end
 
+function addon:GetEnhancementSettings()
+	if not (self.db and self.db.profile) then
+		return defaults.profile.enhancements
+	end
+	self.db.profile.enhancements = self.db.profile.enhancements or CopyTableDeep(defaults.profile.enhancements)
+	return self.db.profile.enhancements
+end
+
+function addon:PlayWindowOpenAnimation(frame)
+	if not frame then
+		return
+	end
+	local cfg = self:GetEnhancementSettings()
+	if cfg.uiOpenAnimation == false then
+		return
+	end
+	if not CreateAnimationGroup then
+		return
+	end
+
+	frame._sufOpenAnimGroup = frame._sufOpenAnimGroup or CreateAnimationGroup(frame)
+	local group = frame._sufOpenAnimGroup
+	if not group then
+		return
+	end
+
+	local duration = math.max(0.05, math.min(0.60, tonumber(cfg.uiOpenAnimationDuration) or 0.18))
+	local offsetY = math.max(-40, math.min(40, tonumber(cfg.uiOpenAnimationOffsetY) or 12))
+
+	if not group._sufAlpha then
+		local alpha = group:CreateAnimation("fade")
+		alpha:SetDuration(duration)
+		alpha:SetEasing("outquadratic")
+		alpha:SetChange(1)
+		group._sufAlpha = alpha
+	end
+	if not group._sufMove then
+		local move = group:CreateAnimation("move")
+		move:SetDuration(duration)
+		move:SetEasing("outquadratic")
+		move:SetOffset(0, 0)
+		group._sufMove = move
+	end
+
+	if group._sufAlpha.SetDuration then
+		group._sufAlpha:SetDuration(duration)
+	end
+	if group._sufMove.SetDuration then
+		group._sufMove:SetDuration(duration)
+	end
+	if group._sufMove.SetOffset then
+		group._sufMove:SetOffset(0, offsetY)
+	end
+
+	if frame._sufOpenAnimRestore then
+		local restore = frame._sufOpenAnimRestore
+		frame:ClearAllPoints()
+		frame:SetPoint(restore[1], restore[2], restore[3], restore[4], restore[5])
+		frame._sufOpenAnimRestore = nil
+	end
+
+	local a1, rel, a2, x, y = frame:GetPoint(1)
+	if offsetY ~= 0 and a1 and rel and a2 then
+		frame._sufOpenAnimRestore = { a1, rel, a2, x or 0, y or 0 }
+		frame:ClearAllPoints()
+		frame:SetPoint(a1, rel, a2, x or 0, (y or 0) - offsetY)
+	end
+
+	if group.IsPlaying and group:IsPlaying() then
+		group:Stop()
+	end
+	frame:SetAlpha(0)
+	group:Play()
+end
+
+function addon:IsStickyWindowsEnabled()
+	local cfg = self:GetEnhancementSettings()
+	return cfg and cfg.stickyWindows ~= false and LibSimpleSticky ~= nil
+end
+
+function addon:GetStickyDragTargets(sourceFrame)
+	local targets = {}
+	local seen = {}
+	local function AddFrame(frame)
+		if not frame or frame == sourceFrame then
+			return
+		end
+		if seen[frame] then
+			return
+		end
+		seen[frame] = true
+		targets[#targets + 1] = frame
+	end
+
+	AddFrame(UIParent)
+
+	if self.frames then
+		for i = 1, #self.frames do
+			AddFrame(self.frames[i])
+		end
+	end
+	if self.headers then
+		for _, header in pairs(self.headers) do
+			AddFrame(header)
+		end
+	end
+
+	AddFrame(self.optionsFrame)
+	AddFrame(self.debugPanel)
+	AddFrame(self.debugExportFrame)
+	AddFrame(self.debugSettingsFrame)
+
+	return targets
+end
+
+function addon:EnableMovableFrame(frame, allowSticky)
+	if not frame then
+		return
+	end
+
+	frame:SetMovable(true)
+	frame:EnableMouse(true)
+	frame:RegisterForDrag("LeftButton")
+	frame:SetScript("OnDragStart", function(movableFrame)
+		if allowSticky and self:IsStickyWindowsEnabled() then
+			local cfg = self:GetEnhancementSettings()
+			local range = math.max(4, math.min(36, tonumber(cfg.stickyRange) or 15))
+			LibSimpleSticky.rangeX = range
+			LibSimpleSticky.rangeY = range
+			LibSimpleSticky:StartMoving(movableFrame, self:GetStickyDragTargets(movableFrame), 0, 0, 0, 0)
+		else
+			movableFrame:StartMoving()
+		end
+	end)
+	frame:SetScript("OnDragStop", function(movableFrame)
+		if allowSticky and self:IsStickyWindowsEnabled() then
+			local ok = pcall(LibSimpleSticky.StopMoving, LibSimpleSticky, movableFrame)
+			if not ok then
+				movableFrame:StopMovingOrSizing()
+			end
+		else
+			movableFrame:StopMovingOrSizing()
+		end
+	end)
+end
+
+function addon:UpdateSingleFrame(frame)
+	if not frame then
+		return
+	end
+
+	self:ApplyTags(frame)
+	self:ApplyMedia(frame)
+	self:ApplySize(frame)
+	self:ApplyIndicators(frame)
+	self:ApplyPortrait(frame)
+	frame:UpdateAllElements("SimpleUnitFrames_Update")
+	self:UpdateAbsorbValue(frame)
+	self:UpdateIncomingHealValue(frame)
+end
+
+function addon:UpdateFramesByUnitType(unitType)
+	if not unitType then
+		self:UpdateAllFrames()
+		return
+	end
+
+	local totalStart = debugprofilestop and debugprofilestop() or nil
+	local updated = 0
+	for _, frame in ipairs(self.frames or {}) do
+		if frame and frame.sufUnitType == unitType then
+			local frameStart = debugprofilestop and debugprofilestop() or nil
+			self:UpdateSingleFrame(frame)
+			updated = updated + 1
+			if frameStart then
+				local frameEnd = debugprofilestop() or frameStart
+				self:RecordProfilerEvent("suf:update.frame", frameEnd - frameStart)
+			end
+		end
+	end
+
+	if totalStart then
+		local totalEnd = debugprofilestop() or totalStart
+		self:RecordProfilerEvent("suf:update.unit." .. tostring(unitType), totalEnd - totalStart)
+	end
+	return updated
+end
+
+function addon:ScheduleUpdateUnitType(unitType)
+	if not unitType then
+		self:ScheduleUpdateAll()
+		return
+	end
+	if self.isBuildingOptions then
+		return
+	end
+
+	self._unitUpdateTimers = self._unitUpdateTimers or {}
+	if self._unitUpdateTimers[unitType] then
+		return
+	end
+
+	self._unitUpdateTimers[unitType] = C_Timer.NewTimer(0.05, function()
+		if self._unitUpdateTimers then
+			self._unitUpdateTimers[unitType] = nil
+		end
+		self:UpdateFramesByUnitType(unitType)
+	end)
+end
+
+function addon:FlushPendingPluginUpdates()
+	if not self._pendingPluginUpdates then
+		return true
+	end
+	if InCombatLockdown and InCombatLockdown() then
+		return false
+	end
+
+	local pending = self._pendingPluginUpdates
+	self._pendingPluginUpdates = nil
+
+	if pending.__global then
+		self:ScheduleUpdateAll()
+		return true
+	end
+
+	for unitType in pairs(pending) do
+		if unitType ~= "__global" then
+			self:ScheduleUpdateUnitType(unitType)
+		end
+	end
+	return true
+end
+
+function addon:StartPluginUpdateTicker()
+	if self._pluginUpdateTicker then
+		return
+	end
+	self._pluginUpdateTicker = C_Timer.NewTicker(0.2, function()
+		local flushed = self:FlushPendingPluginUpdates()
+		if flushed and not self._pendingPluginUpdates and self._pluginUpdateTicker then
+			self._pluginUpdateTicker:Cancel()
+			self._pluginUpdateTicker = nil
+		end
+	end)
+end
+
+function addon:SchedulePluginUpdate(unitType)
+	if InCombatLockdown and InCombatLockdown() then
+		self._pendingPluginUpdates = self._pendingPluginUpdates or {}
+		if unitType and IsGroupUnitType(unitType) then
+			self._pendingPluginUpdates[unitType] = true
+		else
+			self._pendingPluginUpdates.__global = true
+		end
+		self:StartPluginUpdateTicker()
+		return
+	end
+
+	if unitType and IsGroupUnitType(unitType) then
+		self:ScheduleUpdateUnitType(unitType)
+		return
+	end
+	self:ScheduleUpdateAll()
+end
+
 function addon:Style(frame, unit)
 	frame.sufUnitType = ResolveUnitType(unit)
 	local unitLayout = self:GetUnitLayoutSettings(frame.sufUnitType)
@@ -4538,6 +5517,12 @@ function addon:Style(frame, unit)
 	PvPIndicator:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 4, 6)
 	PvPIndicator:SetDrawLayer("OVERLAY", 7)
 	frame.PvPIndicator = PvPIndicator
+
+	frame.Fader = frame.Fader or {}
+	if IsGroupUnitType(frame.sufUnitType) then
+		self:EnsureRaidDebuffsElement(frame)
+		self:EnsureAuraWatchElement(frame)
+	end
 
 	local Portrait2D = frame:CreateTexture(nil, "ARTWORK")
 	Portrait2D:SetSize(32, 32)
@@ -4853,8 +5838,10 @@ function addon:ApplyImportedProfile(data)
 			profile[key] = value
 		end
 	end
+	MergeDefaults(profile, defaults.profile)
 
 	self.db.profile = profile
+	self:NormalizePluginConfig()
 	self:UpdateAllFrames()
 	self:ApplyVisibilityRules()
 	return true
@@ -5596,6 +6583,7 @@ function addon:ShowOptions()
 	if self.optionsFrame then
 		ClampOptionsHeight(self.optionsFrame)
 		self.optionsFrame:Show()
+		self:PlayWindowOpenAnimation(self.optionsFrame)
 		if self.optionsFrame.BuildTab then
 			self.optionsFrame:BuildTab(self.optionsFrame.currentTab or "global")
 		end
@@ -5607,11 +6595,7 @@ function addon:ShowOptions()
 	local initialHeight = math.min(620, maxHeightCap)
 	frame:SetSize(1140, initialHeight)
 	frame:SetPoint("CENTER")
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+	self:EnableMovableFrame(frame, true)
 	frame:SetResizable(true)
 	if frame.SetResizeBounds then
 		frame:SetResizeBounds(940, 560, UIParent:GetWidth() - 40, maxHeightCap)
@@ -6157,6 +7141,145 @@ function addon:ShowOptions()
 			ui:Slider("Spell Name Max Chars", 6, 40, 1, function() return self.db.profile.castbar.spellMaxChars end, function(v) self.db.profile.castbar.spellMaxChars = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Cast Time Decimals", 0, 2, 1, function() return self.db.profile.castbar.timeDecimals end, function(v) self.db.profile.castbar.timeDecimals = v; self:ScheduleUpdateAll() end)
 			ui:Check("Show Cast Delay", function() return self.db.profile.castbar.showDelay ~= false end, function(v) self.db.profile.castbar.showDelay = v; self:ScheduleUpdateAll() end)
+			ui:Label("Library Enhancements", false)
+			ui:Check("Sticky Window Drag (LibSimpleSticky)", function()
+				return self:GetEnhancementSettings().stickyWindows ~= false
+			end, function(v)
+				self:GetEnhancementSettings().stickyWindows = v and true or false
+			end, not LibSimpleSticky)
+			ui:Slider("Sticky Snap Range", 4, 36, 1, function()
+				return self:GetEnhancementSettings().stickyRange or 15
+			end, function(v)
+				self:GetEnhancementSettings().stickyRange = v
+			end)
+			ui:Check("Transliterate Names (LibTranslit)", function()
+				return self:GetEnhancementSettings().translitNames == true
+			end, function(v)
+				self:GetEnhancementSettings().translitNames = v and true or false
+				self:ScheduleUpdateAll()
+			end, not LibTranslit)
+			ui:Edit("Translit Marker Prefix", function()
+				return self:GetEnhancementSettings().translitMarker or ""
+			end, function(v)
+				self:GetEnhancementSettings().translitMarker = SafeText(v, "")
+				self:ScheduleUpdateAll()
+			end)
+			ui:Check("Non-Interruptible Castbar Glow (LibCustomGlow)", function()
+				return self:GetEnhancementSettings().castbarNonInterruptibleGlow ~= false
+			end, function(v)
+				self:GetEnhancementSettings().castbarNonInterruptibleGlow = v and true or false
+				self:ScheduleUpdateAll()
+			end, not LibCustomGlow)
+			ui:Check("Window Open Animation (LibAnim)", function()
+				return self:GetEnhancementSettings().uiOpenAnimation ~= false
+			end, function(v)
+				self:GetEnhancementSettings().uiOpenAnimation = v and true or false
+			end, not CreateAnimationGroup)
+			ui:Slider("Window Animation Duration", 0.05, 0.60, 0.01, function()
+				return tonumber(self:GetEnhancementSettings().uiOpenAnimationDuration) or 0.18
+			end, function(v)
+				self:GetEnhancementSettings().uiOpenAnimationDuration = v
+			end)
+			ui:Slider("Window Animation Offset Y", -40, 40, 1, function()
+				return tonumber(self:GetEnhancementSettings().uiOpenAnimationOffsetY) or 12
+			end, function(v)
+				self:GetEnhancementSettings().uiOpenAnimationOffsetY = v
+			end)
+			ui:Label("oUF Plugin Integrations", false)
+			ui:Check("Raid Debuffs (Party/Raid)", function()
+				return self:GetPluginSettings().raidDebuffs.enabled ~= false
+			end, function(v)
+				self:GetPluginSettings().raidDebuffs.enabled = v and true or false
+				self:SchedulePluginUpdate()
+			end)
+			ui:Check("Raid Debuff Glow", function()
+				return self:GetPluginSettings().raidDebuffs.glow ~= false
+			end, function(v)
+				self:GetPluginSettings().raidDebuffs.glow = v and true or false
+				self:SchedulePluginUpdate()
+			end, not LibCustomGlow)
+			ui:Dropdown("Raid Debuff Glow Mode", {
+				{ value = "ALL", text = "All Debuffs" },
+				{ value = "DISPELLABLE", text = "Dispellable Only" },
+				{ value = "PRIORITY", text = "Boss/Priority Only" },
+			}, function()
+				return self:GetPluginSettings().raidDebuffs.glowMode or "ALL"
+			end, function(v)
+				self:GetPluginSettings().raidDebuffs.glowMode = v
+				self:SchedulePluginUpdate()
+			end)
+			ui:Slider("Raid Debuff Icon Size", 12, 36, 1, function()
+				return tonumber(self:GetPluginSettings().raidDebuffs.size) or 18
+			end, function(v)
+				self:GetPluginSettings().raidDebuffs.size = v
+				self:SchedulePluginUpdate()
+			end)
+			ui:Check("Aura Watch (Party/Raid)", function()
+				return self:GetPluginSettings().auraWatch.enabled ~= false
+			end, function(v)
+				self:GetPluginSettings().auraWatch.enabled = v and true or false
+				self:SchedulePluginUpdate()
+			end)
+			ui:Slider("Aura Watch Icon Size", 8, 22, 1, function()
+				return tonumber(self:GetPluginSettings().auraWatch.size) or 10
+			end, function(v)
+				self:GetPluginSettings().auraWatch.size = v
+				self:SchedulePluginUpdate()
+			end)
+			ui:Slider("Aura Watch Buff Slots", 0, 8, 1, function()
+				return tonumber(self:GetPluginSettings().auraWatch.numBuffs) or 3
+			end, function(v)
+				self:GetPluginSettings().auraWatch.numBuffs = v
+				self:SchedulePluginUpdate()
+			end)
+			ui:Slider("Aura Watch Debuff Slots", 0, 8, 1, function()
+				return tonumber(self:GetPluginSettings().auraWatch.numDebuffs) or 3
+			end, function(v)
+				self:GetPluginSettings().auraWatch.numDebuffs = v
+				self:SchedulePluginUpdate()
+			end)
+			ui:Check("Aura Watch Debuff Overlay", function()
+				return self:GetPluginSettings().auraWatch.showDebuffType ~= false
+			end, function(v)
+				self:GetPluginSettings().auraWatch.showDebuffType = v and true or false
+				self:SchedulePluginUpdate()
+			end)
+			ui:Check("Frame Fader", function()
+				return self:GetPluginSettings().fader.enabled == true
+			end, function(v)
+				self:GetPluginSettings().fader.enabled = v and true or false
+				self:SchedulePluginUpdate()
+			end)
+			ui:Slider("Fader Min Alpha", 0.05, 1, 0.05, function()
+				return tonumber(self:GetPluginSettings().fader.minAlpha) or 0.45
+			end, function(v)
+				self:GetPluginSettings().fader.minAlpha = v
+				self:SchedulePluginUpdate()
+			end)
+			ui:Slider("Fader Smooth", 0, 1, 0.05, function()
+				return tonumber(self:GetPluginSettings().fader.smooth) or 0.2
+			end, function(v)
+				self:GetPluginSettings().fader.smooth = v
+				self:SchedulePluginUpdate()
+			end)
+			ui:Check("Fader: Combat", function()
+				return self:GetPluginSettings().fader.combat ~= false
+			end, function(v)
+				self:GetPluginSettings().fader.combat = v and true or false
+				self:SchedulePluginUpdate()
+			end)
+			ui:Check("Fader: Hover", function()
+				return self:GetPluginSettings().fader.hover ~= false
+			end, function(v)
+				self:GetPluginSettings().fader.hover = v and true or false
+				self:SchedulePluginUpdate()
+			end)
+			ui:Check("Fader: Player Target", function()
+				return self:GetPluginSettings().fader.playerTarget ~= false
+			end, function(v)
+				self:GetPluginSettings().fader.playerTarget = v and true or false
+				self:SchedulePluginUpdate()
+			end)
 			ui:Check("Hide in Vehicle", function() return self.db.profile.visibility.hideVehicle end, function(v) self.db.profile.visibility.hideVehicle = v; self:ScheduleApplyVisibility() end)
 			ui:Check("Hide in Pet Battles", function() return self.db.profile.visibility.hidePetBattle end, function(v) self.db.profile.visibility.hidePetBattle = v; self:ScheduleApplyVisibility() end)
 			ui:Check("Hide with Override Bar", function() return self.db.profile.visibility.hideOverride end, function(v) self.db.profile.visibility.hideOverride = v; self:ScheduleApplyVisibility() end)
@@ -6496,12 +7619,22 @@ function addon:ShowOptions()
 			ui:Label("Credits", true)
 			ui:Paragraph("SimpleUnitFrames (SUF)\nPrimary Author: Grevin", true)
 			ui:Paragraph("UnhaltedUnitFrames (UUF)\nReference architecture, performance patterns, and feature inspirations.\nIncludes UUF-inspired ports plus your personal custom changes that are not present in UUF mainline.", true)
-			ui:Paragraph("Libraries Used\nAce3 (AceAddon/AceDB/AceGUI/AceSerializer), oUF, LibSharedMedia-3.0, LibDualSpec-1.0, LibSerialize, LibDeflate, LibDataBroker-1.1, LibDBIcon-1.0, CallbackHandler-1.0, LibStub, TaintLess.", true)
+			ui:Paragraph("PerformanceLib\nIntegrated optional performance framework for event coalescing, dirty batching, and profiling workflows.", true)
+			ui:Paragraph("Libraries Used\nAce3 (AceAddon/AceDB/AceGUI/AceSerializer), oUF, oUF_Plugins, LibSharedMedia-3.0, LibDualSpec-1.0, LibSerialize, LibDeflate, LibDataBroker-1.1, LibDBIcon-1.0, LibAnim, LibCustomGlow-1.0, LibActionButton-1.0, LibSimpleSticky, LibTranslit-1.0, UTF8, LibDispel-1.0, CallbackHandler-1.0, LibStub, TaintLess.", true)
 			ui:Paragraph("Special Thanks\nBlizzard UI Source and WoW addon ecosystem maintainers.", true)
 		else
 			local unitSettings = self:GetUnitSettings(tabKey)
 			local tags = self.db.profile.tags[tabKey]
 			local size = self.db.profile.sizes[tabKey]
+			local plugins = self:GetPluginSettings()
+			local unitPluginProfile = nil
+			if IsGroupUnitType(tabKey) then
+				plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
+				MergeDefaults(plugins.units, defaults.profile.plugins.units)
+				unitPluginProfile = plugins.units[tabKey] or CopyTableDeep(defaults.profile.plugins.units[tabKey])
+				plugins.units[tabKey] = unitPluginProfile
+				MergeDefaults(unitPluginProfile, defaults.profile.plugins.units[tabKey])
+			end
 			unitSettings.fontSizes = unitSettings.fontSizes or CopyTableDeep(self.db.profile.fontSizes)
 			unitSettings.portrait = unitSettings.portrait or { mode = "none", size = 32, showClass = false, position = "LEFT" }
 			unitSettings.media = unitSettings.media or { statusbar = self.db.profile.media.statusbar }
@@ -6607,6 +7740,180 @@ function addon:ShowOptions()
 			}, function() return unitSettings.castbar.anchor end, function(v) unitSettings.castbar.anchor = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Castbar Gap", 0, 40, 1, function() return unitSettings.castbar.gap end, function(v) unitSettings.castbar.gap = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Castbar Fine Offset", -40, 40, 1, function() return unitSettings.castbar.offsetY end, function(v) unitSettings.castbar.offsetY = v; self:ScheduleUpdateAll() end)
+			if unitPluginProfile then
+				ui:Label("Plugin Overrides", false)
+				ui:Check("Use Global Plugin Settings", function()
+					return unitPluginProfile.useGlobal ~= false
+				end, function(v)
+					if v then
+						unitPluginProfile.useGlobal = true
+					else
+						self:SeedUnitPluginOverridesFromGlobal(tabKey)
+						unitPluginProfile = self:GetPluginSettings().units[tabKey]
+					end
+					self:SchedulePluginUpdate(tabKey)
+					frame:BuildTab(tabKey)
+				end)
+				if unitPluginProfile.useGlobal ~= false then
+					ui:Paragraph("Using global plugin configuration for this unit type.", true)
+				else
+					ui:Check("Raid Debuffs", function()
+						return unitPluginProfile.raidDebuffs.enabled ~= false
+					end, function(v)
+						unitPluginProfile.raidDebuffs.enabled = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Slider("Raid Debuff Icon Size", 12, 36, 1, function()
+						return tonumber(unitPluginProfile.raidDebuffs.size) or 18
+					end, function(v)
+						unitPluginProfile.raidDebuffs.size = v
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Check("Raid Debuff Glow", function()
+						return unitPluginProfile.raidDebuffs.glow ~= false
+					end, function(v)
+						unitPluginProfile.raidDebuffs.glow = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end, not LibCustomGlow)
+					ui:Dropdown("Raid Debuff Glow Mode", {
+						{ value = "ALL", text = "All Debuffs" },
+						{ value = "DISPELLABLE", text = "Dispellable Only" },
+						{ value = "PRIORITY", text = "Boss/Priority Only" },
+					}, function()
+						return unitPluginProfile.raidDebuffs.glowMode or "ALL"
+					end, function(v)
+						unitPluginProfile.raidDebuffs.glowMode = v
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Check("Aura Watch", function()
+						return unitPluginProfile.auraWatch.enabled ~= false
+					end, function(v)
+						unitPluginProfile.auraWatch.enabled = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Slider("Aura Watch Icon Size", 8, 22, 1, function()
+						return tonumber(unitPluginProfile.auraWatch.size) or 10
+					end, function(v)
+						unitPluginProfile.auraWatch.size = v
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Slider("Aura Watch Buff Slots", 0, 8, 1, function()
+						return tonumber(unitPluginProfile.auraWatch.numBuffs) or 3
+					end, function(v)
+						unitPluginProfile.auraWatch.numBuffs = v
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Slider("Aura Watch Debuff Slots", 0, 8, 1, function()
+						return tonumber(unitPluginProfile.auraWatch.numDebuffs) or 3
+					end, function(v)
+						unitPluginProfile.auraWatch.numDebuffs = v
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Check("Aura Watch Debuff Overlay", function()
+						return unitPluginProfile.auraWatch.showDebuffType ~= false
+					end, function(v)
+						unitPluginProfile.auraWatch.showDebuffType = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Check("Aura Watch Replace Defaults", function()
+						return unitPluginProfile.auraWatch.replaceDefaults == true
+					end, function(v)
+						unitPluginProfile.auraWatch.replaceDefaults = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:BeginNewLine()
+					local ax, ay, awidth = ui:Reserve(146, true)
+					local alabel = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+					alabel:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay)
+					alabel:SetText("AuraWatch Spell IDs (comma/space, use -ID to remove)")
+					local aedit = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
+					aedit:SetAutoFocus(false)
+					aedit:SetMultiLine(true)
+					aedit:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 20)
+					aedit:SetSize(awidth, 80)
+					aedit:SetText(tostring(unitPluginProfile.auraWatch.customSpellList or ""))
+					local validationLine = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+					validationLine:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 104)
+					validationLine:SetWidth(awidth)
+					validationLine:SetJustifyH("LEFT")
+					local function SetValidationLine(text, isWarn)
+						validationLine:SetText(text or "")
+						if isWarn then
+							validationLine:SetTextColor(1.00, 0.35, 0.35)
+						else
+							validationLine:SetTextColor(0.35, 1.00, 0.45)
+						end
+					end
+					SetValidationLine("Validation pending.", false)
+					aedit:SetScript("OnEditFocusLost", function(w)
+						local value = SafeText(w:GetText(), "")
+						unitPluginProfile.auraWatch.customSpellList = value
+						w:SetText(value)
+						SetValidationLine("Validation pending.", false)
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					aedit:SetScript("OnEscapePressed", function(w)
+						w:ClearFocus()
+					end)
+					ui:Button("Validate AuraWatch IDs", function()
+						local currentText = unitPluginProfile.auraWatch.customSpellList or ""
+						local report = self:ValidateAuraWatchSpellList(currentText)
+						local hasWarn = (#(report.invalidIDs or {}) > 0 or #(report.invalidTokens or {}) > 0)
+						local msg = ("AuraWatch %s validation: add=%d remove=%d invalidIDs=%d invalidTokens=%d"):format(
+							tabKey,
+							#(report.validAdds or {}),
+							#(report.validRemoves or {}),
+							#(report.invalidIDs or {}),
+							#(report.invalidTokens or {})
+						)
+						SetValidationLine(msg, hasWarn)
+						self:Print(addonName .. ": " .. msg)
+						self:DebugLog("General", msg, hasWarn and 1 or 2)
+						if #(report.invalidIDs or {}) > 0 then
+							self:Print(addonName .. ": Invalid spell IDs: " .. table.concat(report.invalidIDs, ", "))
+						end
+						if #(report.invalidTokens or {}) > 0 then
+							self:Print(addonName .. ": Invalid tokens: " .. table.concat(report.invalidTokens, ", "))
+						end
+					end, true)
+					ui:Check("Frame Fader", function()
+						return unitPluginProfile.fader.enabled == true
+					end, function(v)
+						unitPluginProfile.fader.enabled = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Slider("Fader Min Alpha", 0.05, 1, 0.05, function()
+						return tonumber(unitPluginProfile.fader.minAlpha) or 0.45
+					end, function(v)
+						unitPluginProfile.fader.minAlpha = v
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Slider("Fader Smooth", 0, 1, 0.05, function()
+						return tonumber(unitPluginProfile.fader.smooth) or 0.2
+					end, function(v)
+						unitPluginProfile.fader.smooth = v
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Check("Fader: Combat", function()
+						return unitPluginProfile.fader.combat ~= false
+					end, function(v)
+						unitPluginProfile.fader.combat = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Check("Fader: Hover", function()
+						return unitPluginProfile.fader.hover ~= false
+					end, function(v)
+						unitPluginProfile.fader.hover = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+					ui:Check("Fader: Player Target", function()
+						return unitPluginProfile.fader.playerTarget ~= false
+					end, function(v)
+						unitPluginProfile.fader.playerTarget = v and true or false
+						self:SchedulePluginUpdate(tabKey)
+					end)
+				end
+			end
 			ui:Label("Heal Prediction", false)
 			ui:Check("Enable Heal Prediction", function() return unitSettings.healPrediction.enabled ~= false end, function(v) unitSettings.healPrediction.enabled = v; self:ScheduleUpdateAll() end)
 			ui:Check("Incoming Heals", function() return unitSettings.healPrediction.incoming.enabled ~= false end, function(v) unitSettings.healPrediction.incoming.enabled = v; self:ScheduleUpdateAll() end)
@@ -6724,6 +8031,7 @@ function addon:ShowOptions()
 	end)
 
 	frame:Show()
+	self:PlayWindowOpenAnimation(frame)
 	frame:BuildTab("global")
 	self.optionsFrame = frame
 end
@@ -6778,6 +8086,21 @@ function addon:OnInitialize()
 	if self.db.profile.performance.optionsAutoRefresh == nil then
 		self.db.profile.performance.optionsAutoRefresh = defaults.profile.performance.optionsAutoRefresh
 	end
+	if not self.db.profile.enhancements then
+		self.db.profile.enhancements = CopyTableDeep(defaults.profile.enhancements)
+	else
+		for key, value in pairs(defaults.profile.enhancements) do
+			if self.db.profile.enhancements[key] == nil then
+				self.db.profile.enhancements[key] = value
+			end
+		end
+	end
+	if not self.db.profile.plugins then
+		self.db.profile.plugins = CopyTableDeep(defaults.profile.plugins)
+	else
+		MergeDefaults(self.db.profile.plugins, defaults.profile.plugins)
+	end
+	self:NormalizePluginConfig()
 	if not self.db.profile.minimap then
 		self.db.profile.minimap = CopyTableDeep(defaults.profile.minimap)
 	end
@@ -6920,6 +8243,20 @@ function addon:OnAddonLoaded(event, loadedAddon)
 end
 
 function addon:OnDisable()
+	if self._pluginUpdateTicker then
+		self._pluginUpdateTicker:Cancel()
+		self._pluginUpdateTicker = nil
+	end
+	self._pendingPluginUpdates = nil
+	if self._unitUpdateTimers then
+		for unitType, timer in pairs(self._unitUpdateTimers) do
+			if timer and timer.Cancel then
+				timer:Cancel()
+			end
+			self._unitUpdateTimers[unitType] = nil
+		end
+	end
+
 	self:UnregisterIncomingEstimateFrame()
 	self:UnregisterPerformanceEventFrame()
 	self:UnregisterPerformanceCoalescedHandlers()
