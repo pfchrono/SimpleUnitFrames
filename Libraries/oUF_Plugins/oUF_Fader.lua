@@ -8,19 +8,23 @@ local oUF = ns.oUF
 local _G = _G
 local pairs, ipairs, type = pairs, ipairs, type
 local next, tinsert, tremove = next, tinsert, tremove
+local abs = math.abs
 
 local CreateFrame = CreateFrame
 local GetInstanceInfo = GetInstanceInfo
+local GetTime = GetTime
 local UnitAffectingCombat = UnitAffectingCombat
 local UnitCastingInfo = UnitCastingInfo
 local UnitChannelInfo = UnitChannelInfo
 local UnitExists = UnitExists
+local UnitIsUnit = UnitIsUnit
 local UnitHasVehicleUI = UnitHasVehicleUI
 local UnitHealth = UnitHealth
 local UnitHealthMax = UnitHealthMax
 local UnitPower = UnitPower
 local UnitPowerMax = UnitPowerMax
 local UnitPowerType = UnitPowerType
+local InCombatLockdown = InCombatLockdown
 local C_PlayerInfo_GetGlidingInfo = C_PlayerInfo.GetGlidingInfo
 
 local GetMouseFocus = GetMouseFocus or function()
@@ -38,6 +42,39 @@ local PowerTypesFull = { MANA = true, FOCUS = true, ENERGY = true }
 local C_Timer = C_Timer
 local issecretvalue = issecretvalue
 
+local function IsSUFFrame(frame)
+	if not frame then
+		return false
+	end
+	if frame.__isSimpleUnitFrames or frame.sufUnitType then
+		return true
+	end
+	if frame.GetName then
+		local name = frame:GetName()
+		if type(name) == 'string' and name:match('^SUF_') then
+			return true
+		end
+	end
+	return false
+end
+
+local function IsProtectedInCombat(frame)
+	return frame and frame.IsProtected and frame:IsProtected() and InCombatLockdown and InCombatLockdown()
+end
+
+local function SafeSetAlpha(frame, alpha)
+	if not frame then
+		return
+	end
+	if not IsSUFFrame(frame) then
+		return
+	end
+	if IsProtectedInCombat(frame) then
+		return
+	end
+	frame:SetAlpha(alpha)
+end
+
 local function IsSecretValueCompat(value)
 	if type(oUF.IsSecretValue) == 'function' then
 		return oUF:IsSecretValue(value)
@@ -52,6 +89,23 @@ local function NotSecretValueCompat(value)
 	end
 
 	return not IsSecretValueCompat(value)
+end
+
+local function IsMouseOverObjectOrChild(object)
+	if not object then
+		return false
+	end
+	local focus = GetMouseFocus()
+	while focus do
+		if focus == object then
+			return true
+		end
+		if not focus.GetParent then
+			break
+		end
+		focus = focus:GetParent()
+	end
+	return false
 end
 
 local function GetEngine()
@@ -78,10 +132,13 @@ local function GetEngine()
 		end
 	end
 	function E:UIFrameFadeOut(frame, duration, fromAlpha, toAlpha)
+		if IsProtectedInCombat(frame) then
+			return
+		end
 		if _G.UIFrameFadeOut then
 			_G.UIFrameFadeOut(frame, duration or 0, fromAlpha or frame:GetAlpha(), toAlpha or 0)
 		else
-			frame:SetAlpha(toAlpha or 0)
+			SafeSetAlpha(frame, toAlpha or 0)
 		end
 	end
 	return E
@@ -102,13 +159,30 @@ local function ClearTimers(element)
 end
 
 local function ToggleAlpha(self, element, endAlpha)
+	if not IsSUFFrame(self) then
+		return
+	end
 	element:ClearTimers()
 	local engine = GetEngine()
+	if IsProtectedInCombat(self) then
+		return
+	end
+
+	local currentAlpha = self:GetAlpha() or 1
+	if element.__fadingTo and abs(element.__fadingTo - endAlpha) < 0.001 then
+		return
+	end
+	if element.__lastTargetAlpha and abs(element.__lastTargetAlpha - endAlpha) < 0.001 and abs(currentAlpha - endAlpha) < 0.01 then
+		return
+	end
+	element.__lastTargetAlpha = endAlpha
 
 	if element.Smooth then
+		element.__fadingTo = endAlpha
 		engine:UIFrameFadeOut(self, element.Smooth, self:GetAlpha(), endAlpha)
 	else
-		self:SetAlpha(endAlpha)
+		element.__fadingTo = nil
+		SafeSetAlpha(self, endAlpha)
 	end
 end
 
@@ -119,12 +193,24 @@ end
 
 local isGliding = false
 local function Update(self, event, unit)
+	if not IsSUFFrame(self) then
+		return
+	end
 	local element = self.Fader
 	if self.isForced or (not element or not element.count or element.count <= 0) then
-		self:SetAlpha(1)
+		SafeSetAlpha(self, 1)
 		return
 	elseif element.Range and event ~= 'OnRangeUpdate' then
 		return
+	end
+
+	if event ~= 'ForceUpdate' and event ~= 'OnRangeUpdate' and event ~= 'HoverScript' and event ~= 'TargetScript' then
+		local now = (GetTime and GetTime()) or 0
+		local interval = element.EventThrottle or 0.05
+		if element.__lastEventUpdate and (now - element.__lastEventUpdate) < interval then
+			return
+		end
+		element.__lastEventUpdate = now
 	end
 
 	-- stuff for Skyriding
@@ -169,18 +255,32 @@ local function Update(self, event, unit)
 	local maxHealth = UnitHealthMax(unit)
 	local currentPower = UnitPower(unit)
 	local maxPower = UnitPowerMax(unit)
+	local hasTarget = UnitExists('target')
+	local isSoftTarget = false
+	if hasTarget and oUF.isRetail and UnitIsUnit then
+		if UnitExists('softenemy') and UnitIsUnit('target', 'softenemy') then
+			isSoftTarget = true
+		elseif UnitExists('softfriend') and UnitIsUnit('target', 'softfriend') then
+			isSoftTarget = true
+		elseif UnitExists('softinteract') and UnitIsUnit('target', 'softinteract') then
+			isSoftTarget = true
+		elseif UnitExists('softtarget') and UnitIsUnit('target', 'softtarget') then
+			isSoftTarget = true
+		end
+	end
+	local hasPlayerTargetCondition = element.PlayerTarget and hasTarget and ((not isSoftTarget) or (element.ActionTarget == true))
 
 	if	(element.InstanceDifficulty and element.InstancedCached) or
 		(element.Casting and (UnitCastingInfo(unit) or UnitChannelInfo(unit))) or
-		(element.Combat and UnitAffectingCombat(unit)) or
-		(element.PlayerTarget and UnitExists('target')) or
+		(element.Combat and ((InCombatLockdown and InCombatLockdown()) or UnitAffectingCombat('player') or UnitAffectingCombat(unit))) or
+		hasPlayerTargetCondition or
 		(element.UnitTarget and UnitExists(unit..'target')) or
 		(element.Focus and not oUF.isClassic and UnitExists('focus')) or
 		(element.Health and NotSecretValueCompat(currentHealth) and (currentHealth < maxHealth)) or
 		(element.Power and (PowerTypesFull[powerType] and NotSecretValueCompat(currentPower) and (currentPower < maxPower))) or
 		(element.Vehicle and (oUF.isRetail or oUF.isWrath or oUF.isMists) and UnitHasVehicleUI(unit)) or
 		(element.DynamicFlight and oUF.isRetail and not isGliding) or
-		(element.Hover and GetMouseFocus() == (self.__faderobject or self))
+		(element.Hover and IsMouseOverObjectOrChild(self.__faderobject or self))
 	then
 		ToggleAlpha(self, element, element.MaxAlpha)
 	elseif element.Delay then
@@ -228,11 +328,14 @@ local function HoverScript(self)
 end
 
 local function TargetScript(self)
+	if not IsSUFFrame(self) then
+		return
+	end
 	if self.Fader and self.Fader.TargetHooked == 1 then
 		if self:IsShown() then
 			self.Fader:ForceUpdate('TargetScript')
 		else
-			self:SetAlpha(0)
+			SafeSetAlpha(self, 0)
 		end
 	end
 end
@@ -298,12 +401,17 @@ local options = {
 			self.Fader.TargetHooked = 1 -- on state
 
 			if not self:IsShown() then
-				self:SetAlpha(0)
+				SafeSetAlpha(self, 0)
 			end
 
 			self:RegisterEvent('UNIT_TARGET', Update)
 			self:RegisterEvent('PLAYER_TARGET_CHANGED', Update, true)
 			self:RegisterEvent('PLAYER_FOCUS_CHANGED', Update, true)
+			if oUF.isRetail then
+				self:RegisterEvent('PLAYER_SOFT_ENEMY_CHANGED', Update, true)
+				self:RegisterEvent('PLAYER_SOFT_FRIEND_CHANGED', Update, true)
+				self:RegisterEvent('PLAYER_SOFT_INTERACT_CHANGED', Update, true)
+			end
 		end,
 		events = {'UNIT_TARGET','PLAYER_TARGET_CHANGED','PLAYER_FOCUS_CHANGED'},
 		disable = function(self)
@@ -373,6 +481,9 @@ local options = {
 }
 
 if oUF.isRetail then
+	tinsert(options.Target.events, 'PLAYER_SOFT_ENEMY_CHANGED')
+	tinsert(options.Target.events, 'PLAYER_SOFT_FRIEND_CHANGED')
+	tinsert(options.Target.events, 'PLAYER_SOFT_INTERACT_CHANGED')
 	tinsert(options.Casting.events, 'UNIT_SPELLCAST_EMPOWER_START')
 	tinsert(options.Casting.events, 'UNIT_SPELLCAST_EMPOWER_STOP')
 	options.DynamicFlight = {
@@ -411,7 +522,7 @@ local function CountOption(element, state, oldState)
 end
 
 local function SetOption(element, opt, state)
-	local option = ((opt == 'UnitTarget' or opt == 'PlayerTarget') and 'Target') or opt
+	local option = ((opt == 'UnitTarget' or opt == 'PlayerTarget' or opt == 'ActionTarget') and 'Target') or opt
 	local oldState = element[opt]
 
 	if opt == 'InstanceDifficulty' then
@@ -449,7 +560,7 @@ local function SetOption(element, opt, state)
 end
 
 local function Enable(self)
-	if self.Fader then
+	if self.Fader and IsSUFFrame(self) then
 		self.Fader.__owner = self
 		self.Fader.ForceUpdate = ForceUpdate
 		self.Fader.SetOption = SetOption
@@ -474,6 +585,9 @@ local function Disable(self)
 		end
 
 		self.Fader.count = nil
+		self.Fader.__fadingTo = nil
+		self.Fader.__lastTargetAlpha = nil
+		self.Fader.__lastEventUpdate = nil
 		self.Fader:ClearTimers()
 	end
 end
