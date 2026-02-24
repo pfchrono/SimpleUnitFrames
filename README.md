@@ -44,10 +44,12 @@ Why I created this was to learn a bit about addons, using Codex to help me. Neve
 ### Options & UX
 - Movable, resizable custom `/suf` options window
 - Tabbed configuration for global and per-unit settings
+- Unified options factory helpers (label/check/slider/dropdown/color/button/edit) for consistent rendering and search indexing
+- Search v2 with grouped results, relevance scoring, optional counts, and keyboard jump (`Alt+Up/Down`, `Enter`)
 - Tags reference tab with grouped oUF tags + SUF custom tags
 - Per-unit tag preset system (compact/healer/tank/dps/minimal styles)
 - Credits tab and Performance tab inside SUF options
-- Import/export profile tools
+- Import/export wizard with validate -> preview -> apply flow, adapter fallback, and rollback on apply failure
 - Minimap/LDB launcher support:
   - Left click: open SUF options
   - Right click: quick actions (SUF options, PerfLib UI, SUF debug)
@@ -159,8 +161,15 @@ addon:QueuePerformanceEvent(eventName, ...)
 
 addon:SerializeProfile()
 addon:DeserializeProfile(input)
+addon:ValidateImportedProfileData(data)
+addon:BuildImportedProfilePreview(data[, report])
 addon:ApplyImportedProfile(data)
 ```
+
+## Architecture Notes
+
+- Options/search/import migration details: [docs/MIGRATION.md](docs/MIGRATION.md)
+- Safe extension guidance for contributors: [docs/DEVELOPER_NOTES.md](docs/DEVELOPER_NOTES.md)
 
 ## Libraries Used
 
