@@ -16,16 +16,7 @@
 			"path": "../wow-ui-source-live"
 		},
 		{
-			"path": "../ElvUI"
-		},
-		{
-			"path": "../ElvUI_Libraries"
-		},
-		{
-			"path": "../ElvUI_Options"
-		},
-		{
-			"path": "../OakUI_Installer"
+			"path": "../QUI"
 		}
 	],
 	"settings": {}

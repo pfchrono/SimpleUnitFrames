@@ -10,7 +10,7 @@
    - Look for undocumented parameters, return values, or behavioral changes
 
 2. **Update Repository if Outdated:**
-   - Run: `/run UUF.DebugOutput:Output("APICheck", "Checking wow-ui-source for updates...", 1)`
+   - Run: `/run SUF.DebugOutput:Output("APICheck", "Checking wow-ui-source for updates...", 1)`
    - Navigate to: `d:\Games\World of Warcraft\_retail_\Interface\_Working\wow-ui-source`
    - Check git status: `git status`
    - Get latest: `git fetch origin && git pull` (uses branch: live)
@@ -52,234 +52,270 @@
   - Reference: See WoWAddonAPIAgents/.github/skills/wow-lua-api/SKILL.md for complete Lua 5.1 reference
   - Reference: See WoWAddonAPIAgents/.github/skills for available skills and best practices for Lua coding in WoW addons
 
-- Prefer `UUF:` namespaced functions with locals declared near the top of each file; keep style compact and low-comment like existing code in [Core/UnitFrame.lua](../Core/UnitFrame.lua) and [Elements/CastBar.lua](../Elements/CastBar.lua).
+- Prefer `addon:` namespaced functions with locals declared near the top of each file; keep style compact like existing code in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) and [Modules/ActionBars/Core.lua](../Modules/ActionBars/Core.lua).
 - Use **PERF LOCALS** pattern: localize frequently-called globals at module load (e.g., `local GetTime, UnitExists = GetTime, UnitExists`)
-- Configuration UI uses AceGUI widgets and shared helper wrappers in [Core/Config/GUIWidgets.lua](../Core/Config/GUIWidgets.lua); follow patterns in [Core/Config/GUI.lua](../Core/Config/GUI.lua).
-- Defaults live in AceDB tables in [Core/Defaults.lua](../Core/Defaults.lua); update defaults whenever adding new settings.
-- **Change detection patterns:**
-  - Use `UUF:StampChanged(obj, key, value)` to avoid redundant updates (see [Core/Helpers.lua](../Core/Helpers.lua))
-  - Use `UUF:SetPointIfChanged(frame, ...)` instead of unconditional `SetPoint()` (14+ indicator files use this pattern)
-  - Frame config caching: Store `frame.UUFUnitConfig = UnitDB` during creation to avoid repeated lookups
-- **Frame storage patterns:**
-  - Use dual storage: `UUF[unit:upper()]` (legacy, e.g., UUF.PLAYER) AND `UUF.Units[unit]` (modern, e.g., UUF.Units["player"])
-  - UUF.Units table initialized in [Core/Globals.lua](../Core/Globals.lua), populated in [Core/UnitFrame.lua](../Core/UnitFrame.lua)
-  - Both patterns maintained for backward compatibility and Phase 5 optimization systems
-  - Boss frames: UUF.Units["boss1"] through UUF.Units["boss5"]
-  - Party frames: UUF.Units["party1"] through UUF.Units["party5"] (or "player")
-  - Single frames: UUF.Units["player"], UUF.Units["target"], UUF.Units["pet"], etc.
-- **Utilities module:** Use `UUF.Utilities` helpers for common operations (see [Core/Utilities.lua](../Core/Utilities.lua)):
-  - Config: `Val()`, `Num()`, `Enabled()`, `Offset()`, `SetShown()`
-  - Tables: `HideKeys()`, `ShowKeys()`
-  - Safe API: `GetCastingInfoSafe()`, `GetChannelInfoSafe()`
-  - Format: `FormatDuration()`, `FormatNumber()`, `FormatPercent()`
-  - Layout: `LayoutColumn()` with chainable Row(), MoveY(), At(), Reset()
-  - Channel Ticks: `GetChannelTicks(spellID)` returns tick timings for spell channel visualization
-- **Debug output:** Use `UUF.DebugOutput` for all diagnostic messages instead of print() (see [Core/DebugOutput.lua](../Core/DebugOutput.lua)):
-  - API: `UUF.DebugOutput:Output(systemName, message, tier)` where tier is TIER_CRITICAL/TIER_INFO/TIER_DEBUG
-  - Three tiers: Critical (chat + panel), Info (panel optional), Debug (system-specific)
-  - System-specific: Check `UUF.db.global.Debug.systems.SystemName` before debug output
-  - Tier constants: `UUF.DebugOutput.TIER_CRITICAL` (1), `UUF.DebugOutput.TIER_INFO` (2), `UUF.DebugOutput.TIER_DEBUG` (3)
-  - Example: `UUF.DebugOutput:Output("Validator", "Check passed", UUF.DebugOutput.TIER_INFO)`
-  - Access panel: `/uufdebug` command
-  - Export logs: Click "Export to Clipboard" in debug panel
+- Configuration UI uses AceGUI widgets and shared helper wrappers in [Modules/UI/OptionsWidgets.lua](../Modules/UI/OptionsWidgets.lua); follow patterns in [Modules/UI/OptionsWindow.lua](../Modules/UI/OptionsWindow.lua).
+- Defaults live in AceDB tables in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines 45-350; update defaults whenever adding new settings.
+- **Safe Value Handling (WoW 12.0.0+ Secret Values):**
+  - Use `SafeNumber(value, fallback)` for numeric API returns (lines ~820-835 in SimpleUnitFrames.lua)
+  - Use `SafeText(value, fallback)` for string API returns (lines ~780-790)
+  - Use `SafeAPICall(fn, ...)` for protected function calls (lines ~770-780)
+  - Use `IsSecretValue(value)` to check if value is secret (lines ~765-770)
+  - Example: `local health = SafeNumber(UnitHealth(unit), 0)` instead of raw `UnitHealth(unit)`
+- **Theming Helpers:** Use `addon:ApplySUFBackdropColors()` for safe backdrop/texture styling before calling `SetBackdropColor` directly. ([Modules/UI/Theme.lua](../Modules/UI/Theme.lua))
+- **Frame Storage Patterns:**
+  - Frames stored in `addon.frames[]` array (indexed sequentially)
+  - Frame event index in [Modules/System/FrameIndex.lua](../Modules/System/FrameIndex.lua) provides lookup by unit/type
+  - oUF spawned frames accessible via oUF global: `_G["SUF_Player"]`, `_G["SUF_Target"]`, etc.
+- **Helper Functions in SimpleUnitFrames.lua:**
+  - Core: `addon._core.RoundNumber()`, `CopyTableDeep()`, `MergeDefaults()`, `FormatCompactValue()`
+  - Unit Config: `GetUnitSettings()`, `GetUnitCastbarSettings()`, `GetUnitPluginSettings()`
+  - Profile: `GetAvailableProfiles()`, `GetSavedProfileByName()`
+  - Module Copy/Reset: `CopyModuleIntoCurrent()`, `ResetModuleForUnit()`, `BuildModuleChangePreview()`
+- **Debug Output:**
+  - Core debug: `addon:DebugLog(system, message, tier)` method in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua)
+  - Debug panel: [Modules/UI/DebugWindow.lua](../Modules/UI/DebugWindow.lua) accessible via `/suf debug`
+  - PerformanceLib debug: Uses PerformanceLib.DebugOutput if available (lines ~2295-2310 in SimpleUnitFrames.lua)
 
 ## Architecture
-- AddOn load order: libraries → elements → core via [UnhaltedUnitFrames.toc](../UnhaltedUnitFrames.toc), [Elements/Init.xml](../Elements/Init.xml), and [Core/Init.xml](../Core/Init.xml).
-- **Core load sequence:** Defaults → Globals → Architecture → Utilities → DebugOutput → DebugPanel → ConfigResolver → FramePoolManager → Validator → IndicatorPooling → ReactiveConfig → EventCoalescer → FrameTimeBudget → DirtyFlagManager → Core → remaining modules (see [Core/Init.xml](../Core/Init.xml))
-- Initialization and event wiring are in [Core/Core.lua](../Core/Core.lua); global utilities, media registration, and `UUF:ResolveLSM()` live in [Core/Globals.lua](../Core/Globals.lua).
-- Unit frame creation/update flows through [Core/UnitFrame.lua](../Core/UnitFrame.lua), with element implementations in [Elements/](../Elements/).
-- **Architecture module** ([Core/Architecture.lua](../Core/Architecture.lua)) provides:
-  - **EventBus:** Singleton event dispatcher (`UUF.Architecture.EventBus`) with Register/Unregister/Dispatch API
-  - **GUI Building:** `Arch.LayoutColumn()` for chainable widget creation (Btn, Text, Check, Gap)
-  - **Config System:** `ResolveConfig()`, `CaptureConfigState()`, `RestoreConfigState()`
-  - **Frame State:** `CreateFrameState()` with dirty flags and stamp-based change detection
-  - **Frame Pooling:** `CreateFramePool()` with Acquire/Release/ReleaseAll
-  - **Safe Values:** `SafeValue()`, `SafeCompare()`, `IsSecretValue()` for WoW 12.0.0 secret values
-  - **Profile Export:** `EncodeProfile()`, `DecodeProfile()` using Blizzard CBOR
-  - **Table Utils:** `DeepCopy()`, `MergeTables()`, `FilterTable()`
-- **Performance Systems** (Phase 4a-4c + Phase 5 Priority 1, 45-85% total improvement, ZERO HIGH frame spikes):
-  - **ReactiveConfig** ([Core/ReactiveConfig.lua](../Core/ReactiveConfig.lua)): Auto config-to-frame sync with debouncing
-  - **ConfigResolver** ([Core/ConfigResolver.lua](../Core/ConfigResolver.lua)): Profile → Unit → Global fallback chain
-  - **FramePoolManager** ([Core/FramePoolManager.lua](../Core/FramePoolManager.lua)): Centralized AuraButton/IndicatorIcon pools (60%+ GC reduction)
-  - **IndicatorPooling** ([Core/IndicatorPooling.lua](../Core/IndicatorPooling.lua)): Pool-aware indicator lifecycle
-  - **EventCoalescer** ([Core/EventCoalescer.lua](../Core/EventCoalescer.lua)): 4-tier priority (CRITICAL=1, HIGH=2, MEDIUM=3, LOW=4), FrameTimeBudget integration, emergency flush for CRITICAL events, batch size tracking (60-70% callback reduction)
-  - **FrameTimeBudget** ([Core/FrameTimeBudget.lua](../Core/FrameTimeBudget.lua)): O(1) incremental averaging (runningTotal optimization), P50/P95/P99 percentile tracking with lazy evaluation, overflow protection (200 max deferred, drops LOW priority), 6-bucket histogram (0-5ms, 5-10ms, 10-15ms, 15-20ms, 20-30ms, 30+ms), target 16.67ms for 60 FPS (80-90% spike reduction, achieves P50=16.7ms, P99=24.1ms)
-  - **DirtyFlagManager** ([Core/DirtyFlagManager.lua](../Core/DirtyFlagManager.lua)): Frame validation (_ValidateFrame checks type, update methods, GetObjectType), processing lock (_isProcessing prevents re-entry), priority decay (0.1 every 5s), adaptive batch sizing (2-20 frames based on budget), if/elseif patterns (Lua 5.1 compatible)
-  - **CoalescingIntegration** ([Core/CoalescingIntegration.lua](../Core/CoalescingIntegration.lua)): Auto-applies coalescing to 13 WoW events with per-event priorities (UNIT_HEALTH/POWER=CRITICAL, UNIT_AURA=HIGH, UNIT_THREAT=MEDIUM, UNIT_PORTRAIT=LOW)
-  - **DirtyPriorityOptimizer** ([Core/DirtyPriorityOptimizer.lua](../Core/DirtyPriorityOptimizer.lua)): ML-powered priority learning from 5-minute windows (40% frequency, 30% combat ratio, 20% recency, 10% base importance)
-  - **PerformanceProfiler** ([Core/PerformanceProfiler.lua](../Core/PerformanceProfiler.lua)): Timeline recording, bottleneck analysis, coalesced event breakdown (top 10 WoW events), ignores event_coalesced in bottleneck detection (false positive eliminated)
-  - **PerformancePresets** ([Core/PerformancePresets.lua](../Core/PerformancePresets.lua)): 4 presets (Low/Medium/High/Ultra) + auto-optimization based on hardware
-  - **PerformanceDashboard** ([Core/PerformanceDashboard.lua](../Core/PerformanceDashboard.lua)): Real-time metrics overlay with PrintStats(), FPS/latency/memory tracking
-  - **DebugOutput & DebugPanel** ([Core/DebugOutput.lua](../Core/DebugOutput.lua), [Core/DebugPanel.lua](../Core/DebugPanel.lua)): 3-tier output (Critical/Info/Debug), system-specific enable flags, `/uufdebug` command, export to clipboard
-  - **Validator** ([Core/Validator.lua](../Core/Validator.lua)): System health validation, conditional frame handling (PLAYER mandatory, TARGET/PET/FOCUS check enabled+spawned but not IsVisible)
-- **Reference Documentation:**
-  - [ARCHITECTURE_GUIDE.md](../ARCHITECTURE_GUIDE.md): Comprehensive architecture reference with examples
-  - [ARCHITECTURE_EXAMPLES.lua](../ARCHITECTURE_EXAMPLES.lua): Before/after integration patterns
-  - [ULTIMATE_PERFORMANCE_SYSTEMS.md](../ULTIMATE_PERFORMANCE_SYSTEMS.md): Phase 4c systems reference
-- **CastBar Enhancements** ([Elements/CastBarEnhancements.lua](../Elements/CastBarEnhancements.lua)): Visual indicators for casting
-  - **Timer Direction:** Arrow/text/bar indicator showing cast progression direction
-  - **Channel Ticks:** Visual tick markers for channel ability timing (uses `UUF:GetChannelTicks(spellID)` from ChannelingTicks table)
-  - **Empower Stages:** Stage indicators for empowered abilities (lines/fills/boxes)
-  - **Latency Indicator:** Shows player latency and interrupt window threshold
-  - **Performance Fallback:** Disables expensive features in large groups (threshold configurable)
-  - **Initialization:** `UUF:EnhanceCastBar()` creates elements on cast start, `UUF:UpdateCastBarEnhancements()` updates per-frame
-  - **ChannelingTicks:** `UUF.ChannelingTicks` table maps spell IDs to tick arrays (milliseconds); `UUF:GetChannelTicks(spellID)` returns ticks with fallback to DEFAULT
+- **SimpleUnitFrames Core Structure:**
+  - **SimpleUnitFrames.lua (8219 lines):** Main addon core with AceAddon initialization, defaults, profile management, unit configuration accessors, custom oUF tags, performance integration hooks
+  - **Modules/System/:** Core system modules
+    - FrameIndex.lua: Frame indexing by unit and type
+    - Movers.lua: Frame positioning and movement system
+    - FrameDrag.lua: Drag-and-drop frame positioning
+    - Enhancements.lua: UI enhancements (sticky windows, transliteration, animations)
+    - Commands.lua: Slash command handlers (/suf, /SUFperf, /SUFdebug)
+    - Launcher.lua: Addon initialization orchestration
+  - **Modules/ActionBars/:** Complete action bar replacement system (ported from QUI)
+    - Core.lua: Lifecycle, DB accessors, refresh orchestration
+    - Bindings.lua: LibKeyBound integration for keybind management
+    - Skinning.lua: Button texture skinning (Normal/Gloss/Highlight/Pushed/Checked/Flash)
+    - Layout.lua: Button positioning, scaling, visibility
+    - Fade.lua: Combat/hover/target fading system
+    - Extras.lua: Extra action button, zone ability button
+  - **Modules/UI/:** Configuration and debug UI
+    - OptionsWindow.lua (3537+ lines): Main options window with tab navigation, search, module copy/reset, profile management
+    - OptionsTabs.lua: Tab definitions and metadata
+    - OptionsWidgets.lua: AceGUI widget helpers (Check, Slider, Color, Dropdown)
+    - Theme.lua: UI theming and styling
+    - DataSystems.lua: Data bar and data text systems
+    - DebugWindow.lua: Debug panel UI
+  - **Units/:** oUF unit frame spawning (Player, Target, Pet, Focus, ToT, Party, Raid, Boss)
+  - **Libraries/:** External dependencies (oUF, Ace3, LibSharedMedia, LibDualSpec, LibDeflate, LibDispel, LibTranslit, LibCustomGlow, LibRangeCheck, LibKeyBound, LibStub)
+
+- **PerformanceLib Integration (Optional Dependency):**
+  - SimpleUnitFrames integrates with PerformanceLib addon via `addon.performanceLib` references
+  - PerformanceLib provides: EventBus, FramePoolManager, EventCoalescer, FrameTimeBudget, DirtyFlagManager, ReactiveConfig, PerformanceProfiler, PerformancePresets, DebugOutput, DebugPanel, DirtyPriorityOptimizer, MLOptimizer
+  - Integration setup in SimpleUnitFrames.lua:SetupPerformanceLib() (line ~2300)
+  - Conditional integration: All PerformanceLib features gracefully degrade if addon not present
+  - Performance commands route through Commands.lua to PerformanceLib APIs
 
 ## Build and Test
 - No build/test commands are documented in this repo.
 
 ## Project Conventions
-- Use `UUF:QueueOrRun` for protected operations during combat lockdown (see [Core/Core.lua](../Core/Core.lua)).
-- Layout is stored in `UnitDB.Frame.Layout` arrays and applied in [Core/UnitFrame.lua](../Core/UnitFrame.lua); keep layout arrays consistent.
-- Media is resolved through `UUF.Media` populated by `UUF:ResolveLSM()` in [Core/Globals.lua](../Core/Globals.lua).
-- **Heal prediction visuals:** Absorb bars use `Shield-Overlay` texture with class-based coloring (damage absorbs match unit's class colour), optional overshield glows (1.0 default opacity, configurable), and incoming heals support (all/player/other split); configure via [Elements/HealPrediction.lua](../Elements/HealPrediction.lua), GUI in [Core/Config/GUIUnits.lua](../Core/Config/GUIUnits.lua), defaults in [Core/Defaults.lua](../Core/Defaults.lua). Class colours defined in HealPrediction.lua LocalClassColours table (all 12 classes mapped).
-- **Change detection best practices:**
-  - Always use `StampChanged()` before expensive style operations (buttons, textures, fonts)
-  - Always use `SetPointIfChanged()` for frame positioning to avoid redundant API calls
-  - Cache frame configs during creation (`frame.UUFUnitConfig = UnitDB`) to avoid repeated DB lookups
-- **Event handling patterns:**
-  - Use EventCoalescer for high-frequency events with proper priorities:
-    - CRITICAL (1): UNIT_HEALTH, UNIT_POWER_UPDATE, PLAYER_REGEN_ENABLED/DISABLED (immediate flush, never defer)
+- **Profile and Unit Configuration:**
+  - Defaults defined in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines 45-350 (profile.units, profile.castbar, profile.plugins, etc.)
+  - Unit settings accessors: `addon:GetUnitSettings(unitType)`, `GetUnitCastbarSettings()`, `GetUnitPluginSettings()`, `GetPluginSettings()`
+  - Configuration changes trigger refresh via `addon:ScheduleUpdateAll()` or `addon:SchedulePluginUpdate(unitType)`
+- **Unit Frame Spawning:**
+  - Units spawned via oUF in Units/ directory (Player.lua, Target.lua, Pet.lua, Focus.lua, Tot.lua, Party.lua, Raid.lua, Boss.lua)
+  - Unit builders registered via `addon:RegisterUnitBuilder(unitType, builder)` pattern
+  - Frame anchoring uses `addon:HookAnchor(frame, "BlizzardFrameName")` to preserve Edit Mode integration
+- **Action Bar System:**
+  - Configuration: [Modules/UI/OptionsWindow.lua](../Modules/UI/OptionsWindow.lua) lines 1934-2020
+  - Core logic: [Modules/ActionBars/Core.lua](../Modules/ActionBars/Core.lua) with `GetActionBarsSettings()`, `RefreshActionBars()`, `InitializeActionBars()`
+  - Skinning: [Modules/ActionBars/Skinning.lua](../Modules/ActionBars/Skinning.lua) applies textures from Media/iconskin/ (Normal, Gloss, Highlight, Pushed, Checked, Flash)
+  - Fade: [Modules/ActionBars/Fade.lua](../Modules/ActionBars/Fade.lua) handles combat/hover/target alpha transitions
+- **Protected Operations System (Combat Lockdown):**
+  - Core: [Core/ProtectedOperations.lua](../Core/ProtectedOperations.lua) — Centralized queue system with automatic flush
+  - **Early Initialization:** Addon aliases (`addon:QueueOrRun`, `addon:FlushProtectedOperations`) registered immediately at module load to prevent nil errors during early frame spawning
+  - **Lazy Event Frame Init:** Event frame created on first QueueOrRun call if not already initialized
+  - **Usage Pattern:** `addon:QueueOrRun(func, {key, type, priority})`
+  - **Priority Levels:** CRITICAL (immediate flush) → HIGH → MEDIUM → NORMAL → LOW (batched, 48 ops per flush)
+  - **Flush Trigger:** Automatic on PLAYER_REGEN_ENABLED (event-driven, zero polling overhead)
+  - **Deduplication:** Pass `key` to prevent duplicate queuing in same batch
+  - **When to Use:** Any frame mutation during combat (RefreshActionBars, UpdateFrames, etc.)
+  - **Example:**
+    ```lua
+    addon:QueueOrRun(function()
+        ActionBars:Refresh()
+    end, {
+        key = "ActionBars_Refresh",
+        type = "ACTIONBARS_REFRESH",
+        priority = "NORMAL",
+    })
+    ```
+  - **Diagnostics:** `/SUFprotected` shows queue stats; `/SUFprotected help` for full details
+- **Frame Indexing:**
+  - Frames tracked in `addon.frames[]` array
+  - Frame event index maintained by [Modules/System/FrameIndex.lua](../Modules/System/FrameIndex.lua) with `EnsureFrameEventIndex()` (byUnit, byType, all)
+  - Invalidate cache after frame operations via `InvalidateFrameEventIndex()`
+- **Custom oUF Tags:**
+  - Registered in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) `RegisterCustomTags()` function (lines ~1800-1850)
+  - Tags: `[suf:absorbs]`, `[suf:incoming]`, `[suf:ehp]`, `[suf:missinghp]`, `[suf:missingpp]`, `[suf:status]`, `[suf:health:percent-with-absorbs]`, `[suf:name]`
+  - Secret value safe: Uses `SafeNumber()`, `SafeText()`, `SafeAPICall()` wrappers for WoW 12.0.0+ compatibility
+- **Media Resolution:**
+  - LibSharedMedia (LSM) integration for textures and fonts
+  - Accessors: `addon:GetStatusbarTexture()`, `addon:GetFont()`, `addon:GetUnitStatusbarTexture(unitType)`
+  - Profile settings: `db.profile.media.statusbar`, `db.profile.media.font`
+- **PerformanceLib Integration Patterns (when PerformanceLib addon is present):**
+  - **Event Coalescing:** Use EventCoalescer for high-frequency events with priorities (CRITICAL/HIGH/MEDIUM/LOW)
+    - CRITICAL (1): UNIT_HEALTH, UNIT_POWER_UPDATE, PLAYER_REGEN_ENABLED/DISABLED (immediate flush)
     - HIGH (2): UNIT_MAXHEALTH, UNIT_MAXPOWER, UNIT_AURA (minimal batching)
     - MEDIUM (3): UNIT_THREAT, PLAYER_TOTEM_UPDATE, RUNE_POWER_UPDATE (standard coalescing)
     - LOW (4): UNIT_PORTRAIT_UPDATE, UNIT_MODEL_CHANGED (aggressive batching, cosmetic)
-  - Use DirtyFlagManager for batched frame updates (50-60% faster)
-  - Integrate with CoalescingIntegration for automatic element coalescing (13 events auto-configured)
-  - Register PLAYER_LEVEL_UP and UNIT_LEVEL events for level-up frame updates (0.1s delay recommended)
-  - **Frame validation before processing:**
-    - Check frame is table type before accessing methods
-    - Validate update methods exist (UpdateAll, Update, or element.Update)
-    - Use GetObjectType() check for UI widgets
-    - Skip invalid/dead frames in processing loops
-- **Frame time budgeting patterns:**
-  - Use `FrameTimeBudget:CanAfford(priority, estimatedCost)` before expensive operations
-  - Defer non-critical updates with `FrameTimeBudget:DeferUpdate(callback, priority, context)`
-  - Wrap functions with `FrameTimeBudget:WrapWithBudget(func, priority, estimatedCost)`
-  - Batch process with budget awareness using `FrameTimeBudget:BatchProcess(items, processor, priority, maxTime)`
-  - Priority levels: PRIORITY_CRITICAL (1, health/power), PRIORITY_HIGH (2, auras/cast), PRIORITY_MEDIUM (3, tags), PRIORITY_LOW (4, cosmetic)
-  - Target frame time: 16.67ms for 60 FPS
-  - DirtyFlagManager automatically uses adaptive batch sizing when FrameTimeBudget is available
-- **Frame pooling patterns:**
-  - Use FramePoolManager for aura buttons and indicators (60-75% GC reduction)
-  - Always Release() frames when hiding/removing elements
-  - Call ReleaseAll() on frame destruction
-- **Performance monitoring:**
-  - Use `/uufperf` to toggle real-time performance dashboard
-  - Use `/uufprofile start|stop|analyze|export` for timeline profiling
-  - Use `/uufpreset low|medium|high|ultra` to adjust performance levels
-  - Use `/run UUF.Validator:RunFullValidation()` to check system health
-  - Use `/run UUF.PerformanceDashboard:PrintStats()` for comprehensive stats to chat
-  - Use `/run UUF.FrameTimeBudget:PrintStatistics()` for frame time budget stats
-  - Use `/uufdebug` to open debug panel for system-specific diagnostics
-  - Check frame spikes: Look for HIGH/MEDIUM severity bottlenecks in profiler output
-- **Configuration best practices:**
-  - Use ConfigResolver for profile → unit → global fallback
-  - Use ReactiveConfig for automatic config-to-frame synchronization
-  - Debounce rapid config changes (already handled by ReactiveConfig)
-- **Machine Learning Optimization:**
-  - DirtyPriorityOptimizer learns from 5-minute windows
-  - Auto-adjusts priorities based on frequency (40%), combat ratio (30%), recency (20%), base importance (10%)
-  - Check recommendations: `/run UUF.DirtyPriorityOptimizer:PrintRecommendations()`
-- **Adaptive batching:**
-  - DirtyFlagManager adjusts batch size based on frame time budget
-  - Under budget (< 12ms): 2x batch size (up to 20 frames)
-  - Near limit (12-14ms): Normal batch size (10 frames)
-  - Over budget (> 14ms): 1/2 to 1/4 batch size (2-5 frames)
-  - Critical updates (priority 4+) always process, deferred updates queue automatically
-  - Batch intervals adapt: faster when under budget, slower when over budget
+    - Event priority config: `PERF_EVENT_PRIORITY` table in SimpleUnitFrames.lua (lines ~550-570)
+    - Coalesce config: `EVENT_COALESCE_CONFIG` table in SimpleUnitFrames.lua (lines ~580-605)
+  - **Frame Time Budgeting:** FrameTimeBudget tracks frame time, defers non-critical updates (target: 16.67ms for 60 FPS)
+  - **Frame Pooling:** FramePoolManager for aura buttons and indicators (60-75% GC reduction when used)
+  - **Dirty Flag Batching:** DirtyFlagManager batches frame updates with adaptive sizing
+  - **ML Optimization:** DirtyPriorityOptimizer learns from gameplay (5-minute windows, 4 weighted factors)
+  - **Performance Monitoring:**
+    - `/SUFperf` - Toggle real-time performance dashboard
+    - `/SUFprofile start|stop|analyze|export` - Timeline profiling
+    - `/SUFpreset low|medium|high|ultra` - Adjust performance presets
+    - `/run SUF.PerformanceDashboard:PrintStats()` - Stats to chat
+    - `/SUFdebug` - Open debug panel
 - **Conditional frame handling:**
   - PLAYER frame: Always exists, always visible (mandatory)
   - TARGET, PET, FOCUS, TARGETTARGET, FOCUSTARGET: Exist via oUF:Spawn but hidden when units not present
   - Use RegisterUnitWatch to auto show/hide conditional frames
-  - Validation: Check frame exists (UUF[unit:upper()]) but don't require IsVisible() for conditional frames
-  - Both storage patterns available: UUF.PLAYER and UUF.Units["player"]
+  - Validation: Check frame exists but don't require IsVisible() for conditional frames
+  - **Frame access patterns:**
+    - Array storage: `addon.frames[]` (indexed, iterate via `ipairs(addon.frames)`)
+    - Global names: `_G["SUF_Player"]`, `_G["SUF_Target"]`, `_G["SUF_Pet"]`, etc. (oUF spawn names)
+    - Frame event index: [Modules/System/FrameIndex.lua](../Modules/System/FrameIndex.lua) provides byUnit/byType/all lookups
 - **Performance profiling workflow:**
-  - Start: `/uufprofile start` (begins timeline recording, max 10000 events)
+  - Start: `/SUFprofile start` (begins timeline recording, max 10000 events)
   - Play: 5-10 minutes of normal gameplay (combat, movement, UI interaction)
-  - Stop: `/uufprofile stop` (ends recording)
-  - Analyze: `/uufprofile analyze` (shows FPS metrics, frame time percentiles, coalesced event breakdown, bottlenecks)
-  - Export: `/uufprofile export` (copies timeline data to clipboard)
+  - Stop: `/SUFprofile stop` (ends recording)
+  - Analyze: `/SUFprofile analyze` (shows FPS metrics, frame time percentiles, coalesced event breakdown, bottlenecks)
+  - Export: `/SUFprofile export` (copies timeline data to clipboard)
   - Expected results: P50=16.7ms (60 FPS), P99<25ms, zero HIGH severity spikes (>33ms)
   - Bottleneck interpretation: HIGH severity = frames >33ms (below 30 FPS), event_coalesced is false positive (optimization working)
 
 ## Integration Points
-- oUF for frame spawning and colors (see [Libraries/oUF](../Libraries/oUF) and [Core/UnitFrame.lua](../Core/UnitFrame.lua)).
+- oUF for frame spawning and colors (see [Libraries/oUF](../Libraries/oUF) and Units/ directory).
 - Ace3 (AceAddon/AceDB/AceGUI), LibSharedMedia, LibDualSpec, LibDeflate, LibDispel (see [Libraries/](../Libraries/)).
-- **New Architecture Systems:**
-  - EventBus (singleton, use directly without `:New()`)
-  - FramePoolManager (centralized pooling for aura buttons, indicators)
-  - EventCoalescer (event batching for high-frequency WoW events)
-  - FrameTimeBudget (frame time budgeting, adaptive throttling, deferred queue)
-  - DirtyFlagManager (centralized dirty flag batching with adaptive sizing)
-  - ReactiveConfig (auto config-to-frame sync with ConfigResolver)
+- **Protected Operations System Integration:**
+  - Core system: [Core/ProtectedOperations.lua](../Core/ProtectedOperations.lua) — Unified combat lockdown handling
+  - API method: `addon:QueueOrRun(func, opts={key, type, priority})` — Deferred execution during combat
+  - Priority levels: CRITICAL (immediate flush), HIGH, MEDIUM, NORMAL, LOW (batched)
+  - Auto-flush: Triggered on PLAYER_REGEN_ENABLED event (event-driven, zero polling overhead)
+  - Deduplication: Keyed operations prevent duplicate queuing in the same batch
+  - Diagnostics: `/SUFprotected` command for queue statistics and debugging
+  - Module integration: ActionBars (Core.lua), Unit Frames (refresh callbacks), UI (option changes)
+- **PerformanceLib Integration (Optional Dependency):**
+  - Architecture systems in PerformanceLib addon: EventBus, FramePoolManager, EventCoalescer, FrameTimeBudget, DirtyFlagManager, ReactiveConfig
+  - Integration setup: [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) `SetupPerformanceLib()` function (lines ~2295-2350)
+  - Graceful degradation: All PerformanceLib features optional, checks `addon.performanceLib` before use
   - PerformanceProfiler (timeline recording, bottleneck analysis)
   - PerformancePresets (4 presets: Low/Medium/High/Ultra + auto-optimization)
-  - PerformanceDashboard (`/uufperf` for real-time metrics, PrintStats() for chat output)
-  - DebugOutput & DebugPanel (non-intrusive debug routing with `/uufdebug` UI)
+  - PerformanceDashboard (`/SUFperf` for real-time metrics via Commands.lua)
+  - DebugOutput & DebugPanel (non-intrusive debug routing)
   - DirtyPriorityOptimizer (ML-based priority learning with 4 weighted factors)
-  - **MLOptimizer** ([Core/MLOptimizer.lua](../Core/MLOptimizer.lua)): Advanced ML system (Phase 5b)
-    - **Neural Network:** 7 inputs (frequency, recency, combatState, groupSize, contentType, fps, latency) → 5 hidden neurons → 3 outputs (priority, coalesceDelay, preloadLikelihood)
-    - **Combat Pattern Recognition:** Tracks event sequences, learns patterns from gameplay ("UNIT_HEALTH → UNIT_POWER_UPDATE" sequences)
-    - **Predictive Pre-loading:** Pre-marks frames when prediction confidence >70%, reduces first-event latency
-    - **Adaptive Coalescing Delays:** Learns optimal delay per event per content type, auto-adjusts based on success rate (<70% → longer, >95% → shorter)
+  - **MLOptimizer** (PerformanceLib/ML/MLOptimizer.lua): Advanced ML system
+    - **Neural Network:** 7 inputs → 5 hidden neurons → 3 outputs (priority, coalesceDelay, preloadLikelihood)
+    - **Combat Pattern Recognition:** Tracks event sequences, learns patterns from gameplay
+    - **Predictive Pre-loading:** Pre-marks frames when prediction confidence >70%
+    - **Adaptive Coalescing Delays:** Learns optimal delay per event per content type
     - **Training:** Backpropagation with gradient descent (0.01 learning rate), Sigmoid activation
-    - **Integration:** Hooks DirtyFlagManager:MarkDirty (pattern tracking) and EventCoalescer:QueueEvent (event tracking)
+    - **Integration:** Hooks DirtyFlagManager:MarkDirty and EventCoalescer:QueueEvent
 - **Performance Feature Commands:**
-  - `/uufperf` - Toggle performance dashboard (real-time FPS/latency/memory overlay)
-  - `/uufprofile start|stop|analyze|export` - Performance profiling (timeline recording, 10000 event max)
+  - `/SUFperf` - Toggle performance dashboard (real-time FPS/latency/memory overlay)
+  - `/SUFprofile start|stop|analyze|export` - Performance profiling (timeline recording, 10000 event max)
     - analyze: Shows FPS metrics (min/avg/max), frame time percentiles (P50/P95/P99), coalesced event breakdown (top 10 WoW events), bottlenecks (ignores event_coalesced false positive)
-  - `/uufpreset low|medium|high|ultra` - Change performance preset
-  - `/uufpreset auto on|off` - Toggle auto-optimization based on hardware
-  - `/uufpreset recommend` - Get preset recommendations based on current performance
-  - `/uufml patterns|delays|stats|predict|help` - MLOptimizer commands (Phase 5b)
+  - `/SUFpreset low|medium|high|ultra` - Change performance preset
+  - `/SUFpreset auto on|off` - Toggle auto-optimization based on hardware
+  - `/SUFpreset recommend` - Get preset recommendations based on current performance
+  - `/SUFml patterns|delays|stats|predict|help` - MLOptimizer commands (Phase 5b)
     - patterns: Show learned combat patterns with prediction probabilities
     - delays: Show adaptive coalescing delays per event/content type
     - stats: Statistics (patterns learned, delays optimized, current sequence, context)
     - predict: Current predictions based on recent event sequence
-  - `/run UUF.Validator:RunFullValidation()` - System health check (11 tests: Architecture, EventBus, ConfigResolver, FramePoolManager, GUILayout, MLOptimizer, FramesSpawning, EventBusDispatch, FramePoolAcquisition, ConfigResolution, GuiBuilder)
-  - `/run UUF.DirtyPriorityOptimizer:PrintRecommendations()` - ML-based priority recommendations (frequency, combat ratio, recency analysis)
-  - `/run UUF.MLOptimizer:GetStats()` - MLOptimizer statistics (patterns, delays, sequence length, context)
-  - `/run UUF.PerformanceDashboard:PrintStats()` - Print comprehensive stats to chat (FPS, latency, memory, frame pool stats, event coalescing stats)
-  - `/run UUF.FrameTimeBudget:PrintStatistics()` - Frame time budget stats (avg/P50/P95/P99, histogram distribution, deferred queue size, dropped callbacks)
-  - `/run UUF.FrameTimeBudget:ResetStatistics()` - Reset frame time tracking (clears percentile history)
-  - `/run UUF.EventCoalescer:PrintStats()` - Event coalescing detailed stats (total coalesced/dispatched, CPU savings %, per-event breakdown with batch sizes min/avg/max, budget defers, emergency flushes)
-  - `/run UUF.EventCoalescer:ResetStats()` - Reset coalescing statistics
-  - `/run UUF.DirtyFlagManager:PrintStats()` - Dirty flag stats (frames processed, batches, invalid frames skipped, priority decays, processing blocks)
-  - `/uufdebug` - Toggle debug panel (non-intrusive diagnostic messages, system-specific toggles, export to clipboard)
+  - `/run SUF.Validator:RunFullValidation()` - System health check (11 tests: Architecture, EventBus, ConfigResolver, FramePoolManager, GUILayout, MLOptimizer, FramesSpawning, EventBusDispatch, FramePoolAcquisition, ConfigResolution, GuiBuilder)
+  - `/run SUF.DirtyPriorityOptimizer:PrintRecommendations()` - ML-based priority recommendations (frequency, combat ratio, recency analysis)
+  - `/run SUF.MLOptimizer:GetStats()` - MLOptimizer statistics (patterns, delays, sequence length, context)
+  - `/run SUF.PerformanceDashboard:PrintStats()` - Print comprehensive stats to chat (FPS, latency, memory, frame pool stats, event coalescing stats)
+  - `/run SUF.FrameTimeBudget:PrintStatistics()` - Frame time budget stats (avg/P50/P95/P99, histogram distribution, deferred queue size, dropped callbacks)
+  - `/run SUF.FrameTimeBudget:ResetStatistics()` - Reset frame time tracking (clears percentile history)
+  - `/run SUF.EventCoalescer:PrintStats()` - Event coalescing detailed stats (total coalesced/dispatched, CPU savings %, per-event breakdown with batch sizes min/avg/max, budget defers, emergency flushes)
+  - `/run SUF.EventCoalescer:ResetStats()` - Reset coalescing statistics
+  - `/run SUF.DirtyFlagManager:PrintStats()` - Dirty flag stats (frames processed, batches, invalid frames skipped, priority decays, processing blocks)
+  - `/SUFdebug` - Toggle debug panel (non-intrusive diagnostic messages, system-specific toggles, export to clipboard)
+
+## Performance Profiling Integration
+**When to Profile:**
+- Before/after optimization work to measure improvements
+- During gameplay to identify bottlenecks (combat, dungeons, raids, world events)
+- Before committing code changes that affect frame updates or event handling
+- When investigating FPS drops or performance regressions
+
+**Profiling Workflow:**
+1. **Start Recording:** `/SUFprofile start` (captures timeline, max 10000 events)
+2. **Normal Gameplay:** Play for 5-10 minutes (combat, movement, UI interaction, content variation)
+3. **Stop Recording:** `/SUFprofile stop` (ends timeline capture)
+4. **Analyze Results:** `/SUFprofile analyze` (shows metrics and bottleneck breakdown)
+5. **Export Data:** `/SUFprofile export` (copies timeline JSON to clipboard for external analysis)
+
+**Reading Analysis Output:**
+- **FPS Metrics:** min/avg/max (aim for avg ≥60, min ≥30)
+- **Frame Time Percentiles:** P50/P95/P99 (aim for P50≤16.7ms, P99<25ms for 60 FPS target)
+- **Coalesced Events:** Top 10 WoW events with batch sizes (shows which events benefit most from coalescing)
+- **Bottlenecks:** Frames >33ms (below 30 FPS) marked as HIGH severity (note: event_coalesced=true is not a bottleneck, it's optimization working)
+
+**Code Instrumentation for Profiling:**
+- Use PerformanceLib's EventCoalescer for high-frequency events (CRITICAL/HIGH/MEDIUM/LOW priorities)
+- Queue frame updates via `addon:QueueOrRun()` with appropriate priority for combat lockdown safety
+- Use `addon.PerformanceProfiler:MarkEvent(eventName)` to annotate timeline (if PerformanceLib available)
+- Avoid blocking operations — defer non-critical work with DirtyFlagManager batching
+
+**Expected Performance Baselines:**
+- **Idle (no combat):** P50<5ms, P95<10ms (cosmetic updates deferred aggressively)
+- **Light Combat (1v1):** P50≤16.7ms, P99<25ms (event coalescing active, frame pooling reduces GC)
+- **Heavy Combat (raid/alt+tab):** P95<33ms target (deferral queue active, budget throttling engaged)
+- **GC Impact:** 60-75% GC reduction with frame pooling + event deferral (vs. naive implementation)
 
 ## Security
-- Combat lockdown applies to frame changes; defer protected changes using `UUF:QueueOrRun` and avoid in-combat layout edits (see [Core/Core.lua](../Core/Core.lua)).
-- **WoW 12.0.0 Secret Values:** Use `Architecture.SafeValue()`, `SafeCompare()`, and `IsSecretValue()` for protected value handling
-- **Event Coalescing Combat Handling:**
-  - EventCoalescer automatically flushes CRITICAL priority events (health/power/combat state) immediately
-  - PLAYER_REGEN_ENABLED/DISABLED events bypass coalescing for instant combat state updates
-  - Emergency flush tracking via _stats.emergencyFlushes counter
-- **Dirty Flag Combat Handling:**
-  - DirtyFlagManager batches updates but forces flush on combat state change
-  - Processing lock (_isProcessing) prevents re-entry during forced flushes
-  - Priority decay paused during combat to maintain update urgency
-- **Frame Time Budget Safety:**
-  - FrameTimeBudget uses pcall() for all deferred callbacks with error logging via DebugOutput
-  - Overflow protection: MAX_DEFERRED_QUEUE=200, drops LOW priority callbacks when full
-  - No callback starvation: Critical updates always process regardless of budget
-- **Frame Validation Safety:**
-  - _ValidateFrame() checks frame validity before processing (type, methods, GetObjectType)
-  - Invalid frames skipped and cleared from dirty tracking
-  - Prevents nil reference errors and access to garbage-collected frames
-- **Processing Lock Safety:**
-  - _isProcessing flag prevents re-entry into ProcessDirty() (DirtyFlagManager)
-  - Blocks nested/recursive processing that could cause infinite loops
-  - Tracks blocks via _stats.processingBlocks counter
-- **Pool Safety:** FramePoolManager tracks acquired frames and prevents double-release with validation
-- **ML Safety:** DirtyPriorityOptimizer learns passively without blocking or interfering with gameplay (5-minute windows, runs on intervals)
-- **Debug Output Safety:**
-  - All debug output uses pcall() protection to prevent errors from stopping execution
-  - System-specific enable flags (UUF.db.global.Debug.systems.SystemName) prevent spam
-  - Three tiers: Critical (always chat), Info (optional panel), Debug (system-specific only)
-- **Conditional Frame Safety:**
-  - Validator distinguishes "frame not spawned" (error) vs "frame hidden because unit absent" (expected)
-  - Don't require IsVisible() for TARGET/PET/FOCUS validation
-  - RegisterUnitWatch handles visibility automatically based on unit existence
+- **Protected Operations System (Unified Combat Lockdown Handling):**
+  - **Location:** [Core/ProtectedOperations.lua](../Core/ProtectedOperations.lua) (event-driven queue system with early init)
+  - **API:** `addon:QueueOrRun(func, opts)` — Queue operation for deferred execution during combat
+  - **Options:** `{key: string, type: string, priority: "CRITICAL"|"HIGH"|"MEDIUM"|"NORMAL"|"LOW"}`
+  - **Early Initialization:** Addon aliases registered at module load via `RegisterAddonAliasesEarly()` to prevent nil errors during frame spawning
+  - **Lazy Event Frame:** Event frame (PLAYER_REGEN_ENABLED/DISABLED listeners) created on first QueueOrRun call if needed
+  - **Flush Trigger:** Automatic flush on `PLAYER_REGEN_ENABLED` event (event-driven, zero polling)
+  - **Deduplication:** Keyed operations prevent duplicate queuing; use `key: "OperationName"` to prevent redundant work
+  - **Priority Ordering:** Operations sorted before flush (CRITICAL → HIGH → MEDIUM → NORMAL → LOW)
+  - **Batch Processing:** 48 operations per safe-flush window prevents runaway processing
+  - **Fallback Ticker:** 200ms fallback ticker if queue remains after flush (edge case handling)
+  - **Diagnostics:** `/SUFprotected` command shows queue stats; `/SUFprotected help` for full details
+  - **Example:** Queue ActionBars refresh during combat:
+    ```lua
+    addon:QueueOrRun(function()
+        ActionBars:Refresh()
+    end, {
+        key = "ActionBars_Refresh",
+        type = "ACTIONBARS_REFRESH",
+        priority = "NORMAL",
+    })
+    ```
+  - **Usage in Modules:** ActionBars (Core.lua), any other module needing protected frame mutations
+  - **Performance:** Event-driven with no polling overhead; fallback ticker (200ms) for edge cases
+- **WoW 12.0.0+ Secret Values:** Use `SafeNumber()`, `SafeText()`, `SafeAPICall()`, `IsSecretValue()` wrappers (defined in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines ~760-835)
+- **PerformanceLib Safety (when present):**
+  - EventCoalescer: Flushes CRITICAL priority events immediately, emergency flush tracking
+  - DirtyFlagManager: Processing lock prevents re-entry, combat state forces flush
+  - FrameTimeBudget: pcall() protection for deferred callbacks, overflow protection (MAX_DEFERRED_QUEUE=200)
+  - Frame Validation: `_ValidateFrame()` checks before processing, skips invalid/dead frames
+  - Pool Safety: FramePoolManager tracks acquired frames, prevents double-release
+  - ML Safety: DirtyPriorityOptimizer/MLOptimizer learn passively without blocking gameplay
+- **Error Handling:**
+  - All API calls wrapped in `SafeAPICall()` with pcall() protection
+  - ProtectedOperations errors logged via `addon:DebugLog()` (integrated error tracking)
+  - Debug output uses pcall() to prevent errors from stopping execution
+  - Module initialization failures logged via `addon:DebugLog()` with tier 1 (critical)
 
 ## Change Documentation
 After completing any bug fix, feature work, or development change, update project documentation:
@@ -297,7 +333,7 @@ After completing any bug fix, feature work, or development change, update projec
 When introducing new features, systems, libraries, or architectural changes, **automatically update this copilot-instructions.md file** to reflect the changes:
 
 **Update Code Style section if:**
-- New code patterns introduced (e.g., UUF.Units table pattern, frame validation patterns)
+- New code patterns introduced (e.g., SUF.Units table pattern, frame validation patterns)
 - New utility functions added to common use (e.g., new Utilities helpers, new DebugOutput methods)
 - New best practices established (e.g., priority constants, frame storage patterns)
 
@@ -309,7 +345,7 @@ When introducing new features, systems, libraries, or architectural changes, **a
 
 **Update Project Conventions section if:**
 - New workflow patterns established (e.g., frame validation before processing, conditional frame handling)
-- New commands or slash commands added (e.g., /uufprofile, /uufpreset)
+- New commands or slash commands added (e.g., /SUFprofile, /SUFpreset)
 - New monitoring/diagnostic approaches (e.g., performance profiling workflow)
 - New integration patterns (e.g., event priority assignment, adaptive batching)
 
