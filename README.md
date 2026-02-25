@@ -2,21 +2,17 @@
 
 # SimpleUnitFrames (SUF)
 
-SimpleUnitFrames is a modular unit frame replacement for World of Warcraft Retail, built on `oUF` with Ace3 configuration and optional `PerformanceLib` integration for event coalescing, dirty batching, profiling, and diagnostics.
-Why I created this was to learn a bit about addons, using Codex to help me. Never did like Lua much during my Mangos and Ascent developement days with GameScript they used for scripting. Yeah privateserver days but thats been a long time ago back during WoTLK days.
+SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of Warcraft Retail. Built on `oUF` with Ace3 configuration, it features an integrated Action Bars system (ported from QUI), extensive customization options, and optional `PerformanceLib` integration for advanced event coalescing, performance profiling, and diagnostics.
 
 ## Recent Updates
 
-- Synced SUF framework behavior with newer `oUF` changes and element refinements
-- Added broad plugin compatibility shims for newer Retail/oUF environments:
-  - aura iteration fallback when `oUF.AuraFiltered` is unavailable
-  - aura unpack fallback when `oUF:UnpackAuraData` is unavailable
-  - secret-value helper fallbacks when `oUF:NotSecretValue` / `oUF:IsSecretValue` are unavailable
-- Expanded performance tooling integration and SUF-side diagnostics workflow
-- Improved event relevance filtering and coalesced update routing for frame pacing
-- Added additional plugin/runtime libraries for UI polish and extensibility
-- Incoming-heal value text feature is currently disabled by default for stability in secret-value contexts; incoming heal bars remain active
-- Added dedicated `IncomingText` debug channel (off by default) in SUF Debug Settings
+- **Action Bars System** — Complete implementation with button skinning, fade engine (combat/mouseover/target-based), keybind management (LibKeyBound + Midnight-safe patching), and Edit Mode support
+- **Blizzard Frame Integration** — Per-frame hide controls for default unit frames with Edit Mode visibility toggle and global options
+- **Health Color Hardening** — Threat/reaction/class colors now safe against WoW 12.0.0+ secret value restrictions
+- **Data Text/Bars System** — New draggable data bar framework with Shift+click-restricted drag handles, XP/Reputation fade controls, and dynamic repositioning
+- **Portrait Alpha Syncing** — Portraits now follow frame fader alpha for consistent frame transparency effects
+- **Safe Theming Helpers** — Added `ApplySUFBackdropColors()` utility for backdrop styling with safe color fallbacks
+- **Plugin Compatibility** — Broad oUF compatibility shims for aura iteration, unpacking, and secret-value handling across different runtime environments
 
 ## Screenshots
 
@@ -35,112 +31,94 @@ Why I created this was to learn a bit about addons, using Codex to help me. Neve
 ## Features
 
 ### Core Unit Frame System
-- Player, Target, Target of Target, Focus, Pet, Party, Raid, and Boss frames
-- Tag-driven text rendering for name, level, health, and power
-- Per-unit sizing, media, font sizing, portrait, castbar, and heal prediction settings
-- Aura support with configurable icon sizing
-- Edit Mode-safe behavior and Blizzard frame visibility handling
+- **Frame Types** — Player, Target, Target-of-Target, Focus, Pet, Party, Raid, and Boss frames
+- **Customization** — Per-unit sizing, media, fonts, portraits, castbars, and aura sizing
+- **Advanced Rendering** — Tag-driven text system with health, power, absorbs, heal prediction, and custom SUF tags
+- **Aura System** — Configurable aura display with icon sizing, buff/debuff filtering, and preview tooltips
+- **Edit Mode Integration** — Full compatibility with Blizzard Edit Mode for frame positioning
 
-### Options & UX
-- Movable, resizable custom `/suf` options window
-- Tabbed configuration for global and per-unit settings
-- Unified options factory helpers (label/check/slider/dropdown/color/button/edit) for consistent rendering and search indexing
-- Search v2 with grouped results, relevance scoring, optional counts, and keyboard jump (`Alt+Up/Down`, `Enter`)
-- Tags reference tab with grouped oUF tags + SUF custom tags
-- Per-unit tag preset system (compact/healer/tank/dps/minimal styles)
-- Credits tab and Performance tab inside SUF options
-- Import/export wizard with validate -> preview -> apply flow, adapter fallback, and rollback on apply failure
-- Minimap/LDB launcher support:
-  - Left click: open SUF options
-  - Right click: quick actions (SUF options, PerfLib UI, SUF debug)
+### Action Bars System
+- **Button Management** — Complete reimplementation with button skinning (Normal, Gloss, Highlight, Pushed states)
+- **Keybind Display** — LibKeyBound integration with Midnight-safe keybind patching
+- **Fade Engine** — Smart fading with combat, mouseover, and target-based activation modes
+- **Layout Control** — Per-bar scale, lock, visibility modes, and page arrow management
+- **Extra Action Buttons** — Support for Extra Action Button and Zone Ability with custom positioning and movers
+- **Edit Mode Support** — Full Edit Mode integration for action bar positioning and customization
 
 ### Performance & Diagnostics
-- Optional `PerformanceLib` runtime integration
-- SUF EventBus bridge for coalesced event workflows
-- ML/coalescer adaptive hooks when available
-- Relevance-gated unit event queueing to reduce unnecessary event pressure
-- Tuned coalescing priorities/delays for noisy combat events
-- `/sufdebug` panel with:
-  - Real-time logs
-  - System filters
-  - Exportable diagnostics text
-- Dedicated `IncomingText` debug filter for prediction-value trace output
-- PerformanceLib output sink routing into SUF debug logs for easier sharing
+- **PerformanceLib Integration** — Optional advanced performance systems including:
+  - Event coalescing with adaptive priorities (CRITICAL/HIGH/MEDIUM/LOW)
+  - Dirty flag batching for efficient frame updates
+  - Frame time budgeting and frame pooling
+  - Real-time performance dashboard (`/sufdebug`)
+  - Timeline profiling with bottleneck analysis (`/SUFprofile`)
+  - ML-based priority optimization (learns from gameplay patterns)
+- **Relevance Filtering** — Smart event queueing reduces unnecessary event pressure during combat
+- **Diagnostics Panel** — Real-time logs with system filters, debug channels, and exportable data
+
+### Data Bars & Text System
+- **Draggable Data Bars** — Repositionable bars for XP, reputation, and custom data displays
+- **Shift+Click Drag Handles** — Drag handles restricted to Shift+click for accidental protection
+- **XP/Reputation Control** — Per-bar visibility and fade behavior tied to Action Bars fade system
+- **Customizable Text** — Data text system with multiple text display options
+
+### Options & Configuration
+- **Unified Options Window** — Tabbed interface with search v2 (relevance scoring, grouped results, keyboard navigation)
+- **PerformanceLib Tab** — Preset selection, snapshot metrics, and integration shortcuts
+- **Global Settings** — Universal options including Blizzard frame visibility control
+- **Per-Unit Presets** — Tag preset system (compact/healer/tank/dps/minimal) for quick style switching
+- **Import/Export** — Profile wizard with validation, preview, and rollback on failure
+- **Minimap/LDB Support** — Launcher with quick-access actions and settings menu
 
 ## Quick Start
 
-### 1. Install
-- Place `SimpleUnitFrames` in your AddOns folder.
-- Optional: install `PerformanceLib` for advanced performance systems and diagnostics.
+### Installation
+1. Place `SimpleUnitFrames` in your WoW AddOns folder
+2. (Optional) Install `PerformanceLib` for advanced performance features
+3. Reload UI or restart WoW
 
-### 2. Open Options
-```text
-/suf
+### Basic Commands
+| Command | Purpose |
+|---------|---------|
+| `/suf` | Open SimpleUnitFrames options |
+| `/sufdebug` | Toggle debug console with logs and filtering |
+| `/SUFprotected` | Show protected operations queue stats |
+| `/SUFperf` | Toggle real-time performance dashboard (requires PerformanceLib) |
+
+### Performance Profiling (PerformanceLib)
+```
+/SUFprofile start      # Begin timeline recording (max 10000 events)
+/SUFprofile stop       # End recording
+/SUFprofile analyze    # Show FPS metrics, frame time percentiles, bottlenecks
+/SUFprofile export     # Copy timeline data to clipboard
+
+/SUFpreset low|medium|high|ultra     # Change performance preset
+/SUFpreset auto on|off               # Toggle auto-optimization based on hardware
+/SUFpreset recommend                 # Get preset recommendations
 ```
 
-### 3. Open Debug Console
-```text
-/sufdebug
-```
+## Custom Tags
 
-### 4. Optional PerfLib UI/Analysis
-```text
-/perflib ui
-/perflib analyze
-/perflib profile start
-/perflib profile stop
-```
+SimpleUnitFrames provides extended tag support beyond standard oUF tags:
 
-## Slash Commands
+| Tag | Purpose |
+|-----|---------|
+| `[suf:absorbs]` | Absorb shield amount with condensed formatting |
+| `[suf:incoming]` | Incoming heal prediction |
+| `[suf:ehp]` | Effective health (health + absorbs) |
+| `[suf:missinghp]` | Missing health value |
+| `[suf:missingpp]` | Missing power value |
+| `[suf:status]` | Unit status (dead, ghost, offline) |
+| `[suf:name]` | Unit name with class color |
 
-```text
-/suf
-  Open SUF options UI
-
-/sufdebug
-  Toggle SUF debug console
-
-/sufdebug on|off|clear|export|settings|help
-  Debug controls and export tools
-```
-
-When `PerformanceLib` is installed:
-
-```text
-/perflib ui
-/perflib stats
-/perflib analyze [all|eventbus|frame|dirty|pool|profile]
-/perflib profile start|stop|analyze [scope]
-```
-
-SUF options also include a **PerformanceLib** tab with:
-- active preset selection
-- snapshot metrics
-- shortcuts to PerfLib and SUF debug tools
-
-## SUF Custom Tags
-
-Available custom tags:
-
-```text
-[suf:absorbs]
-[suf:absorbs:abbr]
-[suf:incoming]
-[suf:incoming:abbr]
-[suf:healabsorbs]
-[suf:healabsorbs:abbr]
-[suf:ehp]
-[suf:ehp:abbr]
-```
-
-Note: incoming-heal numeric display can be restricted by Blizzard secret-value handling depending on client/runtime state. SUF currently prioritizes stable, taint-safe behavior.
+**Note:** Due to WoW 12.0.0+ secret value restrictions, some numeric prediction values may be unavailable in certain contexts. SUF prioritizes stable, taint-safe rendering over unreliable numeric display.
 
 ## Known Limitations
 
-- Incoming-heal value text is currently disabled by default while we harden secret-value-safe display paths.
-- Blizzard secret-value handling can block reliable numeric access for some prediction APIs, even when bars visually update.
-- Some advanced performance diagnostics are only available when `PerformanceLib` is installed and enabled.
-- Minimap/LDB behavior depends on optional broker/icon libraries being present in the addon environment.
+- **Secret Values (WoW 12.0.0+)** — Some prediction API returns are restricted; SUF uses safe fallback colors and text when values are unavailable
+- **PerformanceLib Features** — Advanced diagnostics and ML optimization only available when PerformanceLib addon is installed
+- **Broker/LDB** — Minimap behavior depends on optional broker libraries present in the addon environment
+- **Action Bar Paging** — Paging follows WoW's built-in action bar paging system; custom paging logic is not supported
 
 ## API Reference (Addon Integration)
 
@@ -166,55 +144,88 @@ addon:BuildImportedProfilePreview(data[, report])
 addon:ApplyImportedProfile(data)
 ```
 
-## Architecture Notes
+## Architecture & Documentation
 
-- Options/search/import migration details: [docs/MIGRATION.md](docs/MIGRATION.md)
-- Safe extension guidance for contributors: [docs/DEVELOPER_NOTES.md](docs/DEVELOPER_NOTES.md)
+### Key Modules
+- **[SimpleUnitFrames.lua](SimpleUnitFrames.lua)** — Core addon initialization, profile management, unit configuration, and custom tag registration
+- **[Core/ProtectedOperations.lua](Core/ProtectedOperations.lua)** — Unified combat lockdown handling with priority-based operation queueing
+- **[Modules/ActionBars/](Modules/ActionBars/)** — Complete action bar system with skinning, layout, fading, and keybind management
+- **[Modules/UI/](Modules/UI/)** — Options window, debug panel, and data bar system with theming helpers
+- **[Units/](Units/)** — oUF unit frame builders for each frame type
 
-## Libraries Used
+### Documentation
+- [DEVELOPER_NOTES.md](docs/DEVELOPER_NOTES.md) — Safe extension patterns and contribution guidelines
+- [MIGRATION.md](docs/MIGRATION.md) — Profile migration and import system details
+- [PROTECTED_OPERATION_ANALYSIS.md](docs/PROTECTED_OPERATION_ANALYSIS.md) — Combat lockdown handling deep dive
+- [docs/QUI_PORT/](docs/QUI_PORT/) — Feature-specific import documentation from QUI port
 
-### Framework & UI
-- `oUF`
-- `AceAddon-3.0`
-- `AceDB-3.0`
-- `AceGUI-3.0`
-- `AceConsole-3.0`
-- `AceEvent-3.0`
-- `AceSerializer-3.0`
+### Development
+- Use `addon:QueueOrRun(func, opts)` for all frame mutations during combat
+- Localize frequently-called globals with "PERF LOCALS" pattern for performance
+- Use `SafeNumber()`, `SafeText()`, and `SafeAPICall()` wrappers for WoW 12.0.0+ compatibility
+- Reference [copilot-instructions.md](.github/copilot-instructions.md) for project conventions and integration patterns
 
-### Media & Data
-- `LibSharedMedia-3.0`
-- `LibSerialize`
-- `LibDeflate`
-- `LibDualSpec-1.0`
+## Dependencies
 
-### Optional/Integration
-- `PerformanceLib` (optional dependency)
-- `LibDataBroker-1.1` (optional, if present)
-- `LibDBIcon-1.0` (optional, if present)
+### Core Framework
+- **oUF** — Unit frame and element system
+- **Ace3** — AceAddon-3.0, AceDB-3.0, AceGUI-3.0, AceConsole-3.0, AceEvent-3.0, AceSerializer-3.0
 
-### Included Utility
-- `TaintLess`
-- `LibDispel-1.0`
-- `UTF8`
-- `LibAceConfigHelper`
-- `LibSimpleSticky`
-- `LibTranslit-1.0`
-- `LibAnim`
-- `LibCustomGlow-1.0`
-- `LibActionButton-1.0`
+### Configuration & Serialization
+- **LibSharedMedia-3.0** — Texture and font registration/lookup
+- **LibSerialize** — Data serialization
+- **LibDeflate** — Data compression
+- **LibDualSpec-1.0** — Per-specialization profiles
+
+### Integration & Optional
+- **PerformanceLib** (optional) — Event coalescing, profiling, ML optimization, diagnostics
+- **LibDataBroker-1.1** (optional) — Minimap/LDB broker support
+- **LibDBIcon-1.0** (optional) — Minimap icon management
+- **LibKeyBound-1.0** — Action bar keybind management
+
+### Utilities & Enhancements
+- **LibDispel-1.0** — Dispel helper functions
+- **LibCustomGlow-1.0** — Glow effects
+- **LibSimpleSticky** — Window snapping
+- **LibTranslit-1.0** — Text transliteration
+- **LibAnim** — Animation utilities
+- **TaintLess** — Taint management
+- **LibActionButton-1.0** — Button framework
+- **LibAceConfigHelper** — Configuration UI helpers
+- **UTF8** — Unicode text handling
 
 ## Compatibility
 
-- WoW Retail interface version: `120001`
-- Saved variables: `SimpleUnitFramesDB`
+- **WoW Version** — Retail (interface version 120001, WoW 12.0.0+)
+- **Saved Variables** — `SimpleUnitFramesDB`
+- **Lua Version** — Lua 5.1 (WoW standard)
+- **PerformanceLib** — Optional (gracefully degrades if not installed)
 
-## Credits
+## Credits & Attribution
 
-- **Grevin** - SimpleUnitFrames author and project lead
-- **PerformanceLib authors/contributors** - performance systems leveraged by SUF integration
-- **UnhaltedUnitFrames (UUF)** - architecture and feature-reference source, plus SUF-specific custom ports and personal changes beyond UUF mainline
-- **Ace3/oUF/library authors** - foundational framework and ecosystem support
+### Project Lead
+- **Grevin** — SimpleUnitFrames author and maintainer
+
+### Core Contributors
+- **oUF Authors** — Foundational unit frame framework
+- **Ace3 Community** — AceAddon, AceDB, AceGUI, and related libraries
+- **WoWAddonAPIAgents** — API documentation and widget references
+- **Gethe & Community** — wow-ui-source Blizzard reference implementations
+
+### Feature Attribution
+- **QUI (zol-wow)** — Action bar system architecture, button skinning, fade engine, and keybind patterns ported with modifications
+- **UnhaltedUnitFrames (UUF)** — Frame design reference and architectural guidance
+
+### Integration Partners
+- **PerformanceLib** — Optional performance systems (event coalescing, profiling, ML optimization)
+- **LibKeyBound** — Keybind management UI
+- **LibSharedMedia-3.0** — Texture and font management
+- **LibDualSpec-1.0** — Per-spec profile support
+
+### Utility Libraries
+- **LibDataBroker-1.1** & **LibDBIcon-1.0** — Minimap/LDB support
+- **LibDispel-1.0**, **LibCustomGlow-1.0**, **LibSimpleSticky** — UI enhancements
+- **LibDeflate**, **LibSerialize**, **LibAceConfigHelper** — Data handling and configuration
 
 ## License
 
