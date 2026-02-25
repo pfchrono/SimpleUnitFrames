@@ -13,6 +13,27 @@ Libraries/Init.xml
 
 # Addon Core
 SimpleUnitFrames.lua
+Core/ProtectedOperations.lua
+Modules/System/FrameIndex.lua
+Modules/System/Movers.lua
+Modules/System/FrameDrag.lua
+Modules/System/Enhancements.lua
+Modules/System/Commands.lua
+Modules/System/Launcher.lua
+Modules/UI/Theme.lua
+Modules/UI/OptionsTabs.lua
+Modules/UI/OptionsWidgets.lua
+Modules/UI/OptionsWindow.lua
+Modules/UI/DataSystems.lua
+Modules/UI/DebugWindow.lua
+
+# Action Bars
+Modules/ActionBars/Core.lua
+Modules/ActionBars/Bindings.lua
+Modules/ActionBars/Skinning.lua
+Modules/ActionBars/Layout.lua
+Modules/ActionBars/Fade.lua
+Modules/ActionBars/Extras.lua
 
 # Unit Frames
 Units/Player.lua

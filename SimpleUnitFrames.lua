@@ -24,15 +24,16 @@ local LibSerialize = LibStub("LibSerialize", true)
 local LibDeflate = LibStub("LibDeflate", true)
 local LDB = LibStub("LibDataBroker-1.1", true)
 local LibDBIcon = LibStub("LibDBIcon-1.0", true)
-local LibSimpleSticky = LibStub("LibSimpleSticky-1.0", true)
 local LibTranslit = LibStub("LibTranslit-1.0", true)
 local LibCustomGlow = LibStub("LibCustomGlow-1.0", true)
+local LibRangeCheck = LibStub("LibRangeCheck-3.0", true)
 
 local addon = AceAddon:NewAddon("SimpleUnitFrames", "AceEvent-3.0", "AceConsole-3.0")
 
 local DEFAULT_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 local DEFAULT_FONT = STANDARD_TEXT_FONT
 local ICON_PATH = "Interface\\AddOns\\SimpleUnitFrames\\Media\\AddonIcon"
+local DATATEXT_SLOT_ORDER = { "left", "center", "right" }
 
 local function ChatMsg(message)
 	if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
@@ -50,8 +51,11 @@ local defaults = {
 		},
 		optionsUI = {
 			sectionState = {},
+			unitSubTabs = {},
 			searchShowCounts = true,
 			searchKeyboardHints = true,
+			tutorialSeen = false,
+			installFlowSeen = false,
 		},
 		fontSizes = {
 			name = 12,
@@ -151,6 +155,13 @@ local defaults = {
 			showSafeZone = true,
 			safeZoneAlpha = 0.35,
 			showSpark = true,
+			showDirectionIndicator = false,
+			showChannelTicks = false,
+			channelTickWidth = 2,
+			showEmpowerPips = true,
+			showLatencyText = false,
+			latencyWarnMs = 120,
+			latencyHighMs = 220,
 			spellMaxChars = 18,
 			timeDecimals = 1,
 			showDelay = true,
@@ -195,6 +206,61 @@ local defaults = {
 			uiOpenAnimation = true,
 			uiOpenAnimationDuration = 0.18,
 			uiOpenAnimationOffsetY = 12,
+			pixelSnapWindows = true,
+		},
+		blizzardFrames = {
+			player = true,
+			pet = true,
+			target = true,
+			tot = true,
+			focus = true,
+			party = true,
+			raid = true,
+			boss = true,
+		},
+		movers = {},
+		databars = {
+			enabled = true,
+			positionMode = "ANCHOR",
+			anchor = "TOP",
+			offsetX = 0,
+			offsetY = -2,
+			width = 520,
+			height = 10,
+			showText = true,
+			showXP = true,
+			showReputation = true,
+			showPetXP = true,
+			showRestedOverlay = true,
+			showQuestXPOverlay = true,
+			xpFade = {
+				enabled = false,
+				showOnHover = true,
+				showInCombat = true,
+				fadeInDuration = 0.2,
+				fadeOutDuration = 0.3,
+				fadeOutAlpha = 0.0,
+				fadeOutDelay = 0.5,
+			},
+		},
+		datatext = {
+			enabled = true,
+			refreshRate = 1.0,
+			positionMode = "ANCHOR",
+			panel = {
+				width = 520,
+				height = 20,
+				anchor = "TOP",
+				offsetX = 0,
+				offsetY = -14,
+				backdrop = true,
+				mouseover = false,
+			},
+			slots = {
+				left = "FPS",
+				center = "Time",
+				right = "Memory",
+			},
 		},
 		plugins = {
 			raidDebuffs = {
@@ -358,6 +424,35 @@ local DEFAULT_UNIT_LAYOUT = {
 	classToSecondary = 0,
 }
 
+local DEFAULT_UNIT_TARGET_GLOW = {
+	enabled = false,
+	color = { 0.95, 0.85, 0.25, 0.92 },
+	inset = 3,
+}
+
+local DEFAULT_UNIT_POWER_PREDICTION = {
+	enabled = false,
+	height = 3,
+	opacity = 0.70,
+	color = { 1.00, 0.90, 0.25 },
+}
+
+local DEFAULT_UNIT_AURA_LAYOUT = {
+	enabled = true,
+	numBuffs = 8,
+	numDebuffs = 8,
+	spacingX = 4,
+	spacingY = 4,
+	maxCols = 8,
+	initialAnchor = "BOTTOMLEFT",
+	growthX = "RIGHT",
+	growthY = "UP",
+	sortMethod = "DEFAULT",
+	sortDirection = "ASC",
+	onlyShowPlayer = false,
+	showStealableBuffs = true,
+}
+
 local DEFAULT_UNIT_MAIN_BARS_BACKGROUND = {
 	useGlobal = true,
 	enabled = true,
@@ -373,6 +468,24 @@ local DEFAULT_AURAWATCH_WATCHED = {
 	[1022] = { enabled = true, anyUnit = true, point = "BOTTOMLEFT", xOffset = 1, yOffset = 1 }, -- Blessing of Protection
 	[6940] = { enabled = true, anyUnit = true, point = "BOTTOM", xOffset = 0, yOffset = 1 }, -- Blessing of Sacrifice
 	[33206] = { enabled = true, anyUnit = true, point = "BOTTOMRIGHT", xOffset = -1, yOffset = 1 }, -- Pain Suppression
+}
+
+local ELVUI_IMPORTED_AURA_FILTERS = {
+	IMPORTANTCC = {
+		label = "ImportantCC",
+		desc = "ElvUI-inspired important crowd control auras.",
+		spells = {
+			118, 3355, 33786, 51514, 853, 408, 5246, 8122, 217832, 179057, 5211, 20066, 6789, 30283, 119381, 31661,
+		},
+	},
+	CLASSDEBUFFS = {
+		label = "ClassDebuffs",
+		desc = "ElvUI-inspired class priority debuffs.",
+		spells = {
+			55078, 194310, 204598, 207771, 164812, 164815, 155722, 1079, 217200, 210824, 123725, 228287, 343527, 335467, 34914, 589,
+			703, 1943, 188389, 316099, 980, 146739, 157736, 388539, 262115,
+		},
+	},
 }
 
 local HasVisibleClassPower
@@ -459,7 +572,6 @@ local PERF_EVENT_PRIORITY = {
 	RUNE_POWER_UPDATE = 3,
 	UNIT_SPELLCAST_CHANNEL_UPDATE = 3,
 	UNIT_PORTRAIT_UPDATE = 4,
-	UNIT_MODEL_CHANGED = 4,
 	UNIT_NAME_UPDATE = 4,
 	UNIT_FACTION = 4,
 	UNIT_FLAGS = 4,
@@ -493,7 +605,6 @@ local EVENT_COALESCE_CONFIG = {
 	RUNE_POWER_UPDATE = { delay = 0.05, priority = 3 },
 	UNIT_SPELLCAST_CHANNEL_UPDATE = { delay = 0.05, priority = 3 },
 	UNIT_PORTRAIT_UPDATE = { delay = 0.20, priority = 4 },
-	UNIT_MODEL_CHANGED = { delay = 0.20, priority = 4 },
 	UNIT_NAME_UPDATE = { delay = 0.15, priority = 4 },
 	UNIT_FACTION = { delay = 0.15, priority = 4 },
 	UNIT_FLAGS = { delay = 0.10, priority = 4 },
@@ -523,7 +634,6 @@ local UNIT_SCOPED_EVENTS = {
 	UNIT_THREAT_LIST_UPDATE = true,
 	UNIT_SPELLCAST_CHANNEL_UPDATE = true,
 	UNIT_PORTRAIT_UPDATE = true,
-	UNIT_MODEL_CHANGED = true,
 	UNIT_NAME_UPDATE = true,
 	UNIT_FACTION = true,
 	UNIT_FLAGS = true,
@@ -593,8 +703,75 @@ end
 local function CreateStatusBar(parent, height)
 	local bar = CreateFrame("StatusBar", nil, parent)
 	bar:SetHeight(height)
+	local tex = bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+	local layer, subLevel
+	if tex and tex.GetDrawLayer then
+		layer, subLevel = tex:GetDrawLayer()
+	end
 	bar:SetStatusBarTexture(DEFAULT_TEXTURE)
+	if layer then
+		local newTex = bar.GetStatusBarTexture and bar:GetStatusBarTexture()
+		if newTex and newTex.SetDrawLayer then
+			subLevel = math.max(-8, math.min(7, tonumber(subLevel) or 0))
+			newTex:SetDrawLayer(layer, subLevel)
+		end
+	end
 	return bar
+end
+
+local function SetStatusBarTexturePreserveLayer(statusBar, texture)
+	if not (statusBar and statusBar.SetStatusBarTexture) then
+		return
+	end
+	local tex = statusBar.GetStatusBarTexture and statusBar:GetStatusBarTexture()
+	local layer, subLevel
+	if tex and tex.GetDrawLayer then
+		layer, subLevel = tex:GetDrawLayer()
+	end
+	statusBar:SetStatusBarTexture(texture)
+	if layer then
+		local newTex = statusBar.GetStatusBarTexture and statusBar:GetStatusBarTexture()
+		if newTex and newTex.SetDrawLayer then
+			subLevel = math.max(-8, math.min(7, tonumber(subLevel) or 0))
+			newTex:SetDrawLayer(layer, subLevel)
+		end
+	end
+end
+
+local function CopyColor(color, fallback)
+	local c = color or fallback or { 1, 1, 1, 1 }
+	return {
+		tonumber(c[1]) or 1,
+		tonumber(c[2]) or 1,
+		tonumber(c[3]) or 1,
+		tonumber(c[4]) or 1,
+	}
+end
+
+local function GetWatchedFactionInfoCompat()
+	if type(GetWatchedFactionInfo) == "function" then
+		return GetWatchedFactionInfo()
+	end
+	if C_Reputation and C_Reputation.GetWatchedFactionData then
+		local ok, data = pcall(C_Reputation.GetWatchedFactionData)
+		if ok and type(data) == "table" and data.name then
+			local function SafeNumeric(value, fallback)
+				if type(issecretvalue) == "function" and issecretvalue(value) then
+					return fallback
+				end
+				local n = tonumber(value)
+				if n == nil then
+					return fallback
+				end
+				return n
+			end
+			local minRep = SafeNumeric(data.currentReactionThreshold, 0) or 0
+			local maxRep = SafeNumeric(data.nextReactionThreshold, minRep + 1) or (minRep + 1)
+			local curRep = SafeNumeric(data.currentStanding, minRep) or minRep
+			return data.name, data.reaction, minRep, maxRep, curRep
+		end
+	end
+	return nil
 end
 
 local function SetMousePassthrough(widget)
@@ -633,13 +810,26 @@ local function FormatCompactValue(value)
 	return tostring(math.floor(value + 0.5))
 end
 
+local function RoundNumber(value, decimals)
+	local n = tonumber(value) or 0
+	local places = tonumber(decimals) or 0
+	local mult = 10 ^ places
+	return math.floor((n * mult) + 0.5) / mult
+end
+
 local function IsSecretValue(value)
 	return type(issecretvalue) == "function" and issecretvalue(value) or false
 end
 
 local function SafeNumber(value, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
 	local num = tonumber(value)
-	if not num or IsSecretValue(num) then
+	if not num then
+		return fallback
+	end
+	if IsSecretValue(num) then
 		return fallback
 	end
 	return num
@@ -704,7 +894,8 @@ local function ResolveReadableAbsorbValue(unit, healthValues)
 		for i = 1, #ABSORB_FALLBACK_UNITS do
 			local token = ABSORB_FALLBACK_UNITS[i]
 			if token ~= unit and UnitExists(token) then
-				local sameUnit = SafeBoolean(Call(UnitIsUnit, unit, token), false)
+				local isSameUnit = Call(UnitIsUnit, unit, token)
+				local sameUnit = SafeBoolean(isSameUnit, false)
 				if sameUnit then
 					value = GetAbsorbFromUnit(token)
 					if value ~= nil then
@@ -765,6 +956,25 @@ local function MergeDefaults(target, defaultsTable)
 		end
 	end
 end
+
+addon._core = addon._core or {}
+addon._core.defaults = defaults
+addon._core.RoundNumber = RoundNumber
+addon._core.SafeNumber = SafeNumber
+addon._core.CopyTableDeep = CopyTableDeep
+addon._core.MergeDefaults = MergeDefaults
+addon._core.addonName = addonName
+addon._core.ICON_PATH = ICON_PATH
+addon._core.DEFAULT_TEXTURE = DEFAULT_TEXTURE
+addon._core.DATATEXT_SLOT_ORDER = DATATEXT_SLOT_ORDER
+addon._core.SetStatusBarTexturePreserveLayer = SetStatusBarTexturePreserveLayer
+addon._core.FormatCompactValue = FormatCompactValue
+addon._core.GetWatchedFactionInfoCompat = GetWatchedFactionInfoCompat
+addon._core.UNIT_TYPE_ORDER = UNIT_TYPE_ORDER
+addon._core.DEFAULT_UNIT_CASTBAR = DEFAULT_UNIT_CASTBAR
+addon._core.DEFAULT_UNIT_LAYOUT = DEFAULT_UNIT_LAYOUT
+addon._core.DEFAULT_UNIT_MAIN_BARS_BACKGROUND = DEFAULT_UNIT_MAIN_BARS_BACKGROUND
+addon._core.DEFAULT_HEAL_PREDICTION = DEFAULT_HEAL_PREDICTION
 
 local function GetPowerColor(powerToken)
 	if _G.PowerBarColor and powerToken and _G.PowerBarColor[powerToken] then
@@ -941,6 +1151,36 @@ function addon:GetUnitLayoutSettings(unitType)
 	return unit.layout
 end
 
+function addon:GetUnitTargetGlowSettings(unitType)
+	local unit = self:GetUnitSettings(unitType)
+	if not unit then
+		return DEFAULT_UNIT_TARGET_GLOW
+	end
+
+	if unit.targetGlow == nil then
+		unit.targetGlow = CopyTableDeep(DEFAULT_UNIT_TARGET_GLOW)
+	else
+		MergeDefaults(unit.targetGlow, DEFAULT_UNIT_TARGET_GLOW)
+	end
+
+	return unit.targetGlow
+end
+
+function addon:GetUnitPowerPredictionSettings(unitType)
+	local unit = self:GetUnitSettings(unitType)
+	if not unit then
+		return DEFAULT_UNIT_POWER_PREDICTION
+	end
+
+	if unit.powerPrediction == nil then
+		unit.powerPrediction = CopyTableDeep(DEFAULT_UNIT_POWER_PREDICTION)
+	else
+		MergeDefaults(unit.powerPrediction, DEFAULT_UNIT_POWER_PREDICTION)
+	end
+
+	return unit.powerPrediction
+end
+
 function addon:GetUnitHealPredictionSettings(unitType)
 	local unit = self:GetUnitSettings(unitType)
 	if not unit then
@@ -966,7 +1206,7 @@ function addon:GetPluginSettings()
 	return self.db.profile.plugins
 end
 
-local function IsGroupUnitType(unitType)
+function addon:IsGroupUnitType(unitType)
 	return unitType == "party" or unitType == "raid"
 end
 
@@ -1014,7 +1254,7 @@ end
 
 function addon:GetUnitPluginSettings(unitType)
 	local plugins = self:GetPluginSettings()
-	if not IsGroupUnitType(unitType) then
+	if not self:IsGroupUnitType(unitType) then
 		return plugins
 	end
 
@@ -1052,7 +1292,7 @@ function addon:GetUnitPluginSettings(unitType)
 end
 
 function addon:SeedUnitPluginOverridesFromGlobal(unitType)
-	if not IsGroupUnitType(unitType) then
+	if not self:IsGroupUnitType(unitType) then
 		return
 	end
 	local plugins = self:GetPluginSettings()
@@ -1099,7 +1339,7 @@ function addon:NormalizePluginConfig()
 
 	local unitPlugins = plugins.units or {}
 	for unitType, unitCfg in pairs(unitPlugins) do
-		if IsGroupUnitType(unitType) then
+		if self:IsGroupUnitType(unitType) then
 			unitCfg.raidDebuffs = unitCfg.raidDebuffs or {}
 			unitCfg.auraWatch = unitCfg.auraWatch or {}
 			unitCfg.fader = unitCfg.fader or {}
@@ -1127,7 +1367,7 @@ function addon:IsModuleSupportedForUnit(moduleKey, unitKey)
 		return true
 	end
 	if moduleKey == "fader" or moduleKey == "aurawatch" then
-		return IsGroupUnitType(unitKey)
+		return self:IsGroupUnitType(unitKey)
 	end
 	return false
 end
@@ -1238,13 +1478,13 @@ function addon:GetModuleCurrentPayload(moduleKey, unitKey)
 		local unit = self:GetUnitSettings(unitKey)
 		return unit and unit.castbar
 	end
-	if moduleKey == "fader" and IsGroupUnitType(unitKey) then
+	if moduleKey == "fader" and self:IsGroupUnitType(unitKey) then
 		local plugins = self:GetPluginSettings()
 		local unitPlugins = plugins and plugins.units
 		local unitCfg = unitPlugins and unitPlugins[unitKey]
 		return unitCfg and unitCfg.fader
 	end
-	if moduleKey == "aurawatch" and IsGroupUnitType(unitKey) then
+	if moduleKey == "aurawatch" and self:IsGroupUnitType(unitKey) then
 		local plugins = self:GetPluginSettings()
 		local unitPlugins = plugins and plugins.units
 		local unitCfg = unitPlugins and unitPlugins[unitKey]
@@ -1257,10 +1497,10 @@ function addon:GetModuleDefaultPayload(moduleKey, unitKey)
 	if moduleKey == "castbar" then
 		return DEFAULT_UNIT_CASTBAR
 	end
-	if moduleKey == "fader" and IsGroupUnitType(unitKey) then
+	if moduleKey == "fader" and self:IsGroupUnitType(unitKey) then
 		return defaults.profile.plugins.units[unitKey] and defaults.profile.plugins.units[unitKey].fader
 	end
-	if moduleKey == "aurawatch" and IsGroupUnitType(unitKey) then
+	if moduleKey == "aurawatch" and self:IsGroupUnitType(unitKey) then
 		return defaults.profile.plugins.units[unitKey] and defaults.profile.plugins.units[unitKey].auraWatch
 	end
 	return nil
@@ -1289,9 +1529,9 @@ function addon:BuildModuleChangePreview(moduleKey, dstUnitKey, sourcePayload, or
 
 	if moduleKey == "castbar" then
 		MergeDefaults(targetPayload, DEFAULT_UNIT_CASTBAR)
-	elseif moduleKey == "fader" and IsGroupUnitType(dstUnitKey) then
+	elseif moduleKey == "fader" and self:IsGroupUnitType(dstUnitKey) then
 		MergeDefaults(targetPayload, defaults.profile.plugins.units[dstUnitKey].fader)
-	elseif moduleKey == "aurawatch" and IsGroupUnitType(dstUnitKey) then
+	elseif moduleKey == "aurawatch" and self:IsGroupUnitType(dstUnitKey) then
 		MergeDefaults(targetPayload, defaults.profile.plugins.units[dstUnitKey].auraWatch)
 	end
 
@@ -1313,6 +1553,25 @@ function addon:BuildModuleResetPreview(moduleKey, unitKey)
 	return self:BuildModuleChangePreview(moduleKey, unitKey, defaultsPayload, "reset")
 end
 
+function addon:EnsurePopupDialog(dialogKey, definition)
+	if not dialogKey or type(definition) ~= "table" then
+		return nil
+	end
+	StaticPopupDialogs[dialogKey] = StaticPopupDialogs[dialogKey] or {}
+	local dialog = StaticPopupDialogs[dialogKey]
+	for key, value in pairs(definition) do
+		dialog[key] = value
+	end
+	return dialog
+end
+
+function addon:ShowPopup(dialogKey, textArg1, textArg2, data)
+	if not dialogKey then
+		return nil
+	end
+	return StaticPopup_Show(dialogKey, textArg1, textArg2, data)
+end
+
 function addon:RunWithOptionalModuleApplyConfirmation(confirmEnabled, title, details, onAccept)
 	if not onAccept then
 		return false
@@ -1322,7 +1581,7 @@ function addon:RunWithOptionalModuleApplyConfirmation(confirmEnabled, title, det
 		return true
 	end
 
-	StaticPopupDialogs["SUF_MODULE_APPLY_CONFIRM"] = StaticPopupDialogs["SUF_MODULE_APPLY_CONFIRM"] or {
+	self:EnsurePopupDialog("SUF_MODULE_APPLY_CONFIRM", {
 		text = "",
 		button1 = "Apply",
 		button2 = "Cancel",
@@ -1342,14 +1601,14 @@ function addon:RunWithOptionalModuleApplyConfirmation(confirmEnabled, title, det
 		whileDead = true,
 		hideOnEscape = true,
 		preferredIndex = 3,
-	}
+	})
 
 	self._pendingModuleApplyCallback = onAccept
 	local popupText = tostring(title or "Confirm Apply")
 	if details and details ~= "" then
 		popupText = popupText .. "\n\n" .. tostring(details)
 	end
-	StaticPopup_Show("SUF_MODULE_APPLY_CONFIRM", popupText)
+	self:ShowPopup("SUF_MODULE_APPLY_CONFIRM", popupText)
 	return true
 end
 
@@ -1364,7 +1623,7 @@ function addon:CopyModuleIntoCurrent(moduleKey, dstUnitKey, payload)
 		self:ScheduleUpdateAll()
 		return true
 	end
-	if moduleKey == "fader" and IsGroupUnitType(dstUnitKey) then
+	if moduleKey == "fader" and self:IsGroupUnitType(dstUnitKey) then
 		local plugins = self:GetPluginSettings()
 		plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
 		plugins.units[dstUnitKey] = plugins.units[dstUnitKey] or CopyTableDeep(defaults.profile.plugins.units[dstUnitKey])
@@ -1374,7 +1633,7 @@ function addon:CopyModuleIntoCurrent(moduleKey, dstUnitKey, payload)
 		self:SchedulePluginUpdate(dstUnitKey)
 		return true
 	end
-	if moduleKey == "aurawatch" and IsGroupUnitType(dstUnitKey) then
+	if moduleKey == "aurawatch" and self:IsGroupUnitType(dstUnitKey) then
 		local plugins = self:GetPluginSettings()
 		plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
 		plugins.units[dstUnitKey] = plugins.units[dstUnitKey] or CopyTableDeep(defaults.profile.plugins.units[dstUnitKey])
@@ -1394,7 +1653,7 @@ function addon:ResetModuleForUnit(moduleKey, unitKey)
 		self:ScheduleUpdateAll()
 		return true
 	end
-	if moduleKey == "fader" and IsGroupUnitType(unitKey) then
+	if moduleKey == "fader" and self:IsGroupUnitType(unitKey) then
 		local plugins = self:GetPluginSettings()
 		plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
 		plugins.units[unitKey] = plugins.units[unitKey] or CopyTableDeep(defaults.profile.plugins.units[unitKey])
@@ -1403,7 +1662,7 @@ function addon:ResetModuleForUnit(moduleKey, unitKey)
 		self:SchedulePluginUpdate(unitKey)
 		return true
 	end
-	if moduleKey == "aurawatch" and IsGroupUnitType(unitKey) then
+	if moduleKey == "aurawatch" and self:IsGroupUnitType(unitKey) then
 		local plugins = self:GetPluginSettings()
 		plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
 		plugins.units[unitKey] = plugins.units[unitKey] or CopyTableDeep(defaults.profile.plugins.units[unitKey])
@@ -1450,6 +1709,14 @@ function addon:BuildAuraWatchWatchedList(customValue, replaceDefaults)
 	for i = 1, #parsed.removes do
 		watched[parsed.removes[i]] = nil
 	end
+	for i = 1, #parsed.removeFilters do
+		local setData = self:GetImportedAuraFilterSet(parsed.removeFilters[i])
+		if setData and setData.spells then
+			for s = 1, #setData.spells do
+				watched[setData.spells[s]] = nil
+			end
+		end
+	end
 	for i = 1, #parsed.adds do
 		local spellID = parsed.adds[i]
 		local existing = watched[spellID]
@@ -1462,14 +1729,42 @@ function addon:BuildAuraWatchWatchedList(customValue, replaceDefaults)
 			watched[spellID] = { enabled = true, anyUnit = true }
 		end
 	end
+	for i = 1, #parsed.addFilters do
+		local setData = self:GetImportedAuraFilterSet(parsed.addFilters[i])
+		if setData and setData.spells then
+			for s = 1, #setData.spells do
+				local spellID = setData.spells[s]
+				local existing = watched[spellID]
+				if type(existing) == "table" then
+					existing.enabled = true
+					if existing.anyUnit == nil then
+						existing.anyUnit = true
+					end
+				else
+					watched[spellID] = { enabled = true, anyUnit = true }
+				end
+			end
+		end
+	end
 
 	return watched
+end
+
+function addon:GetImportedAuraFilterSet(setName)
+	local key = string.upper(TrimString(SafeText(setName, "")))
+	key = key:gsub("%s+", "")
+	if key == "" then
+		return nil
+	end
+	return ELVUI_IMPORTED_AURA_FILTERS[key]
 end
 
 function addon:ParseAuraWatchSpellTokens(customValue)
 	local result = {
 		adds = {},
 		removes = {},
+		addFilters = {},
+		removeFilters = {},
 		invalid = {},
 	}
 
@@ -1484,6 +1779,20 @@ function addon:ParseAuraWatchSpellTokens(customValue)
 		if value:sub(1, 1) == "+" or isRemove then
 			value = value:sub(2)
 		end
+		if value:sub(1, 1) == "@" then
+			local filterName = value:sub(2)
+			local setData = self:GetImportedAuraFilterSet(filterName)
+			if setData then
+				local key = string.upper(TrimString(SafeText(filterName, ""))):gsub("%s+", "")
+				if isRemove then
+					result.removeFilters[#result.removeFilters + 1] = key
+				else
+					result.addFilters[#result.addFilters + 1] = key
+				end
+			else
+				result.invalid[#result.invalid + 1] = token
+			end
+		else
 		local spellID = tonumber(value)
 		if spellID and spellID > 0 then
 			if isRemove then
@@ -1493,6 +1802,7 @@ function addon:ParseAuraWatchSpellTokens(customValue)
 			end
 		else
 			result.invalid[#result.invalid + 1] = token
+		end
 		end
 	end
 
@@ -1518,6 +1828,7 @@ end
 function addon:ValidateAuraWatchSpellList(customValue)
 	local parsed = self:ParseAuraWatchSpellTokens(customValue)
 	local validAdds, validRemoves, invalidIDs = {}, {}, {}
+	local validAddFilters, validRemoveFilters = {}, {}
 
 	for i = 1, #parsed.adds do
 		local id = parsed.adds[i]
@@ -1537,10 +1848,18 @@ function addon:ValidateAuraWatchSpellList(customValue)
 			invalidIDs[#invalidIDs + 1] = id
 		end
 	end
+	for i = 1, #parsed.addFilters do
+		validAddFilters[#validAddFilters + 1] = parsed.addFilters[i]
+	end
+	for i = 1, #parsed.removeFilters do
+		validRemoveFilters[#validRemoveFilters + 1] = parsed.removeFilters[i]
+	end
 
 	return {
 		validAdds = validAdds,
 		validRemoves = validRemoves,
+		validAddFilters = validAddFilters,
+		validRemoveFilters = validRemoveFilters,
 		invalidIDs = invalidIDs,
 		invalidTokens = parsed.invalid,
 	}
@@ -1614,6 +1933,80 @@ function addon:GetNumericTextForUnit(unit, apiFn, useAbbrev)
 	end
 
 	return ""
+end
+
+function addon:GetMissingHealthTextForUnit(unit, useAbbrev)
+	if not unit or not UnitExists or not UnitExists(unit) then
+		return ""
+	end
+	local maxHealth = SafeNumber(UnitHealthMax and UnitHealthMax(unit), 0)
+	local curHealth = SafeNumber(UnitHealth and UnitHealth(unit), 0)
+	local missing = math.max(0, maxHealth - curHealth)
+	if missing <= 0 then
+		return ""
+	end
+	if useAbbrev then
+		return FormatCompactValue(missing)
+	end
+	return tostring(math.floor(missing + 0.5))
+end
+
+function addon:GetMissingPowerTextForUnit(unit, useAbbrev)
+	if not unit or not UnitExists or not UnitExists(unit) then
+		return ""
+	end
+	local powerType = UnitPowerType and UnitPowerType(unit) or nil
+	local maxPower = SafeNumber(UnitPowerMax and UnitPowerMax(unit, powerType), 0)
+	local curPower = SafeNumber(UnitPower and UnitPower(unit, powerType), 0)
+	local missing = math.max(0, maxPower - curPower)
+	if missing <= 0 then
+		return ""
+	end
+	if useAbbrev then
+		return FormatCompactValue(missing)
+	end
+	return tostring(math.floor(missing + 0.5))
+end
+
+function addon:GetStatusTextForUnit(unit)
+	if not unit or not UnitExists or not UnitExists(unit) then
+		return ""
+	end
+	if UnitIsDead and UnitIsDead(unit) then
+		return "Dead"
+	end
+	if UnitIsGhost and UnitIsGhost(unit) then
+		return "Ghost"
+	end
+	if UnitIsConnected and not UnitIsConnected(unit) then
+		return "Offline"
+	end
+	if UnitIsAFK and UnitIsAFK(unit) then
+		return "AFK"
+	end
+	if UnitIsDND and UnitIsDND(unit) then
+		return "DND"
+	end
+	return ""
+end
+
+function addon:GetHealthPercentWithAbsorbsTextForUnit(unit)
+	if not unit or not UnitExists or not UnitExists(unit) then
+		return ""
+	end
+	local status = self:GetStatusTextForUnit(unit)
+	if status ~= "" then
+		return status
+	end
+	local maxHealth = SafeNumber(UnitHealthMax and UnitHealthMax(unit), 0)
+	if maxHealth <= 0 then
+		return ""
+	end
+	local curHealth = SafeNumber(UnitHealth and UnitHealth(unit), 0)
+	local absorbs = SafeNumber(UnitGetTotalAbsorbs and UnitGetTotalAbsorbs(unit), 0)
+	local effective = math.max(0, curHealth + absorbs)
+	local pct = (effective / maxHealth) * 100
+	return string.format("%d%%", math.floor(pct + 0.5))
 end
 
 function addon:GetIncomingHealsTextForUnit(unit, useAbbrev)
@@ -1800,6 +2193,24 @@ function addon:RegisterCustomTags()
 	ouf.Tags.Methods["suf:ehp:abbr"] = function(unit)
 		return addon:GetEffectiveHealthTextForUnit(unit, true)
 	end
+	ouf.Tags.Methods["suf:missinghp"] = function(unit)
+		return addon:GetMissingHealthTextForUnit(unit, false)
+	end
+	ouf.Tags.Methods["suf:missinghp:abbr"] = function(unit)
+		return addon:GetMissingHealthTextForUnit(unit, true)
+	end
+	ouf.Tags.Methods["suf:missingpp"] = function(unit)
+		return addon:GetMissingPowerTextForUnit(unit, false)
+	end
+	ouf.Tags.Methods["suf:missingpp:abbr"] = function(unit)
+		return addon:GetMissingPowerTextForUnit(unit, true)
+	end
+	ouf.Tags.Methods["suf:status"] = function(unit)
+		return addon:GetStatusTextForUnit(unit)
+	end
+	ouf.Tags.Methods["suf:health:percent-with-absorbs"] = function(unit)
+		return addon:GetHealthPercentWithAbsorbsTextForUnit(unit)
+	end
 	ouf.Tags.Methods["suf:name"] = function(unit)
 		return addon:GetDisplayNameForUnit(unit)
 	end
@@ -1811,6 +2222,12 @@ function addon:RegisterCustomTags()
 	ouf.Tags.Events["suf:healabsorbs:abbr"] = "UNIT_HEAL_ABSORB_AMOUNT_CHANGED UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:ehp"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:ehp:abbr"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:missinghp"] = "UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:missinghp:abbr"] = "UNIT_HEALTH UNIT_MAXHEALTH PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:missingpp"] = "UNIT_POWER_FREQUENT UNIT_MAXPOWER UNIT_DISPLAYPOWER PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:missingpp:abbr"] = "UNIT_POWER_FREQUENT UNIT_MAXPOWER UNIT_DISPLAYPOWER PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:status"] = "UNIT_CONNECTION UNIT_HEALTH PLAYER_FLAGS_CHANGED PLAYER_ENTERING_WORLD"
+	ouf.Tags.Events["suf:health:percent-with-absorbs"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED UNIT_CONNECTION PLAYER_FLAGS_CHANGED PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:name"] = "UNIT_NAME_UPDATE PLAYER_ENTERING_WORLD GROUP_ROSTER_UPDATE"
 
 	self._customTagsRegistered = true
@@ -1862,6 +2279,19 @@ function addon:GetUnitAuraSize(unitType)
 		return math.floor((18 * 1.25) + 0.5)
 	end
 	return 18
+end
+
+function addon:GetUnitAuraLayoutSettings(unitType)
+	local unit = self:GetUnitSettings(unitType)
+	if not unit then
+		return DEFAULT_UNIT_AURA_LAYOUT
+	end
+	if unit.auras == nil then
+		unit.auras = CopyTableDeep(DEFAULT_UNIT_AURA_LAYOUT)
+	else
+		MergeDefaults(unit.auras, DEFAULT_UNIT_AURA_LAYOUT)
+	end
+	return unit.auras
 end
 
 local function BuildVisibilityDriver(profile)
@@ -2039,6 +2469,10 @@ function addon:SetupEventBus()
 	self.sufEventBus:Register("COALESCED_EVENT", "handle-coalesced-event", function(eventName, ...)
 		self:HandleCoalescedEvent(eventName, ...)
 	end)
+
+	self.sufEventBus:Register("LOCAL_WORK", "queue-local-work", function(workType, unitType)
+		self:QueueLocalWork(workType, unitType)
+	end)
 end
 
 function addon:DispatchSUFEvent(event, ...)
@@ -2092,6 +2526,19 @@ local function IsRightClick(mouseButton)
 	return type(mouseButton) == "string" and mouseButton:find("RightButton", 1, true) ~= nil
 end
 
+local function GetStatusBarAnchor(statusBar)
+	if not statusBar then
+		return nil
+	end
+	if statusBar.GetStatusBarTexture then
+		local tex = statusBar:GetStatusBarTexture()
+		if tex then
+			return tex
+		end
+	end
+	return statusBar
+end
+
 local function GetUnitDropdownName(unit)
 	if unit == "player" then
 		return "PlayerFrameDropDown"
@@ -2132,6 +2579,12 @@ function addon:OpenUnitContextMenu(frame)
 	local dropdownName = GetUnitDropdownName(unit)
 	local dropdown = dropdownName and _G[dropdownName] or nil
 	if dropdown and ToggleDropDownMenu then
+		if dropdown.IsForbidden and dropdown:IsForbidden() then
+			return false
+		end
+		if CloseDropDownMenus then
+			CloseDropDownMenus()
+		end
 		ToggleDropDownMenu(1, nil, dropdown, "cursor", 0, 0)
 		return true
 	end
@@ -2177,7 +2630,7 @@ function addon:IsFrameEventRelevant(frame, eventName)
 		return frame.Health ~= nil
 	elseif eventName == "UNIT_POWER_UPDATE" or eventName == "UNIT_MAXPOWER" or eventName == "UNIT_DISPLAYPOWER" or eventName == "RUNE_POWER_UPDATE" or eventName == "PLAYER_TOTEM_UPDATE" then
 		return (frame.Power ~= nil) or (frame.AdditionalPower ~= nil) or (frame.ClassPower ~= nil)
-	elseif eventName == "UNIT_PORTRAIT_UPDATE" or eventName == "UNIT_MODEL_CHANGED" or eventName == "UNIT_NAME_UPDATE" or eventName == "UNIT_FACTION" then
+	elseif eventName == "UNIT_PORTRAIT_UPDATE" or eventName == "UNIT_NAME_UPDATE" or eventName == "UNIT_FACTION" then
 		local settings = self:GetUnitSettings(frame.sufUnitType)
 		return settings and settings.portrait and settings.portrait.mode and settings.portrait.mode ~= "none"
 	end
@@ -2190,28 +2643,38 @@ function addon:HasRelevantFrameForUnitEvent(eventName, unitToken)
 		return false
 	end
 
-	local frames = self.frames or {}
+	local index = self:EnsureFrameEventIndex()
 	local unitType = ResolveUnitType(unitToken)
-	local hasTypeMatch = false
-
-	for i = 1, #frames do
-		local frame = frames[i]
-		if frame then
-			if frame.unit == unitToken then
-				if self:IsFrameEventRelevant(frame, eventName) then
-					return true
-				end
-			end
-			if unitType and frame.sufUnitType == unitType and self:IsFrameEventRelevant(frame, eventName) then
-				hasTypeMatch = true
-			end
-			if unitToken == "target" and frame.sufUnitType == "tot" and self:IsFrameEventRelevant(frame, eventName) then
-				hasTypeMatch = true
+	local direct = index and index.byUnit and index.byUnit[unitToken]
+	if direct then
+		for i = 1, #direct do
+			if self:IsFrameEventRelevant(direct[i], eventName) then
+				return true
 			end
 		end
 	end
 
-	return hasTypeMatch
+	local typed = index and index.byType and index.byType[unitType]
+	if typed then
+		for i = 1, #typed do
+			if self:IsFrameEventRelevant(typed[i], eventName) then
+				return true
+			end
+		end
+	end
+
+	if unitToken == "target" then
+		local tot = index and index.byType and index.byType["tot"]
+		if tot then
+			for i = 1, #tot do
+				if self:IsFrameEventRelevant(tot[i], eventName) then
+					return true
+				end
+			end
+		end
+	end
+
+	return false
 end
 
 function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
@@ -2250,7 +2713,7 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 			touched = SafeUpdateElement(frame, "Auras", eventName) or touched
 		elseif eventName == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
 			touched = SafeUpdateElement(frame, "Castbar", eventName) or touched
-		elseif eventName == "UNIT_PORTRAIT_UPDATE" or eventName == "UNIT_MODEL_CHANGED" or eventName == "UNIT_NAME_UPDATE" or eventName == "UNIT_FACTION" then
+		elseif eventName == "UNIT_PORTRAIT_UPDATE" or eventName == "UNIT_NAME_UPDATE" or eventName == "UNIT_FACTION" then
 			touched = SafeUpdateElement(frame, "Portrait", eventName) or touched
 		elseif eventName == "UNIT_FLAGS" or eventName == "UNIT_CONNECTION" or eventName == "RAID_TARGET_UPDATE" or eventName == "GROUP_ROSTER_UPDATE" or eventName == "PLAYER_ROLES_ASSIGNED" or eventName == "PARTY_LEADER_CHANGED" then
 			touched = true
@@ -2306,27 +2769,59 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 		return
 	end
 
+	local index = self:EnsureFrameEventIndex()
+	local seen = {}
 	local hasDirectMatch = false
-	for _, frame in ipairs(self.frames or {}) do
-		if frame and frame.unit == unit then
-			hasDirectMatch = true
-			self:MarkFrameDirty(frame, eventName)
-		end
-	end
 
-	if not hasDirectMatch then
-		local unitType = ResolveUnitType(unit)
-		for _, frame in ipairs(self.frames or {}) do
-			if frame and frame.sufUnitType == unitType then
+	local direct = index and index.byUnit and index.byUnit[unit]
+	if direct then
+		for i = 1, #direct do
+			local frame = direct[i]
+			if frame and not seen[frame] then
+				seen[frame] = true
+				hasDirectMatch = true
 				self:MarkFrameDirty(frame, eventName)
 			end
 		end
 	end
 
+	if not hasDirectMatch then
+		local unitType = ResolveUnitType(unit)
+		local typed = index and index.byType and index.byType[unitType]
+		if typed then
+			for i = 1, #typed do
+				local frame = typed[i]
+				if frame and not seen[frame] then
+					seen[frame] = true
+					self:MarkFrameDirty(frame, eventName)
+				end
+			end
+		end
+
+		-- Fall back to UnitIsUnit matching for tokens that don't have a direct
+		-- byUnit or byType match (e.g. nameplate units that share a GUID with
+		-- the current target).
+		local all = index and index.all
+		if all then
+			for i = 1, #all do
+				local frame = all[i]
+				if frame and not seen[frame] and frame.unit and UnitIsUnit(unit, frame.unit) then
+					seen[frame] = true
+					self:MarkFrameDirty(frame, eventName)
+				end
+			end
+		end
+	end
+
 	if unit == "target" then
-		for _, frame in ipairs(self.frames or {}) do
-			if frame and frame.sufUnitType == "tot" then
-				self:MarkFrameDirty(frame, eventName)
+		local tot = index and index.byType and index.byType["tot"]
+		if tot then
+			for i = 1, #tot do
+				local frame = tot[i]
+				if frame and not seen[frame] then
+					seen[frame] = true
+					self:MarkFrameDirty(frame, eventName)
+				end
 			end
 		end
 	end
@@ -2675,8 +3170,6 @@ end
 function addon:DebugLog(system, message, tier)
 	self:EnsureDebugConfig()
 	self.debugMessages = self.debugMessages or {}
-	self._perfQueueAccepted = 0
-	self._perfQueueFallback = 0
 	system = system or "General"
 	tier = tier or 3 -- 1=critical,2=info,3=debug
 
@@ -2699,38 +3192,6 @@ function addon:DebugLog(system, message, tier)
 	end
 end
 
-function addon:RefreshDebugPanel()
-	if not self.debugPanel or not self.debugPanel.messagesText then
-		return
-	end
-	local text = table.concat(self.debugMessages or {}, "\n")
-	self.debugPanel.messagesText:SetText(text)
-	local height = self.debugPanel.messagesText:GetStringHeight()
-	self.debugPanel.textFrame:SetHeight(math.max(height + 10, 1))
-end
-
-local function SetSUFWindowTitle(frame, text)
-	if not frame then
-		return
-	end
-
-	local titleText = frame.TitleText
-	if titleText and titleText.SetText then
-		titleText:ClearAllPoints()
-		titleText:SetPoint("TOP", frame, "TOP", 0, -4)
-		titleText:SetText(text or "")
-		return
-	end
-
-	local fallback = frame._sufTitleFallback
-	if not fallback then
-		fallback = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-		frame._sufTitleFallback = fallback
-	end
-	fallback:ClearAllPoints()
-	fallback:SetPoint("TOP", frame, "TOP", 0, -4)
-	fallback:SetText(text or "")
-end
 
 function addon:GetPerformanceLibPreset()
 	local perf = self.performanceLib
@@ -2787,358 +3248,6 @@ function addon:AnalyzePerformanceProfileFromUI()
 		self:DebugLog("Performance", "Profiler analysis completed.", 2)
 	else
 		self:DebugLog("Performance", "Performance analysis API is unavailable.", 1)
-	end
-end
-
-function addon:ShowDebugExportDialog()
-	local exportText = table.concat(self.debugMessages or {}, "\n")
-	if exportText == "" then
-		self:Print(addonName .. ": No debug messages to export.")
-		return
-	end
-
-	if not self.debugExportFrame then
-		local frame = CreateFrame("Frame", "SUFDebugExportFrame", UIParent, "BasicFrameTemplateWithInset")
-		frame:SetSize(520, 420)
-		frame:SetPoint("CENTER")
-		self:EnableMovableFrame(frame, true)
-		frame:SetFrameStrata("DIALOG")
-
-		SetSUFWindowTitle(frame, "SUF Debug Export")
-
-		local note = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-		note:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -34)
-		note:SetText("Ctrl+A then Ctrl+C to copy.")
-
-		local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-		scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -56)
-		scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 10)
-
-		local editBox = CreateFrame("EditBox", nil, scroll)
-		editBox:SetMultiLine(true)
-		editBox:SetFontObject(GameFontHighlightSmall)
-		editBox:SetWidth(470)
-		editBox:SetAutoFocus(false)
-		editBox:SetScript("OnEscapePressed", function() frame:Hide() end)
-		scroll:SetScrollChild(editBox)
-		frame.editBox = editBox
-
-		self.debugExportFrame = frame
-	end
-
-	SetSUFWindowTitle(self.debugExportFrame, "SUF Debug Export")
-	self.debugExportFrame.editBox:SetText(exportText)
-	self.debugExportFrame.editBox:SetCursorPosition(0)
-	self.debugExportFrame.editBox:HighlightText()
-	self.debugExportFrame:Show()
-	self:PlayWindowOpenAnimation(self.debugExportFrame)
-end
-
-function addon:ShowDebugSettings()
-	self:EnsureDebugConfig()
-	if not self.debugSettingsFrame then
-		local frame = CreateFrame("Frame", "SUFDebugSettingsFrame", UIParent, "BasicFrameTemplateWithInset")
-		frame:SetSize(320, 360)
-		frame:SetPoint("CENTER", UIParent, "CENTER", -360, 0)
-		self:EnableMovableFrame(frame, true)
-
-		SetSUFWindowTitle(frame, "SUF Debug Settings")
-
-		local enableAll = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		enableAll:SetSize(90, 24)
-		enableAll:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -36)
-		enableAll:SetText("Enable All")
-		enableAll:SetScript("OnClick", function()
-			for key in pairs(self.db.profile.debug.systems) do
-				self.db.profile.debug.systems[key] = true
-			end
-			self:ShowDebugSettings()
-		end)
-
-		local disableAll = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		disableAll:SetSize(90, 24)
-		disableAll:SetPoint("LEFT", enableAll, "RIGHT", 10, 0)
-		disableAll:SetText("Disable All")
-		disableAll:SetScript("OnClick", function()
-			for key in pairs(self.db.profile.debug.systems) do
-				self.db.profile.debug.systems[key] = false
-			end
-			self:ShowDebugSettings()
-		end)
-
-		local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-		scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -68)
-		scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 10)
-		local child = CreateFrame("Frame", nil, scroll)
-		child:SetSize(250, 1)
-		scroll:SetScrollChild(child)
-		frame.scrollChild = child
-
-		self.debugSettingsFrame = frame
-	end
-
-	local frame = self.debugSettingsFrame
-	SetSUFWindowTitle(frame, "SUF Debug Settings")
-	local child = frame.scrollChild
-	for i = child:GetNumChildren(), 1, -1 do
-		local element = select(i, child:GetChildren())
-		if element then
-			element:Hide()
-			element:SetParent(nil)
-		end
-	end
-
-	local y = -6
-	for system, value in pairs(self.db.profile.debug.systems) do
-		local cb = CreateFrame("CheckButton", nil, child, "UICheckButtonTemplate")
-		cb:SetPoint("TOPLEFT", child, "TOPLEFT", 6, y)
-		cb:SetChecked(value)
-		cb:SetScript("OnClick", function(btn)
-			self.db.profile.debug.systems[system] = btn:GetChecked() and true or false
-		end)
-		local label = cb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
-		label:SetText(system)
-		y = y - 24
-	end
-	child:SetHeight(math.max(math.abs(y) + 8, 1))
-	frame:Show()
-	self:PlayWindowOpenAnimation(frame)
-end
-
-function addon:ShowDebugPanel()
-	self:EnsureDebugConfig()
-	if not self.debugPanel then
-		local frame = CreateFrame("Frame", "SUFDebugPanel", UIParent, "BasicFrameTemplateWithInset")
-		frame:SetSize(620, 420)
-		frame:SetPoint("CENTER", UIParent, "CENTER", 260, 0)
-		self:EnableMovableFrame(frame, true)
-
-		SetSUFWindowTitle(frame, "|cFF00B0F7SUF Debug Console|r")
-
-		local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-		scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -36)
-		scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 46)
-		local textFrame = CreateFrame("Frame", nil, scroll)
-		textFrame:SetSize(560, 1)
-		local text = textFrame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		text:SetPoint("TOPLEFT", textFrame, "TOPLEFT", 4, 0)
-		text:SetWidth(550)
-		text:SetJustifyH("LEFT")
-		text:SetJustifyV("TOP")
-		scroll:SetScrollChild(textFrame)
-		frame.messagesText = text
-		frame.textFrame = textFrame
-
-		local toggleBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		toggleBtn:SetSize(100, 24)
-		toggleBtn:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, 10)
-		local function UpdateToggleLabel()
-			toggleBtn:SetText(self:IsDebugEnabled() and "Enabled" or "Disabled")
-		end
-		UpdateToggleLabel()
-		toggleBtn:SetScript("OnClick", function()
-			self.db.profile.debug.enabled = not self.db.profile.debug.enabled
-			UpdateToggleLabel()
-			self:DebugLog("General", "Debug mode " .. (self.db.profile.debug.enabled and "enabled" or "disabled"), 2)
-		end)
-		frame.toggleBtn = toggleBtn
-
-		local clearBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		clearBtn:SetSize(80, 24)
-		clearBtn:SetPoint("LEFT", toggleBtn, "RIGHT", 8, 0)
-		clearBtn:SetText("Clear")
-		clearBtn:SetScript("OnClick", function()
-			self.debugMessages = {}
-			self:RefreshDebugPanel()
-		end)
-
-		local exportBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		exportBtn:SetSize(80, 24)
-		exportBtn:SetPoint("LEFT", clearBtn, "RIGHT", 8, 0)
-		exportBtn:SetText("Export")
-		exportBtn:SetScript("OnClick", function()
-			self:ShowDebugExportDialog()
-		end)
-
-		local settingsBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		settingsBtn:SetSize(70, 24)
-		settingsBtn:SetPoint("LEFT", exportBtn, "RIGHT", 8, 0)
-		settingsBtn:SetText("Settings")
-		settingsBtn:SetScript("OnClick", function()
-			self:ShowDebugSettings()
-		end)
-		frame.settingsBtn = settingsBtn
-
-		local profileStartBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		profileStartBtn:SetSize(72, 24)
-		profileStartBtn:SetPoint("LEFT", settingsBtn, "RIGHT", 8, 0)
-		profileStartBtn:SetText("Start")
-		profileStartBtn:SetScript("OnClick", function()
-			self:StartPerformanceProfileFromUI()
-			if self.debugPanel and self.debugPanel.UpdateProfileButtons then
-				self.debugPanel:UpdateProfileButtons()
-			end
-		end)
-		frame.profileStartBtn = profileStartBtn
-
-		local profileStopBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		profileStopBtn:SetSize(64, 24)
-		profileStopBtn:SetPoint("LEFT", profileStartBtn, "RIGHT", 8, 0)
-		profileStopBtn:SetText("Stop")
-		profileStopBtn:SetScript("OnClick", function()
-			self:StopPerformanceProfileFromUI()
-			if self.debugPanel and self.debugPanel.UpdateProfileButtons then
-				self.debugPanel:UpdateProfileButtons()
-			end
-		end)
-		frame.profileStopBtn = profileStopBtn
-
-		local profileAnalyzeBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
-		profileAnalyzeBtn:SetSize(72, 24)
-		profileAnalyzeBtn:SetPoint("LEFT", profileStopBtn, "RIGHT", 8, 0)
-		profileAnalyzeBtn:SetText("Analyze")
-		profileAnalyzeBtn:SetScript("OnClick", function()
-			self:AnalyzePerformanceProfileFromUI()
-		end)
-		frame.profileAnalyzeBtn = profileAnalyzeBtn
-
-		function frame:UpdateProfileButtons()
-			local recording = addon:IsPerformanceProfiling()
-			if self.profileStartBtn then
-				self.profileStartBtn:SetEnabled(not recording)
-			end
-			if self.profileStopBtn then
-				self.profileStopBtn:SetEnabled(recording)
-			end
-		end
-
-		self.debugPanel = frame
-	end
-
-	if self.debugPanel.toggleBtn then
-		self.debugPanel.toggleBtn:SetText(self:IsDebugEnabled() and "Enabled" or "Disabled")
-	end
-	if self.debugPanel.UpdateProfileButtons then
-		self.debugPanel:UpdateProfileButtons()
-	end
-	SetSUFWindowTitle(self.debugPanel, "|cFF00B0F7SUF Debug Console|r")
-	self.debugPanel:Show()
-	self:PlayWindowOpenAnimation(self.debugPanel)
-	self:RefreshDebugPanel()
-end
-
-function addon:HideDebugPanel()
-	if self.debugPanel then
-		self.debugPanel:Hide()
-	end
-end
-
-function addon:ToggleDebugPanel()
-	if self.debugPanel and self.debugPanel:IsShown() then
-		self:HideDebugPanel()
-	else
-		self:ShowDebugPanel()
-	end
-end
-
-function addon:HandleDebugSlash(msg)
-	self:EnsureDebugConfig()
-	local command = (msg or ""):lower():match("^%s*(.-)%s*$")
-
-	if command == "" then
-		self:ToggleDebugPanel()
-	elseif command == "on" or command == "enable" then
-		self.db.profile.debug.enabled = true
-		self:ShowDebugPanel()
-	elseif command == "off" or command == "disable" then
-		self.db.profile.debug.enabled = false
-		self:HideDebugPanel()
-	elseif command == "clear" then
-		self.debugMessages = {}
-		self:RefreshDebugPanel()
-	elseif command == "export" then
-		self:ShowDebugExportDialog()
-	elseif command == "settings" then
-		self:ShowDebugSettings()
-	elseif command == "help" then
-		self:Print(addonName .. ": /sufdebug, /sufdebug on|off|clear|export|settings")
-	else
-		local systems = self.db.profile.debug.systems
-		local matchedKey
-		for key in pairs(systems) do
-			if key:lower() == command then
-				matchedKey = key
-				break
-			end
-		end
-		if matchedKey then
-			systems[matchedKey] = not systems[matchedKey]
-			self:Print(addonName .. ": Debug system " .. matchedKey .. " = " .. tostring(systems[matchedKey]))
-		else
-			self:Print(addonName .. ": Unknown debug command. Use /sufdebug help")
-		end
-	end
-end
-
-function addon:TogglePerformanceDashboard()
-	if self.performanceLib then
-		if self.performanceLib.ToggleDashboard then
-			self.performanceLib:ToggleDashboard()
-			return
-		end
-		if self.performanceLib.ShowDashboard then
-			self.performanceLib:ShowDashboard()
-			return
-		end
-	end
-	self:Print(addonName .. ": PerformanceLib dashboard is unavailable.")
-end
-
-function addon:ShowLauncherHelp()
-	self:Print(addonName .. ": /suf (options)")
-	self:Print(addonName .. ": /suf minimap show|hide|toggle|reset")
-	self:Print(addonName .. ": /suf perflib")
-	self:Print(addonName .. ": /suf debug")
-	self:Print(addonName .. ": /suf resources")
-	self:Print(addonName .. ": /suf help")
-end
-
-function addon:ApplyLauncherVisibility()
-	if not self.db or not self.db.profile then
-		return
-	end
-	self.db.profile.minimap = self.db.profile.minimap or CopyTableDeep(defaults.profile.minimap)
-
-	local function EnsureLibDBIconButtonClicks()
-		if not (LibDBIcon and LibDBIcon.GetMinimapButton) then
-			return
-		end
-		local button = LibDBIcon:GetMinimapButton("SimpleUnitFrames")
-		if button and button.RegisterForClicks then
-			button:RegisterForClicks("AnyUp")
-		end
-	end
-
-	if self.ldbObject and LibDBIcon then
-		if not LibDBIcon:IsRegistered("SimpleUnitFrames") then
-			LibDBIcon:Register("SimpleUnitFrames", self.ldbObject, self.db.profile.minimap)
-		end
-		EnsureLibDBIconButtonClicks()
-		if self.db.profile.minimap.hide then
-			LibDBIcon:Hide("SimpleUnitFrames")
-		else
-			LibDBIcon:Show("SimpleUnitFrames")
-		end
-		if self.minimapButton then
-			self.minimapButton:Hide()
-		end
-		return
-	end
-
-	self:CreateFallbackMinimapButton()
-	if self.minimapButton then
-		self.minimapButton:SetShown(not self.db.profile.minimap.hide)
 	end
 end
 
@@ -3240,276 +3349,71 @@ function addon:PrintClassResourceAudit()
 	end
 end
 
-function addon:HandleSUFSlash(msg)
-	local input = (msg or ""):match("^%s*(.-)%s*$")
-	if input == "" then
-		self:ShowOptions()
-		return
+function addon:BuildStatusReportText()
+	local plugins = self:GetPluginSettings() or {}
+	local raidDebuffsEnabled = plugins.raidDebuffs and plugins.raidDebuffs.enabled ~= false
+	local auraWatchEnabled = plugins.auraWatch and plugins.auraWatch.enabled ~= false
+	local faderEnabled = plugins.fader and plugins.fader.enabled == true
+	local inCombat = InCombatLockdown and InCombatLockdown() or false
+	local inEditMode = self:IsEditModeActive()
+	local isPerfEnabled = self:IsPerformanceIntegrationEnabled()
+	local pendingPlugins = self._pendingPluginUpdates and true or false
+	local queueAccepted = tonumber(self._perfQueueAccepted or 0) or 0
+	local queueFallback = tonumber(self._perfQueueFallback or 0) or 0
+	local protectedQueueSize = #(self._protectedOperationQueue or {})
+	local headerCount = 0
+	for _ in pairs(self.headers or {}) do
+		headerCount = headerCount + 1
 	end
-
-	local command, rest = input:match("^(%S+)%s*(.-)$")
-	command = command and command:lower() or ""
-	rest = rest and rest:lower() or ""
-
-	if command == "help" then
-		self:ShowLauncherHelp()
-		return
-	end
-
-	if command == "debug" then
-		self:ToggleDebugPanel()
-		return
-	end
-
-	if command == "resources" or command == "resource" or command == "classpower" then
-		self:PrintClassResourceAudit()
-		return
-	end
-
-	if command == "perflib" or command == "perf" then
-		self:TogglePerformanceDashboard()
-		return
-	end
-
-	if command == "minimap" or command == "icon" then
-		self.db.profile.minimap = self.db.profile.minimap or CopyTableDeep(defaults.profile.minimap)
-		if rest == "show" then
-			self.db.profile.minimap.hide = false
-			self:InitializeLauncher()
-			self:Print(addonName .. ": Minimap icon shown.")
-			return
-		elseif rest == "hide" then
-			self.db.profile.minimap.hide = true
-			self:ApplyLauncherVisibility()
-			self:Print(addonName .. ": Minimap icon hidden.")
-			return
-		elseif rest == "toggle" then
-			self.db.profile.minimap.hide = not self.db.profile.minimap.hide
-			self:ApplyLauncherVisibility()
-			self:Print(addonName .. ": Minimap icon " .. (self.db.profile.minimap.hide and "hidden." or "shown."))
-			return
-		elseif rest == "reset" then
-			self.db.profile.minimap.hide = false
-			self.db.profile.minimap.minimapPos = defaults.profile.minimap.minimapPos
-			self:InitializeLauncher()
-			self:Print(addonName .. ": Minimap icon reset.")
-			return
-		else
-			self:Print(addonName .. ": /suf minimap show|hide|toggle|reset")
-			return
-		end
-	end
-
-	self:ShowOptions()
+	return ("Runtime: combat=%s editMode=%s perf=%s\nFrames: active=%d headers=%d\nPlugins: raidDebuffs=%s auraWatch=%s fader=%s pendingPluginFlush=%s\nQueue: accepted=%d fallback=%d protectedOps=%d"):format(
+		tostring(inCombat),
+		tostring(inEditMode),
+		tostring(isPerfEnabled),
+		#(self.frames or {}),
+		headerCount,
+		tostring(raidDebuffsEnabled),
+		tostring(auraWatchEnabled),
+		tostring(faderEnabled),
+		tostring(pendingPlugins),
+		queueAccepted,
+		queueFallback,
+		protectedQueueSize
+	)
 end
 
-function addon:ShowLauncherMenu(anchorFrame)
-	if (not UIDropDownMenu_Initialize or not ToggleDropDownMenu) and UIParentLoadAddOn then
-		pcall(UIParentLoadAddOn, "Blizzard_UIDropDownMenu")
-	end
-
-	local function ShowFallbackMenu(anchor)
-		if not self.launcherFallbackMenu then
-			local menu = CreateFrame("Frame", "SUFLauncherFallbackMenu", UIParent, "BackdropTemplate")
-			menu:SetSize(180, 120)
-			menu:SetFrameStrata("TOOLTIP")
-			menu:SetToplevel(true)
-			menu:EnableMouse(true)
-			menu:SetClampedToScreen(true)
-			menu:SetBackdrop({
-				bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
-				edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-				tile = true,
-				tileSize = 16,
-				edgeSize = 16,
-				insets = { left = 4, right = 4, top = 4, bottom = 4 },
-			})
-			menu:SetBackdropColor(0, 0, 0, 0.92)
-
-			local title = menu:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-			title:SetPoint("TOP", menu, "TOP", 0, -10)
-			title:SetText("SimpleUnitFrames")
-
-			local function CreateMenuButton(parent, label, y, fn)
-				local btn = CreateFrame("Button", nil, parent, "UIPanelButtonTemplate")
-				btn:SetSize(150, 22)
-				btn:SetPoint("TOP", parent, "TOP", 0, y)
-				btn:SetText(label)
-				btn:SetScript("OnClick", function()
-					parent:Hide()
-					fn()
-				end)
-				return btn
-			end
-
-			CreateMenuButton(menu, "Open SUF Options", -30, function() self:ShowOptions() end)
-			CreateMenuButton(menu, "Open PerfLib UI", -56, function() self:TogglePerformanceDashboard() end)
-			CreateMenuButton(menu, "Open SUF Debug", -82, function() self:ShowDebugPanel() end)
-
-			menu:SetScript("OnMouseDown", function(_, button)
-				if button == "RightButton" then
-					menu:Hide()
-				end
-			end)
-
-			self.launcherFallbackMenu = menu
-		end
-
-		local menu = self.launcherFallbackMenu
-		menu:ClearAllPoints()
-		if type(anchor) == "table" and anchor.GetCenter then
-			menu:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
-		else
-			local x, y = GetCursorPosition()
-			local scale = UIParent:GetEffectiveScale() or 1
-			menu:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale + 8, y / scale - 8)
-		end
-		menu:Show()
-	end
-
-	if not UIDropDownMenu_Initialize or not ToggleDropDownMenu then
-		ShowFallbackMenu(anchorFrame)
+function addon:RegisterMediaCallbacks()
+	if not (LSM and LSM.RegisterCallback) then
 		return
 	end
-
-	if not self.launcherDropdown then
-		self.launcherDropdown = CreateFrame("Frame", "SUFLauncherDropdown", UIParent, "UIDropDownMenuTemplate")
-		self.launcherDropdown.displayMode = "MENU"
+	if self._lsmCallbacksRegistered then
+		return
 	end
-
-	local menu = {
-		{ text = "SimpleUnitFrames", isTitle = true, notCheckable = true },
-		{ text = "Open SUF Options", notCheckable = true, func = function() self:ShowOptions() end },
-		{ text = "Open PerfLib UI", notCheckable = true, func = function() self:TogglePerformanceDashboard() end },
-		{ text = "Open SUF Debug", notCheckable = true, func = function() self:ShowDebugPanel() end },
-		{ text = "Close", notCheckable = true, func = function() end },
-	}
-
-	local anchor = anchorFrame
-	if type(anchor) ~= "table" or not anchor.GetObjectType then
-		anchor = "cursor"
-	end
-
-	UIDropDownMenu_Initialize(self.launcherDropdown, function(_, level)
-		if level ~= 1 then
-			return
-		end
-		for i = 1, #menu do
-			local info = UIDropDownMenu_CreateInfo()
-			for key, value in pairs(menu[i]) do
-				info[key] = value
-			end
-			UIDropDownMenu_AddButton(info, level)
-		end
-	end, "MENU")
-
-	CloseDropDownMenus()
-	ToggleDropDownMenu(1, nil, self.launcherDropdown, anchor, 0, 0)
+	LSM.RegisterCallback(self, "LibSharedMedia_Registered", "OnSharedMediaRegistered")
+	self._lsmCallbacksRegistered = true
 end
 
-function addon:CreateFallbackMinimapButton()
-	if self.minimapButton then
+function addon:UnregisterMediaCallbacks()
+	if not (LSM and LSM.UnregisterCallback and self._lsmCallbacksRegistered) then
 		return
 	end
-
-	local button = CreateFrame("Button", "SUFMinimapButton", Minimap)
-	button:SetSize(32, 32)
-	button:SetFrameStrata("MEDIUM")
-	button:SetFrameLevel(8)
-	button:RegisterForClicks("LeftButtonUp", "RightButtonUp")
-	button:RegisterForDrag("LeftButton")
-
-	local bg = button:CreateTexture(nil, "BACKGROUND")
-	bg:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
-	bg:SetSize(54, 54)
-	bg:SetPoint("TOPLEFT")
-
-	local icon = button:CreateTexture(nil, "ARTWORK")
-	icon:SetTexture(ICON_PATH)
-	icon:SetSize(18, 18)
-	icon:SetPoint("CENTER")
-	icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-
-	local function UpdatePosition()
-		if not self.db or not self.db.profile then
-			return
-		end
-		self.db.profile.minimap = self.db.profile.minimap or CopyTableDeep(defaults.profile.minimap)
-		local angle = math.rad(self.db.profile.minimap.minimapPos or 220)
-		local x = math.cos(angle) * 80
-		local y = math.sin(angle) * 80
-		button:ClearAllPoints()
-		button:SetPoint("CENTER", Minimap, "CENTER", x, y)
-	end
-
-	button:SetScript("OnDragStart", function()
-		button:StartMoving()
-	end)
-	button:SetScript("OnDragStop", function()
-		button:StopMovingOrSizing()
-		local mx, my = Minimap:GetCenter()
-		local bx, by = button:GetCenter()
-		if mx and my and bx and by then
-			local angle = math.deg(math.atan2(by - my, bx - mx))
-			self.db.profile.minimap.minimapPos = angle
-			UpdatePosition()
-		end
-	end)
-	button:SetMovable(true)
-
-	button:SetScript("OnClick", function(_, mouseButton)
-		if IsRightClick(mouseButton) then
-			self:ShowLauncherMenu(button)
-		else
-			self:ShowOptions()
-		end
-	end)
-
-	button:SetScript("OnEnter", function()
-		GameTooltip:SetOwner(button, "ANCHOR_LEFT")
-		GameTooltip:SetText("SimpleUnitFrames")
-		GameTooltip:AddLine("Left Click: Open Options", 1, 1, 1)
-		GameTooltip:AddLine("Right Click: Quick Menu", 1, 1, 1)
-		GameTooltip:Show()
-	end)
-	button:SetScript("OnLeave", function()
-		GameTooltip:Hide()
-	end)
-
-	self.minimapButton = button
-	UpdatePosition()
+	pcall(LSM.UnregisterCallback, LSM, self, "LibSharedMedia_Registered")
+	self._lsmCallbacksRegistered = nil
 end
 
-function addon:InitializeLauncher()
-	if not self.db or not self.db.profile then
+function addon:OnSharedMediaRegistered(_, mediaType)
+	if mediaType ~= "font" and mediaType ~= "statusbar" then
 		return
 	end
-	self.db.profile.minimap = self.db.profile.minimap or CopyTableDeep(defaults.profile.minimap)
+	self:ScheduleUpdateAll()
+	self:UpdateDataBars()
+	self:UpdateDataTextPanel()
+end
 
-	if LDB and not self.ldbObject then
-		self.ldbObject = LDB:NewDataObject("SimpleUnitFrames", {
-			type = "launcher",
-			text = "SimpleUnitFrames",
-			icon = ICON_PATH,
-			OnClick = function(frameRef, mouseButton)
-				if IsRightClick(mouseButton) then
-					self:ShowLauncherMenu(frameRef or "cursor")
-				else
-					self:ShowOptions()
-				end
-			end,
-			OnTooltipShow = function(tooltip)
-				if not tooltip or not tooltip.AddLine then
-					return
-				end
-				tooltip:AddLine("SimpleUnitFrames")
-				tooltip:AddLine("Left Click: Open Options", 1, 1, 1)
-				tooltip:AddLine("Right Click: Quick Menu", 1, 1, 1)
-			end,
-		})
+function addon:PrintStatusReport()
+	local text = self:BuildStatusReportText()
+	for line in tostring(text):gmatch("[^\n]+") do
+		self:Print(addonName .. ": " .. line)
 	end
-
-	self:ApplyLauncherVisibility()
 end
 
 function addon:IsEditModeActive()
@@ -3532,15 +3436,87 @@ function addon:ScheduleUpdateAll()
 		return
 	end
 
-	if self.updateTimer then
-		self.updatePending = true
+	if self.sufEventBus and self.sufEventBus.Dispatch then
+		self:DispatchSUFEvent("LOCAL_WORK", "update_all")
+	else
+		self:QueueLocalWork("update_all")
+	end
+end
+
+function addon:GetLocalWorkDelay()
+	local delay = 0.05
+	if self:IsPerformanceIntegrationEnabled() then
+		local optimizer = self.performanceLib and self.performanceLib.MLOptimizer
+		if optimizer and optimizer.GetOptimalDelay then
+			local ok, learned = pcall(optimizer.GetOptimalDelay, optimizer, "SUF_LOCAL_WORK")
+			if ok and type(learned) == "number" then
+				delay = learned
+			end
+		end
+	end
+	return math.max(0.01, math.min(0.20, tonumber(delay) or 0.05))
+end
+
+function addon:QueueLocalWork(workType, unitType)
+	if self.isBuildingOptions then
 		return
 	end
 
-	self.updateTimer = C_Timer.NewTimer(0.05, function()
-		self.updateTimer = nil
-		self.updatePending = nil
-		self:UpdateAllFrames()
+	self._localWork = self._localWork or {
+		updateAll = false,
+		applyVisibility = false,
+		unitTypes = {},
+	}
+
+	local work = self._localWork
+	if workType == "visibility" then
+		work.applyVisibility = true
+	elseif workType == "update_unit" and unitType then
+		work.unitTypes[unitType] = true
+	else
+		work.updateAll = true
+		work.unitTypes = {}
+	end
+
+	local optimizer = self.performanceLib and self.performanceLib.MLOptimizer
+	if optimizer and optimizer.TrackPattern then
+		pcall(optimizer.TrackPattern, optimizer, "SUF_LOCAL_WORK", tostring(workType))
+	end
+
+	if self._localWorkTimer then
+		return
+	end
+
+	local delay = self:GetLocalWorkDelay()
+	self._localWorkTimer = C_Timer.NewTimer(delay, function()
+		self._localWorkTimer = nil
+		local started = debugprofilestop and debugprofilestop() or nil
+		local state = self._localWork or {}
+		self._localWork = {
+			updateAll = false,
+			applyVisibility = false,
+			unitTypes = {},
+		}
+
+		if state.applyVisibility then
+			self:ApplyVisibilityRules()
+		end
+		if state.updateAll then
+			self:UpdateAllFrames()
+		else
+			for queuedUnitType in pairs(state.unitTypes or {}) do
+				self:UpdateFramesByUnitType(queuedUnitType)
+			end
+		end
+
+		if started then
+			local elapsed = (debugprofilestop() or started) - started
+			local opt = self.performanceLib and self.performanceLib.MLOptimizer
+			if opt and opt.LearnDelay then
+				pcall(opt.LearnDelay, opt, "SUF_LOCAL_WORK", delay, elapsed <= 10)
+			end
+			self:RecordProfilerEvent("suf:localwork.flush", elapsed)
+		end
 	end)
 end
 
@@ -3548,17 +3524,47 @@ function addon:ScheduleApplyVisibility()
 	if self.isBuildingOptions then
 		return
 	end
+	if self.sufEventBus and self.sufEventBus.Dispatch then
+		self:DispatchSUFEvent("LOCAL_WORK", "visibility")
+	else
+		self:QueueLocalWork("visibility")
+	end
+end
 
-	if self.visibilityTimer then
-		self.visibilityPending = true
+function addon:ScheduleUpdateUnitType(unitType)
+	if not unitType then
+		self:ScheduleUpdateAll()
 		return
 	end
+	if self.isBuildingOptions then
+		return
+	end
+	if self.sufEventBus and self.sufEventBus.Dispatch then
+		self:DispatchSUFEvent("LOCAL_WORK", "update_unit", unitType)
+	else
+		self:QueueLocalWork("update_unit", unitType)
+	end
+end
 
-	self.visibilityTimer = C_Timer.NewTimer(0.05, function()
-		self.visibilityTimer = nil
-		self.visibilityPending = nil
-		self:ApplyVisibilityRules()
-	end)
+function addon:FlushLocalWorkNow()
+	if self._localWorkTimer and self._localWorkTimer.Cancel then
+		self._localWorkTimer:Cancel()
+		self._localWorkTimer = nil
+	end
+	if self._localWork then
+		local pending = self._localWork
+		self._localWork = nil
+		if pending.applyVisibility then
+			self:ApplyVisibilityRules()
+		end
+		if pending.updateAll then
+			self:UpdateAllFrames()
+		else
+			for unitType in pairs(pending.unitTypes or {}) do
+				self:UpdateFramesByUnitType(unitType)
+			end
+		end
+	end
 end
 
 function addon:StartSpawnTicker()
@@ -3829,7 +3835,7 @@ local function PositionPredictionBarUUF(bar, frame, position, height, reverseRig
 		return
 	end
 
-	local anchorFrame = anchorTexture or frame.Health
+	local anchorFrame = anchorTexture or GetStatusBarAnchor(frame.Health) or frame.Health
 	local healthWidth = frame.Health:GetWidth() or frame:GetWidth() or 200
 	local barHeight = math.max(1, tonumber(height) or (frame.Health:GetHeight() or 1))
 
@@ -3843,7 +3849,7 @@ local function PositionPredictionBarUUF(bar, frame, position, height, reverseRig
 			frame.Health:SetClipsChildren(true)
 		end
 		local isReversed = frame.Health.GetReverseFill and frame.Health:GetReverseFill()
-		local healthTexture = anchorTexture or (frame.Health.GetStatusBarTexture and frame.Health:GetStatusBarTexture()) or frame.Health
+		local healthTexture = anchorTexture or GetStatusBarAnchor(frame.Health) or frame.Health
 		if isReversed then
 			bar:SetPoint("TOPLEFT", healthTexture, "TOPLEFT", 0, 0)
 			bar:SetPoint("BOTTOMLEFT", healthTexture, "BOTTOMLEFT", 0, 0)
@@ -3861,6 +3867,29 @@ local function PositionPredictionBarUUF(bar, frame, position, height, reverseRig
 
 	bar:SetHeight(barHeight)
 	bar:SetWidth(healthWidth)
+end
+
+local function GetCastbarRemainingDuration(castbar, durationObject)
+	local remaining = durationObject and SafeNumber(SafeAPICall(durationObject.GetRemainingDuration, durationObject), nil)
+	if remaining ~= nil then
+		return math.max(0, remaining)
+	end
+
+	local maxValue = SafeNumber(castbar and castbar.max, nil) or SafeNumber(castbar and castbar.maxValue, nil)
+	local value = SafeNumber(castbar and castbar.value, nil)
+	local duration = SafeNumber(castbar and castbar.duration, nil)
+
+	if maxValue and duration then
+		return math.max(0, maxValue - duration)
+	end
+	if maxValue and value then
+		if castbar and castbar.channeling then
+			return math.max(0, value)
+		end
+		return math.max(0, maxValue - value)
+	end
+
+	return nil
 end
 
 local function GetHealthPredictionWidgets(frame)
@@ -4391,6 +4420,192 @@ local function StartCastbarNonInterruptGlow(castbar, color)
 	)
 end
 
+local CHANNEL_TICK_COUNT_BY_SPELL_ID = {
+	[15407] = 5, -- Mind Flay
+	[48045] = 5, -- Mind Sear
+	[198590] = 5, -- Drain Soul
+	[234153] = 6, -- Drain Life
+	[5143] = 5, -- Arcane Missiles
+}
+
+local function HideCastbarDirectionIndicator(castbar)
+	if castbar and castbar._sufDirectionIndicator then
+		castbar._sufDirectionIndicator:Hide()
+	end
+end
+
+local function UpdateCastbarDirectionIndicator(castbar, cfg)
+	if not castbar then
+		return
+	end
+	if cfg.showDirectionIndicator ~= true then
+		HideCastbarDirectionIndicator(castbar)
+		return
+	end
+	if not (castbar.casting or castbar.channeling) then
+		HideCastbarDirectionIndicator(castbar)
+		return
+	end
+	if not castbar._sufDirectionIndicator then
+		local fs = castbar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		fs:SetPoint("BOTTOM", castbar, "TOP", 0, 1)
+		castbar._sufDirectionIndicator = fs
+	end
+	castbar._sufDirectionIndicator:SetText(castbar:GetReverseFill() and "<" or ">")
+	castbar._sufDirectionIndicator:Show()
+end
+
+local function HideCastbarChannelTicks(castbar)
+	if not castbar or not castbar._sufChannelTicks then
+		return
+	end
+	for i = 1, #castbar._sufChannelTicks do
+		local tick = castbar._sufChannelTicks[i]
+		if tick then
+			tick:Hide()
+		end
+	end
+end
+
+local function UpdateCastbarChannelTicks(castbar, cfg)
+	if not castbar then
+		return
+	end
+	if cfg.showChannelTicks ~= true or not castbar.channeling then
+		HideCastbarChannelTicks(castbar)
+		return
+	end
+	local spellID = tonumber(castbar.spellID) or 0
+	local tickCount = CHANNEL_TICK_COUNT_BY_SPELL_ID[spellID]
+	if not tickCount or tickCount <= 0 then
+		HideCastbarChannelTicks(castbar)
+		return
+	end
+
+	castbar._sufChannelTicks = castbar._sufChannelTicks or {}
+	local width = castbar:GetWidth() or 0
+	local height = castbar:GetHeight() or 0
+	if width <= 0 or height <= 0 then
+		HideCastbarChannelTicks(castbar)
+		return
+	end
+	local tickWidth = math.max(1, tonumber(cfg.channelTickWidth) or 2)
+	for i = 1, tickCount do
+		local tick = castbar._sufChannelTicks[i]
+		if not tick then
+			tick = castbar:CreateTexture(nil, "OVERLAY")
+			castbar._sufChannelTicks[i] = tick
+		end
+		local pct = i / (tickCount + 1)
+		local offset = width * pct
+		tick:ClearAllPoints()
+		if castbar:GetReverseFill() then
+			tick:SetPoint("TOP", castbar, "TOPRIGHT", -offset, 0)
+			tick:SetPoint("BOTTOM", castbar, "BOTTOMRIGHT", -offset, 0)
+		else
+			tick:SetPoint("TOP", castbar, "TOPLEFT", offset, 0)
+			tick:SetPoint("BOTTOM", castbar, "BOTTOMLEFT", offset, 0)
+		end
+		tick:SetWidth(tickWidth)
+		tick:SetColorTexture(1, 1, 1, 0.65)
+		tick:Show()
+	end
+	for i = tickCount + 1, #castbar._sufChannelTicks do
+		local tick = castbar._sufChannelTicks[i]
+		if tick then
+			tick:Hide()
+		end
+	end
+end
+
+local function UpdateCastbarEmpowerPips(castbar, cfg)
+	if not castbar or not castbar.Pips then
+		return
+	end
+	if cfg.showEmpowerPips == false then
+		for _, pip in pairs(castbar.Pips) do
+			if pip then
+				pip:Hide()
+			end
+		end
+		return
+	end
+	for _, pip in pairs(castbar.Pips) do
+		if pip then
+			pip:SetAlpha(0.95)
+		end
+	end
+end
+
+local function HideCastbarLatencyIndicator(castbar)
+	if castbar and castbar._sufLatencyIndicator then
+		castbar._sufLatencyIndicator:Hide()
+	end
+end
+
+local function UpdateCastbarLatencyIndicator(castbar, cfg)
+	if not castbar then
+		return
+	end
+	if cfg.showLatencyText ~= true then
+		HideCastbarLatencyIndicator(castbar)
+		return
+	end
+	if not (castbar.casting or castbar.channeling) then
+		HideCastbarLatencyIndicator(castbar)
+		return
+	end
+	local owner = castbar.__owner
+	local unit = owner and owner.unit
+	if unit ~= "player" then
+		HideCastbarLatencyIndicator(castbar)
+		return
+	end
+	if not GetNetStats then
+		HideCastbarLatencyIndicator(castbar)
+		return
+	end
+	local _, _, home, world = GetNetStats()
+	local latency = math.max(tonumber(home) or 0, tonumber(world) or 0)
+	if not castbar._sufLatencyIndicator then
+		local fs = castbar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		fs:SetPoint("TOPRIGHT", castbar, "BOTTOMRIGHT", 0, -1)
+		fs:SetJustifyH("RIGHT")
+		castbar._sufLatencyIndicator = fs
+	end
+	local warnMs = math.max(1, tonumber(cfg.latencyWarnMs) or 120)
+	local highMs = math.max(warnMs, tonumber(cfg.latencyHighMs) or 220)
+	local r, g, b = 0.35, 1.0, 0.35
+	if latency >= highMs then
+		r, g, b = 1.0, 0.25, 0.25
+	elseif latency >= warnMs then
+		r, g, b = 1.0, 0.85, 0.30
+	end
+	castbar._sufLatencyIndicator:SetFormattedText("%dms", latency)
+	castbar._sufLatencyIndicator:SetTextColor(r, g, b, 0.95)
+	castbar._sufLatencyIndicator:Show()
+end
+
+local function UpdateCastbarEnhancementWidgets(castbar, cfg)
+	UpdateCastbarDirectionIndicator(castbar, cfg)
+	UpdateCastbarChannelTicks(castbar, cfg)
+	UpdateCastbarEmpowerPips(castbar, cfg)
+	UpdateCastbarLatencyIndicator(castbar, cfg)
+end
+
+local function HideCastbarEnhancementWidgets(castbar)
+	HideCastbarDirectionIndicator(castbar)
+	HideCastbarChannelTicks(castbar)
+	HideCastbarLatencyIndicator(castbar)
+	if castbar and castbar.Pips then
+		for _, pip in pairs(castbar.Pips) do
+			if pip then
+				pip:Hide()
+			end
+		end
+	end
+end
+
 local function StopRaidDebuffGlow(element)
 	if not (LibCustomGlow and element) then
 		return
@@ -4582,7 +4797,7 @@ function addon:ApplyPluginElements(frame)
 	end
 
 	local plugins = self:GetUnitPluginSettings(frame.sufUnitType)
-	local isGroup = IsGroupUnitType(frame.sufUnitType)
+	local isGroup = self:IsGroupUnitType(frame.sufUnitType)
 
 	if frame.RaidDebuffs then
 		frame.RaidDebuffs:SetShown(isGroup and plugins.raidDebuffs.enabled ~= false)
@@ -4644,7 +4859,7 @@ function addon:ApplyMedia(frame)
 	local castbarColors = self:GetUnitCastbarColors(frame.sufUnitType)
 
 	if frame.Health then
-		frame.Health:SetStatusBarTexture(texture)
+		SetStatusBarTexturePreserveLayer(frame.Health, texture)
 		local healthTex = frame.Health.GetStatusBarTexture and frame.Health:GetStatusBarTexture()
 		if healthTex and healthTex.SetDrawLayer then
 			healthTex:SetDrawLayer("ARTWORK", 1)
@@ -4652,7 +4867,29 @@ function addon:ApplyMedia(frame)
 	end
 
 	if frame.Power then
-		frame.Power:SetStatusBarTexture(texture)
+		SetStatusBarTexturePreserveLayer(frame.Power, texture)
+	end
+
+	if frame.Auras then
+		local auraCfg = self:GetUnitAuraLayoutSettings(frame.sufUnitType)
+		frame.Auras.tooltipAnchor = "ANCHOR_BOTTOMRIGHT"
+		frame.Auras.tooltipOffsetX = 0
+		frame.Auras.tooltipOffsetY = 0
+		frame.Auras.spacingX = tonumber(auraCfg.spacingX) or 4
+		frame.Auras.spacingY = tonumber(auraCfg.spacingY) or 4
+		frame.Auras.maxCols = math.max(1, tonumber(auraCfg.maxCols) or 8)
+		frame.Auras.initialAnchor = tostring(auraCfg.initialAnchor or "BOTTOMLEFT")
+		frame.Auras.growthX = tostring(auraCfg.growthX or "RIGHT")
+		frame.Auras.growthY = tostring(auraCfg.growthY or "UP")
+		frame.Auras.sortMethod = tostring(auraCfg.sortMethod or "DEFAULT")
+		frame.Auras.sortDirection = tostring(auraCfg.sortDirection or "ASC")
+		frame.Auras.onlyShowPlayer = auraCfg.onlyShowPlayer == true
+		frame.Auras.showStealableBuffs = auraCfg.showStealableBuffs ~= false
+		frame.Auras.numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 8)
+		frame.Auras.numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 8)
+		frame.Auras.reanchorIfVisibleChanged = true
+		frame.Auras.needFullUpdate = true
+		frame.Auras:SetShown(auraCfg.enabled ~= false)
 	end
 
 	if frame.PowerBG then
@@ -4711,7 +4948,7 @@ function addon:ApplyMedia(frame)
 			end
 		end
 
-		local statusTex = frame.Health:GetStatusBarTexture()
+		local statusTex = GetStatusBarAnchor(frame.Health)
 		if statusTex and statusTex.SetDrawLayer then
 			statusTex:SetDrawLayer("ARTWORK", 1)
 		end
@@ -4721,40 +4958,40 @@ function addon:ApplyMedia(frame)
 		end
 
 		if hpWidgets.healingAll then
-			hpWidgets.healingAll:SetStatusBarTexture(texture)
+			SetStatusBarTexturePreserveLayer(hpWidgets.healingAll, texture)
 			RaisePredictionBar(hpWidgets.healingAll)
 			local c = incomingCfg.colorAll
 			hpWidgets.healingAll:SetStatusBarColor(c[1] or 0.35, c[2] or 0.95, c[3] or 0.45, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
 			hpWidgets.healingAll:ClearAllPoints()
 			hpWidgets.healingAll:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
 			hpWidgets.healingAll:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
-			hpWidgets.healingAll:SetPoint("LEFT", statusTex, "RIGHT")
+			hpWidgets.healingAll:SetPoint("LEFT", statusTex or frame.Health, "RIGHT")
 			local shownAll = (hpCfg.enabled ~= false) and (incomingCfg.enabled ~= false) and not incomingCfg.split
 			hpWidgets.healingAll:SetShown(shownAll)
 			UpdateBarTextureOutline(hpWidgets.healingAll, shownAll)
 		end
 		if hpWidgets.healingPlayer then
-			hpWidgets.healingPlayer:SetStatusBarTexture(texture)
+			SetStatusBarTexturePreserveLayer(hpWidgets.healingPlayer, texture)
 			RaisePredictionBar(hpWidgets.healingPlayer)
 			local c = incomingCfg.colorPlayer
 			hpWidgets.healingPlayer:SetStatusBarColor(c[1] or 0.35, c[2] or 0.95, c[3] or 0.45, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
 			hpWidgets.healingPlayer:ClearAllPoints()
 			hpWidgets.healingPlayer:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
 			hpWidgets.healingPlayer:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
-			hpWidgets.healingPlayer:SetPoint("LEFT", statusTex, "RIGHT")
+			hpWidgets.healingPlayer:SetPoint("LEFT", statusTex or frame.Health, "RIGHT")
 			local shownPlayer = (hpCfg.enabled ~= false) and (incomingCfg.enabled ~= false) and incomingCfg.split
 			hpWidgets.healingPlayer:SetShown(shownPlayer)
 			UpdateBarTextureOutline(hpWidgets.healingPlayer, shownPlayer)
 		end
 		if hpWidgets.healingOther then
-			hpWidgets.healingOther:SetStatusBarTexture(texture)
+			SetStatusBarTexturePreserveLayer(hpWidgets.healingOther, texture)
 			RaisePredictionBar(hpWidgets.healingOther)
 			local c = incomingCfg.colorOther
 			hpWidgets.healingOther:SetStatusBarColor(c[1] or 0.20, c[2] or 0.75, c[3] or 0.35, math.max(0.05, math.min(1, incomingCfg.opacity or 0.4)))
 			hpWidgets.healingOther:ClearAllPoints()
 			hpWidgets.healingOther:SetPoint("TOP", frame.Health, "TOP", 0, -incomingInset)
 			hpWidgets.healingOther:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, incomingInset)
-			local healAnchor = hpWidgets.healingPlayer and hpWidgets.healingPlayer:GetStatusBarTexture() or statusTex
+			local healAnchor = hpWidgets.healingPlayer and GetStatusBarAnchor(hpWidgets.healingPlayer) or statusTex
 			hpWidgets.healingOther:SetPoint("LEFT", healAnchor, "RIGHT")
 			local shownOther = (hpCfg.enabled ~= false) and (incomingCfg.enabled ~= false) and incomingCfg.split
 			hpWidgets.healingOther:SetShown(shownOther)
@@ -4768,13 +5005,13 @@ function addon:ApplyMedia(frame)
 			local valueOffsetY = tonumber(incomingCfg.valueOffsetY) or 0
 			if incomingCfg.split then
 				if hpWidgets.healingOther and hpWidgets.healingOther.GetStatusBarTexture then
-					incomingAnchor = hpWidgets.healingOther:GetStatusBarTexture() or incomingAnchor
+					incomingAnchor = GetStatusBarAnchor(hpWidgets.healingOther) or incomingAnchor
 				elseif hpWidgets.healingPlayer and hpWidgets.healingPlayer.GetStatusBarTexture then
-					incomingAnchor = hpWidgets.healingPlayer:GetStatusBarTexture() or incomingAnchor
+					incomingAnchor = GetStatusBarAnchor(hpWidgets.healingPlayer) or incomingAnchor
 				end
 			else
 				if hpWidgets.healingAll and hpWidgets.healingAll.GetStatusBarTexture then
-					incomingAnchor = hpWidgets.healingAll:GetStatusBarTexture() or incomingAnchor
+					incomingAnchor = GetStatusBarAnchor(hpWidgets.healingAll) or incomingAnchor
 				end
 			end
 			if not incomingAnchor then
@@ -4785,7 +5022,7 @@ function addon:ApplyMedia(frame)
 		end
 
 		if hpWidgets.damageAbsorb then
-			hpWidgets.damageAbsorb:SetStatusBarTexture(texture)
+			SetStatusBarTexturePreserveLayer(hpWidgets.damageAbsorb, texture)
 			RaisePredictionBar(hpWidgets.damageAbsorb)
 			hpWidgets.damageAbsorb:SetFrameLevel(absorbLevel)
 			local c = absorbCfg.color
@@ -4806,13 +5043,13 @@ function addon:ApplyMedia(frame)
 			local absorbAnchor = statusTex
 			if incomingCfg.split then
 				if hpWidgets.healingOther and hpWidgets.healingOther.GetStatusBarTexture then
-					absorbAnchor = hpWidgets.healingOther:GetStatusBarTexture() or absorbAnchor
+					absorbAnchor = GetStatusBarAnchor(hpWidgets.healingOther) or absorbAnchor
 				elseif hpWidgets.healingPlayer and hpWidgets.healingPlayer.GetStatusBarTexture then
-					absorbAnchor = hpWidgets.healingPlayer:GetStatusBarTexture() or absorbAnchor
+					absorbAnchor = GetStatusBarAnchor(hpWidgets.healingPlayer) or absorbAnchor
 				end
 			else
 				if hpWidgets.healingAll and hpWidgets.healingAll.GetStatusBarTexture then
-					absorbAnchor = hpWidgets.healingAll:GetStatusBarTexture() or absorbAnchor
+					absorbAnchor = GetStatusBarAnchor(hpWidgets.healingAll) or absorbAnchor
 				end
 			end
 			local absorbPosition = tostring(absorbCfg.position or "RIGHT")
@@ -4832,7 +5069,7 @@ function addon:ApplyMedia(frame)
 			local absorbCap = frame.Health and frame.Health.AbsorbCap
 			if absorbCap then
 				absorbCap:ClearAllPoints()
-				local dtex = hpWidgets.damageAbsorb.GetStatusBarTexture and hpWidgets.damageAbsorb:GetStatusBarTexture()
+				local dtex = GetStatusBarAnchor(hpWidgets.damageAbsorb)
 				if dtex then
 					absorbCap:SetPoint("TOP", dtex, "TOP", 0, 0)
 					absorbCap:SetPoint("BOTTOM", dtex, "BOTTOM", 0, 0)
@@ -4848,7 +5085,7 @@ function addon:ApplyMedia(frame)
 			end
 		end
 		if hpWidgets.healAbsorb then
-			hpWidgets.healAbsorb:SetStatusBarTexture(texture)
+			SetStatusBarTexturePreserveLayer(hpWidgets.healAbsorb, texture)
 			RaisePredictionBar(hpWidgets.healAbsorb)
 			hpWidgets.healAbsorb:SetFrameLevel(absorbLevel)
 			local c = healAbsorbCfg.color
@@ -4895,7 +5132,7 @@ function addon:ApplyMedia(frame)
 	end
 
 	if frame.AdditionalPower then
-		frame.AdditionalPower:SetStatusBarTexture(texture)
+		SetStatusBarTexturePreserveLayer(frame.AdditionalPower, texture)
 	end
 
 	if frame.AdditionalPowerBG then
@@ -4903,12 +5140,14 @@ function addon:ApplyMedia(frame)
 		frame.AdditionalPowerBG:SetVertexColor(0, 0, 0, 0.6)
 	end
 
+	self:UpdateUnitPowerPrediction(frame, texture)
+
 	if frame.Castbar then
 		local castbarEnabled = unitCastbarCfg.enabled ~= false
 		frame.Castbar:SetShown(castbarEnabled)
 		if castbarEnabled then
 			frame.Castbar:SetReverseFill(unitCastbarCfg.reverseFill == true)
-			frame.Castbar:SetStatusBarTexture(texture)
+			SetStatusBarTexturePreserveLayer(frame.Castbar, texture)
 			if frame.Castbar.Bg then
 				frame.Castbar.Bg:SetTexture(texture)
 				local bg = castbarColors.background or { 0, 0, 0, 0.55 }
@@ -4945,6 +5184,7 @@ function addon:ApplyMedia(frame)
 			if frame.Castbar.Shield then
 				frame.Castbar.Shield:SetShown(castbarCfg.showShield ~= false)
 			end
+			UpdateCastbarEnhancementWidgets(frame.Castbar, castbarCfg)
 
 			local function UpdateInterruptVisual(castbar)
 				local isHostile = UnitCanAttack and castbar.unit and UnitCanAttack("player", castbar.unit)
@@ -4987,7 +5227,7 @@ function addon:ApplyMedia(frame)
 				end
 				local decimals = math.max(0, math.min(2, tonumber(castbarCfg.timeDecimals) or 1))
 				local fmt = "%." .. decimals .. "f"
-				local remaining = durationObject and SafeNumber(SafeAPICall(durationObject.GetRemainingDuration, durationObject), nil)
+				local remaining = GetCastbarRemainingDuration(castbar, durationObject)
 				if remaining == nil then
 					castbar.Time:SetText("")
 					return
@@ -5005,7 +5245,7 @@ function addon:ApplyMedia(frame)
 				local decimals = math.max(0, math.min(2, tonumber(castbarCfg.timeDecimals) or 1))
 				local baseFmt = "%." .. decimals .. "f"
 				local delayFmt = "%." .. math.max(1, decimals + 1) .. "f"
-				local remaining = durationObject and SafeNumber(SafeAPICall(durationObject.GetRemainingDuration, durationObject), nil)
+				local remaining = GetCastbarRemainingDuration(castbar, durationObject)
 				if remaining == nil then
 					castbar.Time:SetText("")
 					return
@@ -5038,11 +5278,13 @@ function addon:ApplyMedia(frame)
 				local spellName = SafeText(rawName, "")
 				spellName = TruncateUTF8(spellName, maxChars)
 				castbar.Text:SetText(spellName)
+				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
 			end
 			frame.Castbar.PostChannelStart = function(castbar)
 				local color = castbarColors.channeling or castbarColors.casting or { 0.2, 0.6, 1 }
 				castbar:SetStatusBarColor(color[1] or 0.2, color[2] or 0.6, color[3] or 1)
 				UpdateInterruptVisual(castbar)
+				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
 			end
 			frame.Castbar.PostCastInterruptible = function(castbar)
 				local color = castbar.channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
@@ -5052,6 +5294,7 @@ function addon:ApplyMedia(frame)
 				if castbar.Shield then
 					castbar.Shield:SetShown(false)
 				end
+				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
 			end
 			frame.Castbar.PostCastNotInterruptible = function(castbar)
 				local color = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
@@ -5064,20 +5307,29 @@ function addon:ApplyMedia(frame)
 				if castbar.Shield then
 					castbar.Shield:SetShown(castbarCfg.showShield ~= false)
 				end
+				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
 			end
 			frame.Castbar.PostCastFailed = function(castbar)
 				local color = castbarColors.failed or { 1, 0.1, 0.1 }
 				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.1, color[3] or 0.1)
 				StopCastbarNonInterruptGlow(castbar)
+				HideCastbarEnhancementWidgets(castbar)
 			end
 			frame.Castbar.PostCastInterrupted = frame.Castbar.PostCastFailed
+			frame.Castbar.PostCastUpdate = function(castbar)
+				UpdateInterruptVisual(castbar)
+				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
+			end
+			frame.Castbar.PostChannelUpdate = frame.Castbar.PostCastUpdate
 			frame.Castbar.PostCastStop = function(castbar)
 				local color = castbarColors.complete or { 0, 1, 0 }
 				castbar:SetStatusBarColor(color[1] or 0, color[2] or 1, color[3] or 0)
 				StopCastbarNonInterruptGlow(castbar)
+				HideCastbarEnhancementWidgets(castbar)
 			end
 		else
 			StopCastbarNonInterruptGlow(frame.Castbar)
+			HideCastbarEnhancementWidgets(frame.Castbar)
 			if frame.Castbar.Text then
 				frame.Castbar.Text:SetText("")
 			end
@@ -5089,9 +5341,10 @@ function addon:ApplyMedia(frame)
 
 	if frame.ClassPower then
 		for _, bar in ipairs(frame.ClassPower) do
-			bar:SetStatusBarTexture(texture)
+			SetStatusBarTexturePreserveLayer(bar, texture)
 		end
 	end
+
 
 	if frame.NameText then
 		frame.NameText:SetFont(font, sizes.name, "OUTLINE")
@@ -5127,6 +5380,49 @@ function addon:ApplyMedia(frame)
 	if profileStart then
 		local profileEnd = debugprofilestop() or profileStart
 		self:RecordProfilerEvent("suf:apply.media", profileEnd - profileStart)
+	end
+end
+
+function addon:UpdateUnitPowerPrediction(frame, texture)
+	if not (frame and frame.Power and frame.PowerPrediction) then
+		return
+	end
+
+	local cfg = self:GetUnitPowerPredictionSettings(frame.sufUnitType)
+	local enabled = cfg and cfg.enabled == true
+	local predictionBar = frame.PowerPrediction
+	if enabled then
+		SetStatusBarTexturePreserveLayer(predictionBar, texture or DEFAULT_TEXTURE)
+		local color = cfg.color or DEFAULT_UNIT_POWER_PREDICTION.color
+		local alpha = math.max(0.05, math.min(1, tonumber(cfg.opacity) or DEFAULT_UNIT_POWER_PREDICTION.opacity or 0.70))
+		predictionBar:SetStatusBarColor(color[1] or 1.0, color[2] or 0.9, color[3] or 0.25, alpha)
+		predictionBar:SetReverseFill(frame.Power:GetReverseFill() == true)
+		local predictionHeight = math.max(1, math.min(16, tonumber(cfg.height) or DEFAULT_UNIT_POWER_PREDICTION.height or 3))
+		predictionBar:SetHeight(predictionHeight)
+		predictionBar:ClearAllPoints()
+		predictionBar:SetPoint("TOP", frame.Power, "TOP", 0, 0)
+		predictionBar:SetPoint("BOTTOM", frame.Power, "BOTTOM", 0, 0)
+		local statusAnchor = frame.Power.GetStatusBarTexture and frame.Power:GetStatusBarTexture() or nil
+		if statusAnchor then
+			predictionBar:SetPoint("RIGHT", statusAnchor, "RIGHT", 0, 0)
+		else
+			predictionBar:SetPoint("RIGHT", frame.Power, "RIGHT", 0, 0)
+		end
+		predictionBar:SetWidth(frame.Power:GetWidth() or 1)
+		frame.Power.CostPrediction = predictionBar
+		predictionBar:Show()
+	else
+		frame.Power.CostPrediction = nil
+		predictionBar:Hide()
+	end
+
+	if frame.__sufPowerPredictionEnabled ~= enabled then
+		frame.__sufPowerPredictionEnabled = enabled
+		if frame.Power and frame.Power.ForceUpdate then
+			pcall(frame.Power.ForceUpdate, frame.Power)
+		elseif frame.UpdateElement then
+			pcall(frame.UpdateElement, frame, "Power")
+		end
 	end
 end
 
@@ -5180,6 +5476,14 @@ function addon:ApplyIndicators(frame)
 		frame.LeaderIndicator:SetPoint("TOP", frame, "TOP", 0, 2)
 	end
 
+	if frame.TargetIndicator then
+		local glowCfg = self:GetUnitTargetGlowSettings(frame.sufUnitType)
+		local inset = math.max(0, math.min(12, tonumber(glowCfg.inset) or 3))
+		frame.TargetIndicator:ClearAllPoints()
+		frame.TargetIndicator:SetPoint("TOPLEFT", frame, "TOPLEFT", -inset, inset)
+		frame.TargetIndicator:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", inset, -inset)
+	end
+
 	self:UpdateUnitFrameStatusIndicators(frame)
 end
 
@@ -5193,6 +5497,15 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		if frame.RoleIndicator then frame.RoleIndicator:Hide() end
 		if frame.RaidMarkerIndicator then frame.RaidMarkerIndicator:Hide() end
 		if frame.LeaderIndicator then frame.LeaderIndicator:Hide() end
+		if frame.TargetIndicator then frame.TargetIndicator:Hide() end
+		if frame.StatusIndicator then frame.StatusIndicator:SetText("") end
+		return
+	end
+	if UnitExists and not UnitExists(unit) then
+		if frame.RoleIndicator then frame.RoleIndicator:Hide() end
+		if frame.RaidMarkerIndicator then frame.RaidMarkerIndicator:Hide() end
+		if frame.LeaderIndicator then frame.LeaderIndicator:Hide() end
+		if frame.TargetIndicator then frame.TargetIndicator:Hide() end
 		if frame.StatusIndicator then frame.StatusIndicator:SetText("") end
 		return
 	end
@@ -5240,22 +5553,60 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		end
 	end
 
+	if frame.TargetIndicator then
+		local glowCfg = self:GetUnitTargetGlowSettings(frame.sufUnitType)
+		local enabled = glowCfg and glowCfg.enabled == true
+		local isTarget = false
+		if enabled and UnitExists and UnitExists("target") and UnitExists(unit) then
+			if UnitIsUnit and UnitIsUnit("target", unit) then
+				isTarget = true
+			elseif UnitGUID then
+				local targetGUID = UnitGUID("target")
+				local unitGUID = UnitGUID(unit)
+				isTarget = (targetGUID and unitGUID and targetGUID == unitGUID) and true or false
+			end
+		end
+		if isTarget then
+			local color = glowCfg.color or DEFAULT_UNIT_TARGET_GLOW.color
+			local alpha = color[4] or 0.92
+			frame.TargetIndicator:SetBackdropBorderColor(color[1] or 0.95, color[2] or 0.85, color[3] or 0.25, alpha)
+			frame.TargetIndicator:SetAlpha(alpha)
+			frame.TargetIndicator:Show()
+		else
+			frame.TargetIndicator:Hide()
+		end
+	end
+
 	if frame.StatusIndicator then
 		local text = ""
 		local r, g, b = 1.0, 1.0, 1.0
+		local isPlayerUnit = UnitIsPlayer and UnitIsPlayer(unit) or false
 		if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then
 			text = "DEAD"
 			r, g, b = 1.0, 0.25, 0.25
-		elseif UnitIsConnected and not UnitIsConnected(unit) then
+		elseif isPlayerUnit and UnitIsConnected and not UnitIsConnected(unit) then
 			text = "OFFLINE"
 			r, g, b = 0.70, 0.70, 0.70
-		elseif UnitIsAFK and UnitIsAFK(unit) then
+		elseif isPlayerUnit and UnitIsAFK and UnitIsAFK(unit) then
 			text = "AFK"
 			r, g, b = 1.0, 0.90, 0.35
 		end
 		frame.StatusIndicator:SetText(text)
 		frame.StatusIndicator:SetTextColor(r, g, b, 1.0)
 	end
+end
+
+function addon:RefreshAllTargetGlowIndicators()
+	for _, frame in ipairs(self.frames or {}) do
+		if frame and frame.TargetIndicator then
+			self:UpdateUnitFrameStatusIndicators(frame)
+		end
+	end
+end
+
+function addon:OnPlayerTargetChanged()
+	self:ScheduleUpdateDataTextPanel()
+	self:RefreshAllTargetGlowIndicators()
 end
 
 function addon:ApplyPortrait(frame)
@@ -5297,6 +5648,10 @@ function addon:ApplyPortrait(frame)
 	widget:SetSize(portrait.size, portrait.size)
 	widget.showClass = portrait.showClass
 	widget:Show()
+
+	if widget.SetAlpha then
+		widget:SetAlpha(frame:GetAlpha() or 1)
+	end
 
 	frame.Portrait = widget
 	if frame.EnableElement then
@@ -5661,6 +6016,7 @@ local function CreateCastbar(self, height, anchor)
 	Castbar.SafeZone = SafeZone
 	Castbar.Shield = Shield
 	Castbar.Spark = Spark
+	Castbar.__owner = self
 	self.Castbar = Castbar
 end
 
@@ -5698,10 +6054,11 @@ local function CreateHealthPrediction(self)
 	absorbOverlay:SetClipsChildren(false)
 	SetMousePassthrough(absorbOverlay)
 
+	local healthAnchor = GetStatusBarAnchor(self.Health) or self.Health
 	local healingAll = CreateFrame("StatusBar", nil, self)
 	healingAll:SetPoint("TOP")
 	healingAll:SetPoint("BOTTOM")
-	healingAll:SetPoint("LEFT", self.Health:GetStatusBarTexture(), "RIGHT")
+	healingAll:SetPoint("LEFT", healthAnchor, "RIGHT")
 	healingAll:SetWidth(self.Health:GetWidth())
 	healingAll:SetStatusBarTexture(DEFAULT_TEXTURE)
 	healingAll:SetStatusBarColor(0.35, 0.95, 0.45, 0.40)
@@ -5711,7 +6068,7 @@ local function CreateHealthPrediction(self)
 	local healingPlayer = CreateFrame("StatusBar", nil, self)
 	healingPlayer:SetPoint("TOP")
 	healingPlayer:SetPoint("BOTTOM")
-	healingPlayer:SetPoint("LEFT", self.Health:GetStatusBarTexture(), "RIGHT")
+	healingPlayer:SetPoint("LEFT", healthAnchor, "RIGHT")
 	healingPlayer:SetWidth(self.Health:GetWidth())
 	healingPlayer:SetStatusBarTexture(DEFAULT_TEXTURE)
 	healingPlayer:SetStatusBarColor(0.35, 0.95, 0.45, 0.40)
@@ -5721,7 +6078,7 @@ local function CreateHealthPrediction(self)
 	local healingOther = CreateFrame("StatusBar", nil, self)
 	healingOther:SetPoint("TOP")
 	healingOther:SetPoint("BOTTOM")
-	healingOther:SetPoint("LEFT", healingPlayer:GetStatusBarTexture(), "RIGHT")
+	healingOther:SetPoint("LEFT", GetStatusBarAnchor(healingPlayer) or healthAnchor, "RIGHT")
 	healingOther:SetWidth(self.Health:GetWidth())
 	healingOther:SetStatusBarTexture(DEFAULT_TEXTURE)
 	healingOther:SetStatusBarColor(0.20, 0.75, 0.35, 0.40)
@@ -5731,7 +6088,7 @@ local function CreateHealthPrediction(self)
 	local damageAbsorb = CreateFrame("StatusBar", nil, absorbOverlay)
 	damageAbsorb:SetPoint("TOP", self.Health, "TOP")
 	damageAbsorb:SetPoint("BOTTOM", self.Health, "BOTTOM")
-	damageAbsorb:SetPoint("LEFT", self.Health:GetStatusBarTexture(), "RIGHT")
+	damageAbsorb:SetPoint("LEFT", healthAnchor, "RIGHT")
 	damageAbsorb:SetWidth(self.Health:GetWidth())
 	damageAbsorb:SetReverseFill(false)
 	damageAbsorb:SetStatusBarTexture(DEFAULT_TEXTURE)
@@ -5751,7 +6108,7 @@ local function CreateHealthPrediction(self)
 	local absorbCap = absorbOverlay:CreateTexture(nil, "OVERLAY")
 	absorbCap:SetPoint("TOP", damageAbsorb, "TOP", 0, 0)
 	absorbCap:SetPoint("BOTTOM", damageAbsorb, "BOTTOM", 0, 0)
-	absorbCap:SetPoint("LEFT", damageAbsorb:GetStatusBarTexture(), "LEFT", 0, 0)
+	absorbCap:SetPoint("LEFT", GetStatusBarAnchor(damageAbsorb) or damageAbsorb, "LEFT", 0, 0)
 	absorbCap:SetWidth(2)
 	absorbCap:SetColorTexture(0.95, 1.00, 1.00, 0.95)
 	absorbCap:Hide()
@@ -5759,7 +6116,7 @@ local function CreateHealthPrediction(self)
 	local healAbsorb = CreateFrame("StatusBar", nil, absorbOverlay)
 	healAbsorb:SetPoint("TOP")
 	healAbsorb:SetPoint("BOTTOM")
-	healAbsorb:SetPoint("RIGHT", self.Health:GetStatusBarTexture(), "RIGHT")
+	healAbsorb:SetPoint("RIGHT", healthAnchor, "RIGHT")
 	healAbsorb:SetWidth(self.Health:GetWidth())
 	healAbsorb:SetReverseFill(true)
 	healAbsorb:SetStatusBarTexture(DEFAULT_TEXTURE)
@@ -5826,6 +6183,7 @@ local function CreateAuras(self)
 	local owner = addon
 	local Auras = owner:AcquireRuntimeFrame("Frame", self, "SUF_AuraContainer")
 	local auraSize = owner:GetUnitAuraSize(self.sufUnitType)
+	local auraCfg = owner:GetUnitAuraLayoutSettings(self.sufUnitType)
 	Auras:Show()
 	Auras:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 0, 4)
 	Auras:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 4)
@@ -5833,9 +6191,19 @@ local function CreateAuras(self)
 	Auras.size = auraSize
 	Auras.width = auraSize
 	Auras.height = auraSize
-	Auras.spacing = 4
-	Auras.numBuffs = 8
-	Auras.numDebuffs = 8
+	Auras.spacingX = tonumber(auraCfg.spacingX) or 4
+	Auras.spacingY = tonumber(auraCfg.spacingY) or 4
+	Auras.maxCols = math.max(1, tonumber(auraCfg.maxCols) or 8)
+	Auras.initialAnchor = tostring(auraCfg.initialAnchor or "BOTTOMLEFT")
+	Auras.growthX = tostring(auraCfg.growthX or "RIGHT")
+	Auras.growthY = tostring(auraCfg.growthY or "UP")
+	Auras.sortMethod = tostring(auraCfg.sortMethod or "DEFAULT")
+	Auras.sortDirection = tostring(auraCfg.sortDirection or "ASC")
+	Auras.onlyShowPlayer = auraCfg.onlyShowPlayer == true
+	Auras.showStealableBuffs = auraCfg.showStealableBuffs ~= false
+	Auras.reanchorIfVisibleChanged = true
+	Auras.numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 8)
+	Auras.numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 8)
 	Auras.disableCooldown = false
 	Auras.tooltipAnchor = "ANCHOR_BOTTOMRIGHT"
 	Auras.createdButtons = 0
@@ -5891,17 +6259,27 @@ local function CreateAuras(self)
 
 		button.UpdateTooltip = function(widget)
 			if GameTooltip and widget.auraInstanceID and widget:GetParent() and widget:GetParent().__owner and widget:GetParent().__owner.unit then
+				if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
+					return
+				end
 				GameTooltip:SetUnitAuraByAuraInstanceID(widget:GetParent().__owner.unit, widget.auraInstanceID)
 			end
 		end
 		button:SetScript("OnEnter", function(widget)
 			if GameTooltip and widget:IsVisible() then
-				GameTooltip:SetOwner(widget, widget:GetParent().tooltipAnchor or "ANCHOR_BOTTOMRIGHT")
+				if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
+					return
+				end
+				local parent = widget:GetParent()
+				local anchorType = (parent and parent.tooltipAnchor) or "ANCHOR_BOTTOMRIGHT"
+				local offsetX = (parent and parent.tooltipOffsetX) or 0
+				local offsetY = (parent and parent.tooltipOffsetY) or 0
+				GameTooltip:SetOwner(widget, anchorType, offsetX, offsetY)
 				widget:UpdateTooltip()
 			end
 		end)
 		button:SetScript("OnLeave", function()
-			if GameTooltip then
+			if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
 				GameTooltip:Hide()
 			end
 		end)
@@ -5959,12 +6337,47 @@ HasVisibleClassPower = function(frame)
 	return false
 end
 
-function addon:GetEnhancementSettings()
-	if not (self.db and self.db.profile) then
-		return defaults.profile.enhancements
+function addon:RegisterSharedMediaAssets()
+	if not LSM or not LSM.Register then
+		return
 	end
-	self.db.profile.enhancements = self.db.profile.enhancements or CopyTableDeep(defaults.profile.enhancements)
-	return self.db.profile.enhancements
+	local entries = {
+		{ kind = "font", name = "SUF Expressway", path = "Interface\\AddOns\\SimpleUnitFrames\\Media\\Fonts\\Expressway.ttf" },
+		{ kind = "font", name = "SUF Avante", path = "Interface\\AddOns\\SimpleUnitFrames\\Media\\Fonts\\Avante.ttf" },
+		{ kind = "statusbar", name = "SUF ThinStripes", path = "Interface\\AddOns\\SimpleUnitFrames\\Media\\Textures\\ThinStripes.png" },
+		{ kind = "statusbar", name = "SUF Stripes", path = "Interface\\AddOns\\SimpleUnitFrames\\Media\\Textures\\Stripes.png" },
+	}
+	for i = 1, #entries do
+		local entry = entries[i]
+		pcall(LSM.Register, LSM, entry.kind, entry.name, entry.path)
+	end
+end
+
+function addon:SetupToolkitAPI()
+	self.API = self.API or {}
+	self.API.Clamp = function(value, minimum, maximum, fallback)
+		local n = tonumber(value)
+		if not n then
+			return fallback
+		end
+		if minimum and n < minimum then
+			n = minimum
+		end
+		if maximum and n > maximum then
+			n = maximum
+		end
+		return n
+	end
+	self.API.Round = RoundNumber
+	self.API.ShortValue = FormatCompactValue
+	self.API.RegisterAnyClicks = function(frame)
+		if frame and frame.RegisterForClicks then
+			frame:RegisterForClicks("AnyUp")
+		end
+	end
+	self.API.GetStatusReportText = function()
+		return addon:BuildStatusReportText()
+	end
 end
 
 function addon:PlayWindowOpenAnimation(frame)
@@ -5975,30 +6388,60 @@ function addon:PlayWindowOpenAnimation(frame)
 	if cfg.uiOpenAnimation == false then
 		return
 	end
-	if not CreateAnimationGroup then
+	if not frame.CreateAnimationGroup then
 		return
 	end
 
-	frame._sufOpenAnimGroup = frame._sufOpenAnimGroup or CreateAnimationGroup(frame)
+	frame._sufOpenAnimGroup = frame._sufOpenAnimGroup or frame:CreateAnimationGroup()
 	local group = frame._sufOpenAnimGroup
 	if not group then
 		return
+	end
+	if not group._sufHooksInstalled then
+		local function FinalizeOpenAnimation()
+			if not frame or not frame.SetAlpha then
+				return
+			end
+			frame:SetAlpha(1)
+			if frame._sufOpenAnimRestore then
+				local restore = frame._sufOpenAnimRestore
+				frame:ClearAllPoints()
+				frame:SetPoint(restore[1], restore[2], restore[3], restore[4], restore[5])
+				frame._sufOpenAnimRestore = nil
+			end
+		end
+		group:SetScript("OnFinished", FinalizeOpenAnimation)
+		group:SetScript("OnStop", FinalizeOpenAnimation)
+		group._sufHooksInstalled = true
 	end
 
 	local duration = math.max(0.05, math.min(0.60, tonumber(cfg.uiOpenAnimationDuration) or 0.18))
 	local offsetY = math.max(-40, math.min(40, tonumber(cfg.uiOpenAnimationOffsetY) or 12))
 
 	if not group._sufAlpha then
-		local alpha = group:CreateAnimation("fade")
+		local alpha = group:CreateAnimation("Alpha")
 		alpha:SetDuration(duration)
-		alpha:SetEasing("outquadratic")
-		alpha:SetChange(1)
+		if alpha.SetSmoothing then
+			alpha:SetSmoothing("OUT")
+		elseif alpha.SetEasing then
+			alpha:SetEasing("outquadratic")
+		end
+		if alpha.SetFromAlpha and alpha.SetToAlpha then
+			alpha:SetFromAlpha(0)
+			alpha:SetToAlpha(1)
+		elseif alpha.SetChange then
+			alpha:SetChange(1)
+		end
 		group._sufAlpha = alpha
 	end
 	if not group._sufMove then
-		local move = group:CreateAnimation("move")
+		local move = group:CreateAnimation("Translation")
 		move:SetDuration(duration)
-		move:SetEasing("outquadratic")
+		if move.SetSmoothing then
+			move:SetSmoothing("OUT")
+		elseif move.SetEasing then
+			move:SetEasing("outquadratic")
+		end
 		move:SetOffset(0, 0)
 		group._sufMove = move
 	end
@@ -6030,79 +6473,43 @@ function addon:PlayWindowOpenAnimation(frame)
 	if group.IsPlaying and group:IsPlaying() then
 		group:Stop()
 	end
-	frame:SetAlpha(0)
+	frame:SetAlpha(1)
+	if offsetY ~= 0 then
+		frame:SetAlpha(0)
+	end
 	group:Play()
 end
 
-function addon:IsStickyWindowsEnabled()
-	local cfg = self:GetEnhancementSettings()
-	return cfg and cfg.stickyWindows ~= false and LibSimpleSticky ~= nil
-end
-
-function addon:GetStickyDragTargets(sourceFrame)
-	local targets = {}
-	local seen = {}
-	local function AddFrame(frame)
-		if not frame or frame == sourceFrame then
-			return
-		end
-		if seen[frame] then
-			return
-		end
-		seen[frame] = true
-		targets[#targets + 1] = frame
-	end
-
-	AddFrame(UIParent)
-
-	if self.frames then
-		for i = 1, #self.frames do
-			AddFrame(self.frames[i])
-		end
-	end
-	if self.headers then
-		for _, header in pairs(self.headers) do
-			AddFrame(header)
-		end
-	end
-
-	AddFrame(self.optionsFrame)
-	AddFrame(self.debugPanel)
-	AddFrame(self.debugExportFrame)
-	AddFrame(self.debugSettingsFrame)
-
-	return targets
-end
-
-function addon:EnableMovableFrame(frame, allowSticky)
+function addon:PrepareWindowForDisplay(frame)
 	if not frame then
 		return
 	end
-
-	frame:SetMovable(true)
-	frame:EnableMouse(true)
-	frame:RegisterForDrag("LeftButton")
-	frame:SetScript("OnDragStart", function(movableFrame)
-		if allowSticky and self:IsStickyWindowsEnabled() then
-			local cfg = self:GetEnhancementSettings()
-			local range = math.max(4, math.min(36, tonumber(cfg.stickyRange) or 15))
-			LibSimpleSticky.rangeX = range
-			LibSimpleSticky.rangeY = range
-			LibSimpleSticky:StartMoving(movableFrame, self:GetStickyDragTargets(movableFrame), 0, 0, 0, 0)
-		else
-			movableFrame:StartMoving()
+	if frame._sufOpenAnimGroup and frame._sufOpenAnimGroup.IsPlaying and frame._sufOpenAnimGroup:IsPlaying() then
+		frame._sufOpenAnimGroup:Stop()
+	end
+	if frame._sufOpenAnimRestore then
+		local restore = frame._sufOpenAnimRestore
+		frame:ClearAllPoints()
+		frame:SetPoint(restore[1], restore[2], restore[3], restore[4], restore[5])
+		frame._sufOpenAnimRestore = nil
+	end
+	if frame.SetAlpha then
+		frame:SetAlpha(1)
+	end
+	if frame.SetScale then
+		local scale = tonumber(frame:GetScale()) or 1
+		if scale <= 0 then
+			frame:SetScale(1)
 		end
-	end)
-	frame:SetScript("OnDragStop", function(movableFrame)
-		if allowSticky and self:IsStickyWindowsEnabled() then
-			local ok = pcall(LibSimpleSticky.StopMoving, LibSimpleSticky, movableFrame)
-			if not ok then
-				movableFrame:StopMovingOrSizing()
-			end
-		else
-			movableFrame:StopMovingOrSizing()
-		end
-	end)
+	end
+	if frame.GetParent and frame:GetParent() ~= UIParent and frame.SetParent then
+		frame:SetParent(UIParent)
+	end
+	if self.ApplySUFControlSkinsInFrame then
+		self:ApplySUFControlSkinsInFrame(frame)
+	elseif self.ApplySUFButtonSkinsInFrame then
+		self:ApplySUFButtonSkinsInFrame(frame)
+	end
 end
 
 function addon:UpdateSingleFrame(frame)
@@ -6119,6 +6526,7 @@ function addon:UpdateSingleFrame(frame)
 	self:UpdateAbsorbValue(frame)
 	self:UpdateIncomingHealValue(frame)
 	self:UpdateUnitFrameStatusIndicators(frame)
+	self:UpdateUnitFrameUnlockHandle(frame)
 end
 
 function addon:UpdateFramesByUnitType(unitType)
@@ -6146,28 +6554,6 @@ function addon:UpdateFramesByUnitType(unitType)
 		self:RecordProfilerEvent("suf:update.unit." .. tostring(unitType), totalEnd - totalStart)
 	end
 	return updated
-end
-
-function addon:ScheduleUpdateUnitType(unitType)
-	if not unitType then
-		self:ScheduleUpdateAll()
-		return
-	end
-	if self.isBuildingOptions then
-		return
-	end
-
-	self._unitUpdateTimers = self._unitUpdateTimers or {}
-	if self._unitUpdateTimers[unitType] then
-		return
-	end
-
-	self._unitUpdateTimers[unitType] = C_Timer.NewTimer(0.05, function()
-		if self._unitUpdateTimers then
-			self._unitUpdateTimers[unitType] = nil
-		end
-		self:UpdateFramesByUnitType(unitType)
-	end)
 end
 
 function addon:FlushPendingPluginUpdates()
@@ -6224,9 +6610,234 @@ function addon:ReapplyPluginElements(unitType)
 	end
 end
 
+local function GetUnitSelectionTypeSafe(unit, considerSelectionInCombatHostile)
+	local ouf = addon and addon.oUF
+	local private = ouf and ouf.Private
+	local fn = private and private.unitSelectionType
+	if type(fn) == "function" then
+		return fn(unit, considerSelectionInCombatHostile)
+	end
+	if type(UnitSelectionType) == "function" then
+		return UnitSelectionType(unit)
+	end
+	return nil
+end
+
+function addon:ConfigureHealthElementOverrides(frame)
+	local element = frame and frame.Health
+	if not element then
+		return
+	end
+
+	local function SetBarMinMax(bar, maxValue)
+		if not bar then
+			return
+		end
+		if maxValue ~= nil then
+			bar:SetMinMaxValues(0, maxValue)
+		end
+	end
+
+	local function SetBarValue(bar, value, smoothing)
+		if not bar then
+			return
+		end
+		if value == nil then
+			value = 0
+		end
+		bar:SetValue(value, smoothing)
+	end
+
+	local function SetPredictionBarValue(bar, rawValue, maxValue)
+		if not bar then
+			return
+		end
+		SetBarMinMax(bar, maxValue)
+		SetBarValue(bar, rawValue)
+	end
+
+	local function ResolveColorRGB(color)
+		if not color then
+			return nil, nil, nil
+		end
+		local r, g, b
+		if color.GetRGB then
+			local ok, rr, gg, bb = pcall(color.GetRGB, color)
+			if ok then
+				r, g, b = rr, gg, bb
+			end
+		elseif type(color) == "table" then
+			r = color.r or color[1]
+			g = color.g or color[2]
+			b = color.b or color[3]
+		end
+
+		if r == nil or g == nil or b == nil then
+			return nil, nil, nil
+		end
+
+		r = SafeNumber(r, nil)
+		g = SafeNumber(g, nil)
+		b = SafeNumber(b, nil)
+		if r == nil or g == nil or b == nil then
+			return nil, nil, nil
+		end
+		return r, g, b
+	end
+
+	element.UpdateColor = function(owner, eventName, unit)
+		if not unit or owner.unit ~= unit then
+			return
+		end
+
+		local color
+		if element.colorDisconnected and UnitIsPlayer(unit) and not UnitIsConnected(unit) then
+			color = owner.colors.disconnected
+		elseif element.colorTapping and not UnitPlayerControlled(unit) and UnitIsTapDenied(unit) then
+			color = owner.colors.tapped
+		elseif element.colorThreat and not UnitPlayerControlled(unit) then
+			local threatStatus = SafeNumber(SafeAPICall(UnitThreatSituation, "player", unit), nil)
+			if threatStatus and owner.colors and owner.colors.threat then
+				color = owner.colors.threat[threatStatus]
+			end
+		elseif (element.colorClass and (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
+			or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
+			or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
+			local classToken
+			if UnitClass then
+				local ok, _, token = pcall(UnitClass, unit)
+				if ok then
+					classToken = SafeText(token, nil)
+				end
+			end
+			if classToken and owner.colors and owner.colors.class then
+				color = owner.colors.class[classToken]
+			end
+		elseif element.colorSelection then
+			local selectionType = SafeNumber(GetUnitSelectionTypeSafe(unit, element.considerSelectionInCombatHostile), nil)
+			if selectionType and owner.colors and owner.colors.selection then
+				color = owner.colors.selection[selectionType]
+			end
+		elseif element.colorReaction then
+			local reaction = SafeNumber(SafeAPICall(UnitReaction, unit, "player"), nil)
+			if reaction and owner.colors and owner.colors.reaction then
+				color = owner.colors.reaction[reaction]
+			end
+		elseif element.colorSmooth and owner.colors and owner.colors.health and owner.colors.health.GetCurve and element.values and element.values.EvaluateCurrentHealthPercent then
+			local curve = owner.colors.health:GetCurve()
+			if curve then
+				color = element.values:EvaluateCurrentHealthPercent(curve)
+			end
+		elseif element.colorHealth then
+			color = owner.colors.health
+		end
+
+		if color then
+			local r, g, b = ResolveColorRGB(color)
+			if r ~= nil and g ~= nil and b ~= nil then
+				element:SetStatusBarColor(r, g, b)
+			end
+		end
+		if element.PostUpdateColor then
+			element:PostUpdateColor(unit, color)
+		end
+	end
+
+	element.Override = function(owner, eventName, unit)
+		if not unit or owner.unit ~= unit then
+			return
+		end
+
+		if element.PreUpdate then
+			element:PreUpdate(unit)
+		end
+
+		if UnitGetDetailedHealPrediction and element.values then
+			UnitGetDetailedHealPrediction(unit, "player", element.values)
+		end
+
+		local max = element.values and element.values.GetMaximumHealth and element.values:GetMaximumHealth() or nil
+		if max == nil and UnitHealthMax then
+			max = UnitHealthMax(unit)
+		end
+		if max == nil then
+			max = element.max or 1
+		end
+		SetBarMinMax(element, max)
+
+		local cur = element.values and element.values.GetCurrentHealth and element.values:GetCurrentHealth() or nil
+		if cur == nil and UnitHealth then
+			cur = UnitHealth(unit)
+		end
+		if cur == nil then
+			cur = element.cur
+		end
+		if cur == nil then
+			cur = 0
+		end
+
+		local isPlayerUnit = UnitIsPlayer(unit)
+		local isConnected = UnitIsConnected(unit)
+		if isPlayerUnit and (isConnected == false) then
+			SetBarValue(element, max, element.smoothing)
+		else
+			SetBarValue(element, cur, element.smoothing)
+		end
+
+		element.cur = cur
+		element.max = max
+
+		if element.values and (element.HealingAll or element.HealingPlayer or element.HealingOther or element.OverHealIndicator) then
+			local allHeal, playerHeal, otherHeal, healClamped = element.values:GetIncomingHeals()
+			if element.HealingAll then
+				SetPredictionBarValue(element.HealingAll, allHeal, max)
+			end
+			if element.HealingPlayer then
+				SetPredictionBarValue(element.HealingPlayer, playerHeal, max)
+			end
+			if element.HealingOther then
+				SetPredictionBarValue(element.HealingOther, otherHeal, max)
+			end
+			if element.OverHealIndicator then
+				element.OverHealIndicator:SetAlphaFromBoolean(healClamped, 1, 0)
+			end
+		end
+
+		if element.values and (element.DamageAbsorb or element.OverDamageAbsorbIndicator) then
+			local damageAbsorbAmount, damageAbsorbClamped = element.values:GetDamageAbsorbs()
+			if element.DamageAbsorb then
+				SetPredictionBarValue(element.DamageAbsorb, damageAbsorbAmount, max)
+			end
+			if element.OverDamageAbsorbIndicator then
+				element.OverDamageAbsorbIndicator:SetAlphaFromBoolean(damageAbsorbClamped, 1, 0)
+			end
+		end
+
+		if element.values and (element.HealAbsorb or element.OverHealAbsorbIndicator) then
+			local healAbsorbAmount, healAbsorbClamped = element.values:GetHealAbsorbs()
+			if element.HealAbsorb then
+				SetPredictionBarValue(element.HealAbsorb, healAbsorbAmount, max)
+			end
+			if element.OverHealAbsorbIndicator then
+				element.OverHealAbsorbIndicator:SetAlphaFromBoolean(healAbsorbClamped, 1, 0)
+			end
+		end
+
+		local lossPerc = 0
+		if element.TempLoss then
+			lossPerc = GetUnitTotalModifiedMaxHealthPercent and GetUnitTotalModifiedMaxHealthPercent(unit) or 0
+			SetBarValue(element.TempLoss, lossPerc, element.smoothing)
+		end
+
+		if element.PostUpdate then
+			element:PostUpdate(unit, cur, max, lossPerc)
+		end
+	end
+end
+
 function addon:SchedulePluginUpdate(unitType)
 	self._pendingPluginUpdates = self._pendingPluginUpdates or {}
-	if unitType and IsGroupUnitType(unitType) then
+	if unitType and self:IsGroupUnitType(unitType) then
 		self._pendingPluginUpdates[unitType] = true
 	else
 		self._pendingPluginUpdates.__global = true
@@ -6239,7 +6850,56 @@ function addon:SchedulePluginUpdate(unitType)
 	self:StartPluginUpdateTicker()
 end
 
+-- Custom tooltip handler for header-spawned frames that intelligently determines the unit
+local function SUF_UpdateTooltip(frame)
+	-- Try to get a valid unit token
+	local unitToken = frame.unit
+	
+	-- Fallback: try secure attribute
+	if not unitToken or (unitToken == 'party' or unitToken:match('^party%d+$')) and UnitExists(unitToken) == false then
+		unitToken = frame:GetAttribute('unit') or frame:GetAttribute('oUF-guessUnit')
+	end
+	
+	-- If unit is still invalid, try to guess based on frame name for party frames
+	if not unitToken or not UnitExists(unitToken) then
+		local frameName = frame:GetName() or ''
+		if frameName:match('Party') then
+			-- This is a party frame, might be showing player solo - try player unit
+			if UnitExists('player') then
+				unitToken = 'player'
+			else
+				unitToken = nil
+			end
+		end
+	end
+	
+	-- Now try to show the tooltip
+	GameTooltip_SetDefaultAnchor(GameTooltip, frame)
+	if unitToken and GameTooltip:SetUnit(unitToken, frame.hideStatusOnTooltip) then
+		GameTooltip_AddBlankLineToTooltip(GameTooltip)
+		GameTooltip_AddInstructionLine(GameTooltip, UNIT_POPUP_RIGHT_CLICK)
+		GameTooltip:Show()
+		frame.UpdateTooltip = SUF_UpdateTooltip
+	else
+		frame.UpdateTooltip = nil
+	end
+end
+
+local function SUF_OnEnter(frame)
+	SUF_UpdateTooltip(frame)
+end
+
+local function SUF_OnLeave(frame)
+	frame.UpdateTooltip = nil
+	GameTooltip:FadeOut()
+end
+
 function addon:Style(frame, unit)
+	-- Ensure frame.unit is set for tooltip handlers (especially important for header-spawned frames like solo party)
+	if not frame.unit then
+		frame.unit = unit or frame:GetAttribute('unit') or 'player'
+	end
+	
 	frame.sufUnitType = ResolveUnitType(unit)
 	frame.__isSimpleUnitFrames = true
 	local unitLayout = self:GetUnitLayoutSettings(frame.sufUnitType)
@@ -6251,19 +6911,25 @@ function addon:Style(frame, unit)
 	if frame.SetMouseClickEnabled then
 		frame:SetMouseClickEnabled(true)
 	end
-	frame:SetAttribute("type2", "togglemenu")
-	frame:SetAttribute("*type2", "togglemenu")
+	self:QueueOrRun(function()
+		frame:SetAttribute("type2", "togglemenu")
+		frame:SetAttribute("*type2", "togglemenu")
+	end, "frame-menu-" .. tostring(frame:GetName() or frame.sufUnitType or frame.unit or "unknown"))
 	if not frame.__sufLegacyMenu then
 		frame.__sufLegacyMenu = frame.menu or UnitPopup_ShowMenu
 	end
 	frame.menu = function(widget)
 		addon:OpenUnitContextMenu(widget)
 	end
-	frame:SetScript("OnEnter", UnitFrame_OnEnter)
-	frame:SetScript("OnLeave", UnitFrame_OnLeave)
+	-- Use custom tooltip handlers that work better with header-spawned frames
+	frame:SetScript("OnEnter", SUF_OnEnter)
+	frame:SetScript("OnLeave", SUF_OnLeave)
 
 	local size = self.db.profile.sizes[frame.sufUnitType]
 	frame:SetSize(size.width, size.height)
+	if frame.unlockHandle then
+		frame.unlockHandle:SetAllPoints(frame)
+	end
 
 	local Health = CreateStatusBar(frame, size.height)
 	Health:SetAllPoints(frame)
@@ -6273,11 +6939,17 @@ function addon:Style(frame, unit)
 	frame.Health = Health
 	HookRightClickProxy(Health, frame)
 	CreateHealthPrediction(frame)
+	self:ConfigureHealthElementOverrides(frame)
 	if frame.Health then
 		local originalPostUpdate = frame.Health.PostUpdate
-		frame.Health.PostUpdate = function(element, unit)
+		frame.Health.PostUpdate = function(element, unit, cur, max, lossPerc)
 			if originalPostUpdate then
-				originalPostUpdate(element, unit)
+				originalPostUpdate(element, unit, cur, max, lossPerc)
+			end
+			if unit and UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then
+				element:SetValue(0, element.smoothing)
+			elseif unit and UnitIsPlayer(unit) and UnitIsConnected and UnitIsConnected(unit) == false then
+				element:SetValue(max or element.max or 1, element.smoothing)
 			end
 			addon:UpdateAbsorbValue(frame, unit)
 			addon:UpdateIncomingHealValue(frame, unit)
@@ -6297,6 +6969,18 @@ function addon:Style(frame, unit)
 	PowerBG:SetColorTexture(0, 0, 0, 0.6)
 	frame.PowerBG = PowerBG
 	HookRightClickProxy(PowerBG, frame)
+
+	local PowerPrediction = CreateFrame("StatusBar", nil, Power)
+	PowerPrediction:SetPoint("TOP", Power, "TOP", 0, 0)
+	PowerPrediction:SetPoint("BOTTOM", Power, "BOTTOM", 0, 0)
+	PowerPrediction:SetPoint("RIGHT", Power, "RIGHT", 0, 0)
+	PowerPrediction:SetWidth(Power:GetWidth() or 1)
+	PowerPrediction:SetStatusBarTexture(DEFAULT_TEXTURE)
+	PowerPrediction:SetStatusBarColor(1, 0.9, 0.25, 0.70)
+	PowerPrediction:SetReverseFill(true)
+	PowerPrediction:Hide()
+	SetMousePassthrough(PowerPrediction)
+	frame.PowerPrediction = PowerPrediction
 
 	local MainBarsBackground = frame:CreateTexture(nil, "BACKGROUND")
 	MainBarsBackground:SetDrawLayer("BACKGROUND", -8)
@@ -6388,6 +7072,19 @@ function addon:Style(frame, unit)
 	IndicatorFrame.__sufLeaderIndicator = LeaderIndicator
 	frame.LeaderIndicator = LeaderIndicator
 
+	local TargetIndicator = IndicatorFrame.__sufTargetIndicator or CreateFrame("Frame", nil, IndicatorFrame, "BackdropTemplate")
+	TargetIndicator:SetPoint("TOPLEFT", frame, "TOPLEFT", -3, 3)
+	TargetIndicator:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 3, -3)
+	TargetIndicator:SetBackdrop({
+		edgeFile = "Interface\\Buttons\\WHITE8x8",
+		edgeSize = 2,
+	})
+	TargetIndicator:SetBackdropColor(0, 0, 0, 0)
+	TargetIndicator:SetBackdropBorderColor(0.95, 0.85, 0.25, 0.92)
+	TargetIndicator:Hide()
+	IndicatorFrame.__sufTargetIndicator = TargetIndicator
+	frame.TargetIndicator = TargetIndicator
+
 	local StatusIndicator = TextOverlay.__sufStatusIndicator or CreateFontString(TextOverlay, 13, "OUTLINE")
 	StatusIndicator:SetPoint("CENTER", frame, "CENTER", 0, 0)
 	StatusIndicator:SetJustifyH("CENTER")
@@ -6397,7 +7094,7 @@ function addon:Style(frame, unit)
 	frame.StatusIndicator = StatusIndicator
 
 	frame.Fader = frame.Fader or {}
-	if IsGroupUnitType(frame.sufUnitType) then
+	if self:IsGroupUnitType(frame.sufUnitType) then
 		self:EnsureRaidDebuffsElement(frame)
 		self:EnsureAuraWatchElement(frame)
 	end
@@ -6466,6 +7163,8 @@ function addon:Style(frame, unit)
 	self:ApplyMedia(frame)
 	self:ApplySize(frame)
 	self:ApplyIndicators(frame)
+	self:EnableUnitFrameEditModeDrag(frame)
+	self:UpdateUnitFrameUnlockHandle(frame)
 	self:UpdateUnitFrameStatusIndicators(frame)
 	if not frame.Update then
 		frame.Update = function(widget)
@@ -6477,6 +7176,7 @@ function addon:Style(frame, unit)
 		end
 	end
 	table.insert(self.frames, frame)
+	self:InvalidateFrameEventIndex()
 end
 
 function addon:HookAnchor(frame, anchorName)
@@ -6486,6 +7186,9 @@ function addon:HookAnchor(frame, anchorName)
 		frame:SetPoint("CENTER", anchor, "CENTER")
 	else
 		frame:SetPoint("CENTER", UIParent, "CENTER")
+	end
+	if frame and frame.__sufEditMoverKey then
+		self:ApplyStoredMoverPosition(frame, frame.__sufEditMoverKey, { "CENTER", anchorName, "CENTER", 0, 0 })
 	end
 end
 
@@ -6524,6 +7227,7 @@ function addon:SpawnFrames()
 	self:ReleaseAllPooledResources()
 	self.frames = {}
 	self.headers = {}
+	self:InvalidateFrameEventIndex()
 	oUF:RegisterStyle("SimpleUnitFrames", function(frame, unit)
 		self:Style(frame, unit)
 	end)
@@ -6633,6 +7337,7 @@ end
 
 function addon:OnGroupRosterUpdate()
 	self:TrySpawnGroupHeaders()
+	self:UpdateDataTextPanel()
 end
 
 function addon:GetPartyHeaderYOffset()
@@ -6665,9 +7370,11 @@ function addon:ApplyPartyHeaderSettings()
 		return
 	end
 
-	header:SetAttribute("showPlayer", showPlayer)
-	header:SetAttribute("showSolo", showSolo)
-	header:SetAttribute("yOffset", yOffset)
+	self:QueueOrRun(function()
+		header:SetAttribute("showPlayer", showPlayer)
+		header:SetAttribute("showSolo", showSolo)
+		header:SetAttribute("yOffset", yOffset)
+	end, "party-header-attrs")
 end
 
 function addon:ApplyVisibilityRules()
@@ -6681,15 +7388,21 @@ function addon:ApplyVisibilityRules()
 
 	for _, frame in ipairs(self.frames or {}) do
 		if frame then
-			UnregisterStateDriver(frame, "visibility")
-			RegisterStateDriver(frame, "visibility", driver)
+			local frameName = tostring(frame:GetName() or frame.sufUnitType or frame.unit or "frame")
+			self:QueueOrRun(function()
+				UnregisterStateDriver(frame, "visibility")
+				RegisterStateDriver(frame, "visibility", driver)
+			end, "visibility-driver-frame-" .. frameName)
 		end
 	end
 
 	for _, header in pairs(self.headers or {}) do
 		if header then
-			UnregisterStateDriver(header, "visibility")
-			RegisterStateDriver(header, "visibility", driver)
+			local headerName = tostring(header:GetName() or "header")
+			self:QueueOrRun(function()
+				UnregisterStateDriver(header, "visibility")
+				RegisterStateDriver(header, "visibility", driver)
+			end, "visibility-driver-header-" .. headerName)
 		end
 	end
 end
@@ -6866,6 +7579,9 @@ local function ReplaceTableContents(dst, src)
 	return true
 end
 
+--- Protected Operations system has been moved to Core/ProtectedOperations.lua
+--- Backward compatibility aliases are registered in OnEnable() via ProtectedOperations:RegisterAddonAliases()
+
 function addon:BuildImportedProfileTarget(data)
 	local profile = CopyTableDeep(defaults.profile)
 	for key, value in pairs(data) do
@@ -6880,7 +7596,7 @@ function addon:BuildImportedProfileTarget(data)
 end
 
 function addon:PromptReloadAfterImport(summaryText)
-	StaticPopupDialogs["SUF_IMPORT_RELOAD_CONFIRM"] = StaticPopupDialogs["SUF_IMPORT_RELOAD_CONFIRM"] or {
+	self:EnsurePopupDialog("SUF_IMPORT_RELOAD_CONFIRM", {
 		text = "Import applied. Reload UI now?",
 		button1 = "Reload",
 		button2 = "Later",
@@ -6891,10 +7607,30 @@ function addon:PromptReloadAfterImport(summaryText)
 		whileDead = true,
 		hideOnEscape = true,
 		preferredIndex = 3,
-	}
+	})
 	local popup = StaticPopupDialogs["SUF_IMPORT_RELOAD_CONFIRM"]
 	popup.text = tostring(summaryText or "Import applied. Reload UI now?")
-	StaticPopup_Show("SUF_IMPORT_RELOAD_CONFIRM")
+	self:ShowPopup("SUF_IMPORT_RELOAD_CONFIRM")
+end
+
+function addon:PromptReloadUI(message)
+	self:EnsurePopupDialog("SUF_CONFIG_RELOAD", {
+		text = "Some changes require ReloadUI.",
+		button1 = "Reload",
+		button2 = "Later",
+		OnAccept = function()
+			ReloadUI()
+		end,
+		timeout = 0,
+		whileDead = true,
+		hideOnEscape = true,
+		preferredIndex = 3,
+	})
+	local popup = StaticPopupDialogs["SUF_CONFIG_RELOAD"]
+	if popup then
+		popup.text = tostring(message or "Some changes require ReloadUI.")
+	end
+	self:ShowPopup("SUF_CONFIG_RELOAD")
 end
 
 function addon:ApplyImportedProfile(data)
@@ -6988,6 +7724,8 @@ function addon:OnPlayerEnteringWorld()
 	self:UpdateBlizzardFrames()
 	self:TrySpawnFrames()
 	self:ScheduleGroupHeaders(0.5)
+	self:UpdateDataBars()
+	self:UpdateDataTextPanel()
 end
 
 function addon:OnClassResourceContextChanged()
@@ -7013,45 +7751,76 @@ function addon:RefreshEditModeUnitSystems()
 	-- "secret value tainted" errors during Edit Mode and roster updates.
 end
 
+function addon:OnEditModeStateChanged()
+	self:UpdateBlizzardFrames()
+	self:UpdateDataBars()
+	self:UpdateDataTextPanel()
+	self:UpdateAllUnitFrameUnlockHandles()
+end
+
 function addon:SetFramesVisible(isEditMode)
-	local showBlizzard = isEditMode
-	local alpha = showBlizzard and 1 or 0
-
-	local blizzardFrames = {
-		_G.PlayerFrame,
-		_G.PetFrame,
-		_G.TargetFrame,
-		_G.TargetFrameToT,
-		_G.FocusFrame,
-		_G.PartyFrame,
-		_G.CompactPartyFrame,
-		_G.CompactRaidFrameContainer,
-		_G.CompactRaidFrameManager,
-		_G.BossTargetFrameContainer,
-		_G.CastingBarFrame,
-		_G.TargetFrameSpellBar,
-	}
-
-	for _, frame in ipairs(blizzardFrames) do
-		if frame then
-			frame:SetAlpha(alpha)
-		end
+	local blizzardCfg = (self.db and self.db.profile and self.db.profile.blizzardFrames) or defaults.profile.blizzardFrames or {}
+	local function ResolveAlpha(key)
+		return blizzardCfg[key] == false and 1 or 0
 	end
 
-	if showBlizzard then
+	local playerAlpha = ResolveAlpha("player")
+	if _G.PlayerFrame then _G.PlayerFrame:SetAlpha(playerAlpha) end
+	if _G.CastingBarFrame then _G.CastingBarFrame:SetAlpha(playerAlpha) end
+
+	local petAlpha = ResolveAlpha("pet")
+	if _G.PetFrame then _G.PetFrame:SetAlpha(petAlpha) end
+
+	local targetAlpha = ResolveAlpha("target")
+	if _G.TargetFrame then _G.TargetFrame:SetAlpha(targetAlpha) end
+	if _G.TargetFrameSpellBar then _G.TargetFrameSpellBar:SetAlpha(targetAlpha) end
+
+	local totAlpha = ResolveAlpha("tot")
+	if _G.TargetFrameToT then _G.TargetFrameToT:SetAlpha(totAlpha) end
+
+	local focusAlpha = ResolveAlpha("focus")
+	if _G.FocusFrame then _G.FocusFrame:SetAlpha(focusAlpha) end
+
+	local partyAlpha = ResolveAlpha("party")
+	if _G.PartyFrame then _G.PartyFrame:SetAlpha(partyAlpha) end
+	if _G.CompactPartyFrame then _G.CompactPartyFrame:SetAlpha(partyAlpha) end
+
+	local raidAlpha = ResolveAlpha("raid")
+	if _G.CompactRaidFrameContainer then _G.CompactRaidFrameContainer:SetAlpha(raidAlpha) end
+	if _G.CompactRaidFrameManager then _G.CompactRaidFrameManager:SetAlpha(raidAlpha) end
+
+	local bossAlpha = ResolveAlpha("boss")
+	if _G.BossTargetFrameContainer then _G.BossTargetFrameContainer:SetAlpha(bossAlpha) end
+
+	if isEditMode then
 		for _, frame in ipairs(self.frames or {}) do
 			UnregisterStateDriver(frame, "visibility")
-			frame:Hide()
+			if frame._sufWasUnitWatchInEditMode == nil then
+				frame._sufWasUnitWatchInEditMode = UnitWatchRegistered(frame)
+			end
+			if frame._sufWasUnitWatchInEditMode then
+				UnregisterUnitWatch(frame)
+			end
+			frame:Show()
 		end
 		for _, header in pairs(self.headers or {}) do
 			if header then
 				UnregisterStateDriver(header, "visibility")
-				header:Hide()
+				header:Show()
 			end
 		end
 	else
+		for _, frame in ipairs(self.frames or {}) do
+			if frame._sufWasUnitWatchInEditMode ~= nil then
+				if frame._sufWasUnitWatchInEditMode then
+					RegisterUnitWatch(frame)
+				end
+				frame._sufWasUnitWatchInEditMode = nil
+			end
+		end
 		self:ApplyVisibilityRules()
 	end
+	self:UpdateAllUnitFrameUnlockHandles()
 end
 
 function addon:SetTestMode(enabled)
@@ -7091,3521 +7860,12 @@ function addon:UpdateBlizzardFrames()
 	self:SetFramesVisible(self:IsEditModeActive())
 end
 
-function addon:ShowOptions()
-	if self.optionsFrame then
-		self.optionsFrame:Show()
-		return
-	end
-
-	local frame = AceGUI:Create("Frame")
-	frame:SetTitle("SimpleUnitFrames")
-	frame:SetLayout("List")
-	local screenWidth = UIParent and UIParent:GetWidth() or 1024
-	local screenHeight = UIParent and UIParent:GetHeight() or 768
-	frame:SetWidth(math.min(520, screenWidth - 40))
-	frame:SetHeight(math.min(600, screenHeight - 80))
-	if frame.frame and frame.frame.SetClampedToScreen then
-		frame.frame:SetClampedToScreen(true)
-	end
-	if frame.frame and frame.frame.ClearAllPoints then
-		frame.frame:ClearAllPoints()
-		frame.frame:SetPoint("CENTER", UIParent, "CENTER")
-	end
-	frame:SetCallback("OnClose", function(widget)
-		self:SetTestMode(false)
-		widget:Hide()
-	end)
-
-	local banner = AceGUI:Create("SimpleGroup")
-	banner:SetLayout("Flow")
-	banner:SetFullWidth(true)
-
-	local icon = AceGUI:Create("Icon")
-	icon:SetImage(ICON_PATH)
-	icon:SetImageSize(32, 32)
-	icon:SetWidth(36)
-	icon:SetHeight(36)
-
-	local label = AceGUI:Create("Label")
-	label:SetText("SimpleUnitFrames")
-	label:SetFontObject("GameFontNormalLarge")
-	label:SetWidth(400)
-
-	banner:AddChild(icon)
-	banner:AddChild(label)
-	frame:AddChild(banner)
-
-	local tabs = {
-		{ text = "GLOBAL", value = "global" },
-		{ text = "IMPORT/EXPORT", value = "importexport" },
-	}
-	for _, unitType in ipairs(UNIT_TYPE_ORDER) do
-		table.insert(tabs, { text = unitType:upper(), value = unitType })
-	end
-
-	local tabGroup = AceGUI:Create("TabGroup")
-	tabGroup:SetLayout("Fill")
-	tabGroup:SetTabs(tabs)
-	tabGroup:SetFullWidth(true)
-	tabGroup:SetFullHeight(true)
-	tabGroup:SetCallback("OnGroupSelected", function(container, _, group)
-		self.isBuildingOptions = true
-
-		self.optionsPages = self.optionsPages or {}
-		for _, page in pairs(self.optionsPages) do
-			if page and page.frame then
-				page.frame:Hide()
-			end
-		end
-
-		local cached = self.optionsPages[group]
-		if cached then
-			if cached.frame and cached.frame:GetParent() ~= container.frame then
-				container:AddChild(cached)
-			end
-			cached.frame:Show()
-			self.isBuildingOptions = false
-			return
-		end
-
-		local scroll = AceGUI:Create("ScrollFrame")
-		scroll:SetLayout("Fill")
-		scroll:SetFullWidth(true)
-		scroll:SetFullHeight(true)
-		container:AddChild(scroll)
-		self.optionsPages[group] = scroll
-
-		local content = AceGUI:Create("SimpleGroup")
-		content:SetLayout("Flow")
-		content:SetFullWidth(true)
-		scroll:AddChild(content)
-
-		local function SetControlWidth(control)
-			if control and control.SetWidth then
-				control:SetWidth(220)
-			end
-		end
-
-		if group == "global" then
-			local statusbarList = BuildMediaList(LSM and LSM:List("statusbar") or {})
-			local fontList = BuildMediaList(LSM and LSM:List("font") or {})
-
-			local statusbarDropdown = AceGUI:Create("Dropdown")
-			statusbarDropdown:SetLabel("Statusbar Texture")
-			statusbarDropdown:SetList(statusbarList)
-			statusbarDropdown:SetValue(self.db.profile.media.statusbar)
-			statusbarDropdown:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.media.statusbar = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(statusbarDropdown)
-
-			local fontDropdown = AceGUI:Create("Dropdown")
-			fontDropdown:SetLabel("Font")
-			fontDropdown:SetList(fontList)
-			fontDropdown:SetValue(self.db.profile.media.font)
-			fontDropdown:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.media.font = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(fontDropdown)
-
-			local powerHeight = AceGUI:Create("Slider")
-			powerHeight:SetLabel("Power Bar Height")
-			powerHeight:SetSliderValues(4, 20, 1)
-			powerHeight:SetValue(self.db.profile.powerHeight)
-			powerHeight:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.powerHeight = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(powerHeight)
-
-			local classPowerHeight = AceGUI:Create("Slider")
-			classPowerHeight:SetLabel("Class Power Height")
-			classPowerHeight:SetSliderValues(4, 20, 1)
-			classPowerHeight:SetValue(self.db.profile.classPowerHeight)
-			classPowerHeight:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.classPowerHeight = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(classPowerHeight)
-
-			local classPowerSpacing = AceGUI:Create("Slider")
-			classPowerSpacing:SetLabel("Class Power Spacing")
-			classPowerSpacing:SetSliderValues(0, 10, 1)
-			classPowerSpacing:SetValue(self.db.profile.classPowerSpacing)
-			classPowerSpacing:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.classPowerSpacing = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(classPowerSpacing)
-
-			local castbarHeight = AceGUI:Create("Slider")
-			castbarHeight:SetLabel("Castbar Height")
-			castbarHeight:SetSliderValues(8, 30, 1)
-			castbarHeight:SetValue(self.db.profile.castbarHeight)
-			castbarHeight:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.castbarHeight = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(castbarHeight)
-
-			local powerBgAlpha = AceGUI:Create("Slider")
-			powerBgAlpha:SetLabel("Power Background Opacity")
-			powerBgAlpha:SetSliderValues(0, 1, 0.05)
-			powerBgAlpha:SetValue(self.db.profile.powerBgAlpha)
-			powerBgAlpha:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.powerBgAlpha = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(powerBgAlpha)
-
-			local nameSize = AceGUI:Create("Slider")
-			nameSize:SetLabel("Name Font Size")
-			nameSize:SetSliderValues(8, 20, 1)
-			nameSize:SetValue(self.db.profile.fontSizes.name)
-			nameSize:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.fontSizes.name = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(nameSize)
-
-			local levelSize = AceGUI:Create("Slider")
-			levelSize:SetLabel("Level Font Size")
-			levelSize:SetSliderValues(8, 20, 1)
-			levelSize:SetValue(self.db.profile.fontSizes.level)
-			levelSize:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.fontSizes.level = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(levelSize)
-
-			local healthSize = AceGUI:Create("Slider")
-			healthSize:SetLabel("Health Font Size")
-			healthSize:SetSliderValues(8, 20, 1)
-			healthSize:SetValue(self.db.profile.fontSizes.health)
-			healthSize:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.fontSizes.health = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(healthSize)
-
-			local powerSize = AceGUI:Create("Slider")
-			powerSize:SetLabel("Power Font Size")
-			powerSize:SetSliderValues(8, 20, 1)
-			powerSize:SetValue(self.db.profile.fontSizes.power)
-			powerSize:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.fontSizes.power = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(powerSize)
-
-			local castSize = AceGUI:Create("Slider")
-			castSize:SetLabel("Cast Font Size")
-			castSize:SetSliderValues(8, 20, 1)
-			castSize:SetValue(self.db.profile.fontSizes.cast)
-			castSize:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.fontSizes.cast = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(castSize)
-
-			local hideVehicle = AceGUI:Create("CheckBox")
-			hideVehicle:SetLabel("Hide in Vehicle")
-			hideVehicle:SetValue(self.db.profile.visibility.hideVehicle)
-			hideVehicle:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.visibility.hideVehicle = value
-				self:ScheduleApplyVisibility()
-			end)
-
-			local hidePetBattle = AceGUI:Create("CheckBox")
-			hidePetBattle:SetLabel("Hide in Pet Battles")
-			hidePetBattle:SetValue(self.db.profile.visibility.hidePetBattle)
-			hidePetBattle:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.visibility.hidePetBattle = value
-				self:ScheduleApplyVisibility()
-			end)
-
-			local hideOverride = AceGUI:Create("CheckBox")
-			hideOverride:SetLabel("Hide with Override Bar")
-			hideOverride:SetValue(self.db.profile.visibility.hideOverride)
-			hideOverride:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.visibility.hideOverride = value
-				self:ScheduleApplyVisibility()
-			end)
-
-			local hidePossess = AceGUI:Create("CheckBox")
-			hidePossess:SetLabel("Hide with Possess Bar")
-			hidePossess:SetValue(self.db.profile.visibility.hidePossess)
-			hidePossess:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.visibility.hidePossess = value
-				self:ScheduleApplyVisibility()
-			end)
-
-			local hideExtra = AceGUI:Create("CheckBox")
-			hideExtra:SetLabel("Hide with Extra Bar")
-			hideExtra:SetValue(self.db.profile.visibility.hideExtra)
-			hideExtra:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.visibility.hideExtra = value
-				self:ScheduleApplyVisibility()
-			end)
-
-			local indicatorSize = AceGUI:Create("Slider")
-			indicatorSize:SetLabel("Indicator Size")
-			indicatorSize:SetSliderValues(16, 96, 1)
-			indicatorSize:SetValue(self.db.profile.indicators.size)
-			indicatorSize:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.indicators.size = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(indicatorSize)
-
-			local indicatorOffsetX = AceGUI:Create("Slider")
-			indicatorOffsetX:SetLabel("Indicator Offset X")
-			indicatorOffsetX:SetSliderValues(-50, 50, 1)
-			indicatorOffsetX:SetValue(self.db.profile.indicators.offsetX)
-			indicatorOffsetX:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.indicators.offsetX = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(indicatorOffsetX)
-
-			local indicatorOffsetY = AceGUI:Create("Slider")
-			indicatorOffsetY:SetLabel("Indicator Offset Y")
-			indicatorOffsetY:SetSliderValues(-50, 50, 1)
-			indicatorOffsetY:SetValue(self.db.profile.indicators.offsetY)
-			indicatorOffsetY:SetCallback("OnValueChanged", function(_, _, value)
-				self.db.profile.indicators.offsetY = value
-				self:ScheduleUpdateAll()
-			end)
-			SetControlWidth(indicatorOffsetY)
-
-			local testModeToggle = AceGUI:Create("CheckBox")
-			testModeToggle:SetLabel("Test Mode (Show All Frames)")
-			testModeToggle:SetValue(self.testMode or false)
-			testModeToggle:SetCallback("OnValueChanged", function(_, _, value)
-				self:SetTestMode(value)
-			end)
-
-			local perfToggle = AceGUI:Create("CheckBox")
-			perfToggle:SetLabel("Enable PerformanceLib Integration")
-			perfToggle:SetValue(self.db.profile.performance and self.db.profile.performance.enabled or false)
-			if not self.performanceLib then
-				perfToggle:SetDisabled(true)
-			end
-			perfToggle:SetCallback("OnValueChanged", function(_, _, value)
-				self:SetPerformanceIntegrationEnabled(value)
-			end)
-
-			content:AddChild(statusbarDropdown)
-			content:AddChild(fontDropdown)
-			content:AddChild(powerHeight)
-			content:AddChild(classPowerHeight)
-			content:AddChild(classPowerSpacing)
-			content:AddChild(castbarHeight)
-			content:AddChild(powerBgAlpha)
-			content:AddChild(nameSize)
-			content:AddChild(levelSize)
-			content:AddChild(healthSize)
-			content:AddChild(powerSize)
-			content:AddChild(castSize)
-			content:AddChild(hideVehicle)
-			content:AddChild(hidePetBattle)
-			content:AddChild(hideOverride)
-			content:AddChild(hidePossess)
-			content:AddChild(hideExtra)
-			content:AddChild(indicatorSize)
-			content:AddChild(indicatorOffsetX)
-			content:AddChild(indicatorOffsetY)
-			content:AddChild(testModeToggle)
-			content:AddChild(perfToggle)
-			self.isBuildingOptions = false
-			return
-		end
-
-		if group == "importexport" then
-			local ioBox = AceGUI:Create("MultiLineEditBox")
-			ioBox:SetLabel("Import/Export Settings")
-			ioBox:SetNumLines(10)
-			ioBox:SetFullWidth(true)
-			ioBox:DisableButton(true)
-
-			local exportButton = AceGUI:Create("Button")
-			exportButton:SetText("Export")
-			exportButton:SetWidth(120)
-			exportButton:SetCallback("OnClick", function()
-				local data, err = self:SerializeProfile()
-				if data then
-					ioBox:SetText(data)
-					self:Print(addonName .. ": Exported settings to the text box.")
-				else
-					self:Print(addonName .. ": " .. err)
-				end
-			end)
-
-			local importButton = AceGUI:Create("Button")
-			importButton:SetText("Import")
-			importButton:SetWidth(120)
-			importButton:SetCallback("OnClick", function()
-				local text = ioBox:GetText() or ""
-				local data, err = self:DeserializeProfile(text)
-				if data then
-					local ok, applyErr = self:ApplyImportedProfile(data)
-					if ok then
-						self:Print(addonName .. ": Imported settings.")
-					else
-						self:Print(addonName .. ": " .. applyErr)
-					end
-				else
-					self:Print(addonName .. ": " .. err)
-				end
-			end)
-
-			content:AddChild(ioBox)
-			content:AddChild(exportButton)
-			content:AddChild(importButton)
-			self.isBuildingOptions = false
-			return
-		end
-
-		local tags = self.db.profile.tags[group]
-		if not tags then
-			return
-		end
-
-		local unitSettings = self:GetUnitSettings(group)
-		unitSettings.fontSizes = unitSettings.fontSizes or CopyTableDeep(self.db.profile.fontSizes)
-		unitSettings.portrait = unitSettings.portrait or { mode = "none", size = 32, position = "LEFT", showClass = false, motion = false }
-		unitSettings.media = unitSettings.media or { statusbar = self.db.profile.media.statusbar }
-
-		local size = self.db.profile.sizes[group]
-		local widthSlider = AceGUI:Create("Slider")
-		widthSlider:SetLabel("Frame Width")
-		widthSlider:SetSliderValues(80, 400, 1)
-		widthSlider:SetValue(size.width)
-		widthSlider:SetCallback("OnValueChanged", function(_, _, value)
-			size.width = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(widthSlider)
-
-		local heightSlider = AceGUI:Create("Slider")
-		heightSlider:SetLabel("Frame Height")
-		heightSlider:SetSliderValues(18, 80, 1)
-		heightSlider:SetValue(size.height)
-		heightSlider:SetCallback("OnValueChanged", function(_, _, value)
-			size.height = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(heightSlider)
-
-		local nameBox = AceGUI:Create("EditBox")
-		nameBox:SetLabel("Name Tag")
-		nameBox:SetText(tags.name)
-		nameBox:SetWidth(220)
-		nameBox:SetCallback("OnEnterPressed", function(_, _, value)
-			tags.name = value
-				self:ScheduleUpdateAll()
-		end)
-
-		local levelBox = AceGUI:Create("EditBox")
-		levelBox:SetLabel("Level Tag")
-		levelBox:SetText(tags.level)
-		levelBox:SetWidth(220)
-		levelBox:SetCallback("OnEnterPressed", function(_, _, value)
-			tags.level = value
-				self:ScheduleUpdateAll()
-		end)
-
-		local healthBox = AceGUI:Create("EditBox")
-		healthBox:SetLabel("Health Tag")
-		healthBox:SetText(tags.health)
-		healthBox:SetWidth(220)
-		healthBox:SetCallback("OnEnterPressed", function(_, _, value)
-			tags.health = value
-				self:ScheduleUpdateAll()
-		end)
-
-		local powerBox = AceGUI:Create("EditBox")
-		powerBox:SetLabel("Power Tag")
-		powerBox:SetText(tags.power)
-		powerBox:SetWidth(220)
-		powerBox:SetCallback("OnEnterPressed", function(_, _, value)
-			tags.power = value
-				self:ScheduleUpdateAll()
-		end)
-
-		local statusbarDropdown = AceGUI:Create("Dropdown")
-		statusbarDropdown:SetLabel("Statusbar Texture")
-		statusbarDropdown:SetList(BuildMediaList(LSM and LSM:List("statusbar") or {}))
-		statusbarDropdown:SetValue(unitSettings.media.statusbar)
-		statusbarDropdown:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.media.statusbar = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(statusbarDropdown)
-
-
-		local nameSize = AceGUI:Create("Slider")
-		nameSize:SetLabel("Name Font Size")
-		nameSize:SetSliderValues(8, 20, 1)
-		nameSize:SetValue(unitSettings.fontSizes.name)
-		nameSize:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.fontSizes.name = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(nameSize)
-
-		local levelSize = AceGUI:Create("Slider")
-		levelSize:SetLabel("Level Font Size")
-		levelSize:SetSliderValues(8, 20, 1)
-		levelSize:SetValue(unitSettings.fontSizes.level)
-		levelSize:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.fontSizes.level = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(levelSize)
-
-		local healthSize = AceGUI:Create("Slider")
-		healthSize:SetLabel("Health Font Size")
-		healthSize:SetSliderValues(8, 20, 1)
-		healthSize:SetValue(unitSettings.fontSizes.health)
-		healthSize:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.fontSizes.health = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(healthSize)
-
-		local powerSize = AceGUI:Create("Slider")
-		powerSize:SetLabel("Power Font Size")
-		powerSize:SetSliderValues(8, 20, 1)
-		powerSize:SetValue(unitSettings.fontSizes.power)
-		powerSize:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.fontSizes.power = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(powerSize)
-
-		local castSize = AceGUI:Create("Slider")
-		castSize:SetLabel("Cast Font Size")
-		castSize:SetSliderValues(8, 20, 1)
-		castSize:SetValue(unitSettings.fontSizes.cast)
-		castSize:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.fontSizes.cast = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(castSize)
-
-		local showResting = AceGUI:Create("CheckBox")
-		showResting:SetLabel("Show Resting Indicator")
-		showResting:SetValue(unitSettings.showResting)
-		showResting:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.showResting = value
-				self:ScheduleUpdateAll()
-		end)
-
-		local showPvp = AceGUI:Create("CheckBox")
-		showPvp:SetLabel("Show PvP Indicator")
-		showPvp:SetValue(unitSettings.showPvp)
-		showPvp:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.showPvp = value
-				self:ScheduleUpdateAll()
-		end)
-
-		local portraitModes = {
-			none = "None",
-			["2D"] = "2D",
-			["3D"] = "3D",
-			["3DMotion"] = "3D Motion",
-		}
-		local portraitMode = AceGUI:Create("Dropdown")
-		portraitMode:SetLabel("Portrait Mode")
-		portraitMode:SetList(portraitModes)
-		portraitMode:SetValue(unitSettings.portrait.mode)
-		portraitMode:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.portrait.mode = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(portraitMode)
-
-		local portraitSize = AceGUI:Create("Slider")
-		portraitSize:SetLabel("Portrait Size")
-		portraitSize:SetSliderValues(16, 64, 1)
-		portraitSize:SetValue(unitSettings.portrait.size)
-		portraitSize:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.portrait.size = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(portraitSize)
-
-		local portraitClass = AceGUI:Create("CheckBox")
-		portraitClass:SetLabel("Portrait Show Class")
-		portraitClass:SetValue(unitSettings.portrait.showClass)
-		portraitClass:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.portrait.showClass = value
-				self:ScheduleUpdateAll()
-		end)
-
-		local portraitPosition = AceGUI:Create("Dropdown")
-		portraitPosition:SetLabel("Portrait Position")
-		portraitPosition:SetList({ LEFT = "Left", RIGHT = "Right" })
-		portraitPosition:SetValue(unitSettings.portrait.position)
-		portraitPosition:SetCallback("OnValueChanged", function(_, _, value)
-			unitSettings.portrait.position = value
-				self:ScheduleUpdateAll()
-		end)
-		SetControlWidth(portraitPosition)
-
-		content:AddChild(nameBox)
-		content:AddChild(levelBox)
-		content:AddChild(healthBox)
-		content:AddChild(powerBox)
-		content:AddChild(statusbarDropdown)
-		content:AddChild(widthSlider)
-		content:AddChild(heightSlider)
-		content:AddChild(nameSize)
-		content:AddChild(levelSize)
-		content:AddChild(healthSize)
-		content:AddChild(powerSize)
-		content:AddChild(castSize)
-		content:AddChild(showResting)
-		content:AddChild(showPvp)
-		content:AddChild(portraitMode)
-		content:AddChild(portraitSize)
-		content:AddChild(portraitClass)
-		content:AddChild(portraitPosition)
-		self.isBuildingOptions = false
-	end)
-
-	tabGroup:SelectTab("global")
-	frame:AddChild(tabGroup)
-	self.optionsFrame = frame
-end
-
--- New lightweight options UI. This intentionally overrides the legacy ShowOptions above.
-function addon:ShowOptions()
-	local UI_STYLE = {
-		windowBg = { 0.03, 0.04, 0.05, 0.96 },
-		windowBorder = { 0.34, 0.29, 0.15, 0.90 },
-		panelBg = { 0.05, 0.06, 0.07, 0.92 },
-		panelBorder = { 0.23, 0.21, 0.15, 0.92 },
-		accent = { 0.96, 0.82, 0.24 },
-		accentSoft = { 0.72, 0.64, 0.32 },
-		textMuted = { 0.72, 0.74, 0.78 },
-		searchBg = { 0.08, 0.09, 0.11, 0.95 },
-		searchBorder = { 0.34, 0.30, 0.18, 0.96 },
-		navDefault = { 0.08, 0.08, 0.08, 0.88 },
-		navDefaultBorder = { 0.18, 0.18, 0.18, 0.95 },
-		navHover = { 0.12, 0.13, 0.16, 0.92 },
-		navHoverBorder = { 0.34, 0.31, 0.22, 0.95 },
-		navSelected = { 0.12, 0.36, 0.58, 0.95 },
-		navSelectedBorder = { 0.28, 0.60, 0.88, 0.95 },
-		navSearch = { 0.10, 0.14, 0.10, 0.92 },
-		navSearchBorder = { 0.20, 0.30, 0.20, 0.92 },
-	}
-	local function ClampOptionsHeight(frame)
-		if not frame then
-			return
-		end
-		local maxHeightCap = math.max(500, math.floor(UIParent:GetHeight() * 0.65))
-		local minHeight = 500
-		local height = frame:GetHeight()
-		local clampedHeight = math.max(minHeight, math.min(height, maxHeightCap))
-		if clampedHeight ~= height then
-			frame:SetHeight(clampedHeight)
-		end
-		if frame.SetResizeBounds then
-			frame:SetResizeBounds(940, minHeight, UIParent:GetWidth() - 40, maxHeightCap)
-		else
-			if frame.SetMinResize then
-				frame:SetMinResize(940, minHeight)
-			end
-			if frame.SetMaxResize then
-				frame:SetMaxResize(UIParent:GetWidth() - 40, maxHeightCap)
-			end
-		end
-	end
-
-	if self.optionsFrame then
-		ClampOptionsHeight(self.optionsFrame)
-		self.optionsFrame:Show()
-		self:PlayWindowOpenAnimation(self.optionsFrame)
-		if self.optionsFrame.BuildTab then
-			self.optionsFrame:BuildTab(self.optionsFrame.currentTab or "global")
-		end
-		return
-	end
-
-	local frame = CreateFrame("Frame", "SUFOptionsWindow", UIParent, "BasicFrameTemplateWithInset")
-	local maxHeightCap = math.max(500, math.floor(UIParent:GetHeight() * 0.65))
-	local initialHeight = math.min(620, maxHeightCap)
-	frame:SetSize(1140, initialHeight)
-	frame:SetPoint("CENTER")
-	self:EnableMovableFrame(frame, true)
-	frame:SetResizable(true)
-	if frame.SetResizeBounds then
-		frame:SetResizeBounds(940, 560, UIParent:GetWidth() - 40, maxHeightCap)
-	else
-		if frame.SetMinResize then
-			frame:SetMinResize(940, 560)
-		end
-		if frame.SetMaxResize then
-			frame:SetMaxResize(UIParent:GetWidth() - 40, maxHeightCap)
-		end
-	end
-	frame:SetClampedToScreen(true)
-	frame:SetFrameStrata("DIALOG")
-	frame.TitleText:SetText("SimpleUnitFrames Options")
-	frame.TitleText:SetFontObject("GameFontNormalLarge")
-	frame.TitleText:SetTextColor(UI_STYLE.accent[1], UI_STYLE.accent[2], UI_STYLE.accent[3])
-	if frame.SetBackdropColor then
-		frame:SetBackdropColor(UI_STYLE.windowBg[1], UI_STYLE.windowBg[2], UI_STYLE.windowBg[3], UI_STYLE.windowBg[4])
-	end
-	if frame.SetBackdropBorderColor then
-		frame:SetBackdropBorderColor(UI_STYLE.windowBorder[1], UI_STYLE.windowBorder[2], UI_STYLE.windowBorder[3], UI_STYLE.windowBorder[4])
-	end
-
-	local close = frame.CloseButton
-	if not close then
-		close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
-		close:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -4, -4)
-	end
-	close:SetScript("OnClick", function()
-		self:SetTestMode(false)
-		frame:Hide()
-	end)
-
-	local okResize, resize = pcall(CreateFrame, "Button", nil, frame, "UIPanelResizeButtonTemplate")
-	if not okResize or not resize then
-		resize = CreateFrame("Button", nil, frame)
-		resize:SetSize(16, 16)
-		resize:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
-		resize:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
-		resize:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
-	end
-	resize:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -5, 5)
-	resize:SetScript("OnMouseDown", function(_, button)
-		if button == "LeftButton" then
-			frame:StartSizing("BOTTOMRIGHT")
-		end
-	end)
-	resize:SetScript("OnMouseUp", function(_, button)
-		if button == "LeftButton" then
-			frame:StopMovingOrSizing()
-		end
-	end)
-
-	local tabsHost = CreateFrame("Frame", nil, frame, "InsetFrameTemplate3")
-	tabsHost:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -32)
-	tabsHost:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 14)
-	tabsHost:SetWidth(170)
-	if tabsHost.SetBackdropColor then
-		tabsHost:SetBackdropColor(UI_STYLE.panelBg[1], UI_STYLE.panelBg[2], UI_STYLE.panelBg[3], UI_STYLE.panelBg[4])
-	end
-	if tabsHost.SetBackdropBorderColor then
-		tabsHost:SetBackdropBorderColor(UI_STYLE.panelBorder[1], UI_STYLE.panelBorder[2], UI_STYLE.panelBorder[3], UI_STYLE.panelBorder[4])
-	end
-
-	local iconSize = 96
-	local icon = tabsHost:CreateTexture(nil, "ARTWORK")
-	icon:SetSize(iconSize, iconSize)
-	icon:SetPoint("TOP", tabsHost, "TOP", 0, -14)
-	icon:SetTexture(ICON_PATH)
-	icon:SetTexCoord(0, 1, 0, 1)
-	icon:SetVertexColor(1, 1, 1, 1)
-
-	local contentHost = CreateFrame("Frame", nil, frame, "InsetFrameTemplate3")
-	contentHost:SetPoint("TOPLEFT", tabsHost, "TOPRIGHT", 8, 0)
-	contentHost:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 14)
-	if contentHost.SetBackdropColor then
-		contentHost:SetBackdropColor(UI_STYLE.panelBg[1], UI_STYLE.panelBg[2], UI_STYLE.panelBg[3], UI_STYLE.panelBg[4])
-	end
-	if contentHost.SetBackdropBorderColor then
-		contentHost:SetBackdropBorderColor(UI_STYLE.panelBorder[1], UI_STYLE.panelBorder[2], UI_STYLE.panelBorder[3], UI_STYLE.panelBorder[4])
-	end
-
-	local searchLabel = contentHost:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	searchLabel:SetPoint("TOPLEFT", contentHost, "TOPLEFT", 12, -10)
-	searchLabel:SetText("Search")
-	searchLabel:SetTextColor(UI_STYLE.accent[1], UI_STYLE.accent[2], UI_STYLE.accent[3])
-
-	local searchBox = CreateFrame("EditBox", nil, contentHost, "InputBoxTemplate")
-	searchBox:SetAutoFocus(false)
-	searchBox:SetSize(280, 22)
-	searchBox:SetPoint("LEFT", searchLabel, "RIGHT", 8, 0)
-	if searchBox.SetBackdropColor then
-		searchBox:SetBackdropColor(UI_STYLE.searchBg[1], UI_STYLE.searchBg[2], UI_STYLE.searchBg[3], UI_STYLE.searchBg[4])
-	end
-	if searchBox.SetBackdropBorderColor then
-		searchBox:SetBackdropBorderColor(UI_STYLE.searchBorder[1], UI_STYLE.searchBorder[2], UI_STYLE.searchBorder[3], UI_STYLE.searchBorder[4])
-	end
-	searchBox:SetScript("OnEscapePressed", function(box)
-		box:ClearFocus()
-	end)
-	local searchHint = contentHost:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	searchHint:SetPoint("LEFT", searchBox, "RIGHT", 8, 0)
-	searchHint:SetText("Alt+Up/Down: navigate  Enter: open")
-	searchHint:SetShown(self.db.profile.optionsUI and self.db.profile.optionsUI.searchKeyboardHints ~= false)
-
-	local searchDivider = contentHost:CreateTexture(nil, "BORDER")
-	searchDivider:SetColorTexture(UI_STYLE.accentSoft[1], UI_STYLE.accentSoft[2], UI_STYLE.accentSoft[3], 0.45)
-	searchDivider:SetPoint("TOPLEFT", contentHost, "TOPLEFT", 10, -32)
-	searchDivider:SetPoint("TOPRIGHT", contentHost, "TOPRIGHT", -10, -32)
-	searchDivider:SetHeight(1)
-
-	local scroll = CreateFrame("ScrollFrame", nil, contentHost, "UIPanelScrollFrameTemplate")
-	scroll:SetPoint("TOPLEFT", contentHost, "TOPLEFT", 8, -34)
-	scroll:SetPoint("BOTTOMRIGHT", contentHost, "BOTTOMRIGHT", -28, 8)
-	local content = CreateFrame("Frame", nil, scroll)
-	content:SetSize(860, 200)
-	scroll:SetScrollChild(content)
-
-	local tabs = {
-		{ key = "global", label = "Global" },
-		{ key = "performance", label = "PerformanceLib" },
-		{ key = "importexport", label = "Import / Export" },
-		{ key = "tags", label = "Tags" },
-		{ key = "player", label = "Player" },
-		{ key = "target", label = "Target" },
-		{ key = "tot", label = "TargetOfTarget" },
-		{ key = "focus", label = "Focus" },
-		{ key = "pet", label = "Pet" },
-		{ key = "party", label = "Party" },
-		{ key = "raid", label = "Raid" },
-		{ key = "boss", label = "Boss" },
-		{ key = "credits", label = "Credits" },
-	}
-	local sidebarGroups = {
-		{
-			key = "grp_general",
-			label = "General",
-			items = { "global", "performance", "importexport", "tags", "credits" },
-		},
-		{
-			key = "grp_units",
-			label = "Units",
-			items = { "player", "target", "tot", "focus", "pet", "party", "raid", "boss" },
-		},
-	}
-	local tabIndexByKey = {}
-	for i = 1, #tabs do
-		tabIndexByKey[tabs[i].key] = tabs[i]
-	end
-	local OPTIONS_SEARCH_SCHEMA_VERSION = 2
-	local TAB_SEARCH_HINTS = {
-		global = "global media statusbar font visibility indicators castbar plugins fader party minimap",
-		performance = "performance perflib profiler analyze profile coalescing eventbus dirty pools preset dashboard",
-		importexport = "import export wizard profile copy paste validate preview apply",
-		tags = "tags ouf name level health power format token",
-		player = "player general bars castbar auras plugins advanced portrait heal prediction",
-		target = "target general bars castbar auras plugins advanced portrait heal prediction",
-		tot = "targetoftarget tot general bars castbar auras plugins advanced portrait heal prediction",
-		focus = "focus general bars castbar auras plugins advanced portrait heal prediction",
-		pet = "pet general bars castbar auras plugins advanced portrait heal prediction",
-		party = "party general bars castbar auras plugins advanced fader aurawatch raiddebuffs",
-		raid = "raid general bars castbar auras plugins advanced fader aurawatch raiddebuffs",
-		boss = "boss general bars castbar auras plugins advanced portrait heal prediction",
-		credits = "credits libraries thanks authors uuf performancelib ace3",
-	}
-	local OPTIONS_SEARCH_TREE = {
-		global = {
-			{ label = "Global", aliases = { "settings", "defaults" }, children = {
-				{ label = "Media", aliases = { "texture", "font", "statusbar" } },
-				{ label = "Castbar", aliases = { "cast", "safe zone", "spark", "shield" } },
-				{ label = "Performance", aliases = { "perflib", "preset", "coalescing", "eventbus" } },
-				{ label = "Debug", aliases = { "sufdebug", "console", "export logs" } },
-			}},
-		},
-		importexport = {
-			{ label = "Import / Export", aliases = { "profile", "paste", "copy", "validate", "preview" } },
-		},
-		performance = {
-			{ label = "PerformanceLib", aliases = { "preset", "profile start", "profile stop", "analyze", "dashboard" } },
-		},
-		tags = {
-			{ label = "Tags", aliases = { "ouf tags", "health tags", "power tags", "cast tags" } },
-		},
-		player = {
-			{ label = "General", aliases = { "name", "level", "portrait", "size" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs" } },
-			{ label = "Advanced", aliases = { "layout", "anchor", "offset", "profile copy" } },
-		},
-		target = {
-			{ label = "General", aliases = { "name", "level", "portrait", "size" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs" } },
-			{ label = "Advanced", aliases = { "layout", "anchor", "offset", "profile copy" } },
-		},
-		tot = {
-			{ label = "General", aliases = { "name", "level", "portrait", "size" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs", "none" } },
-			{ label = "Advanced", aliases = { "layout", "anchor", "offset", "profile copy" } },
-		},
-		focus = {
-			{ label = "General", aliases = { "name", "level", "portrait", "size" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs", "none" } },
-			{ label = "Advanced", aliases = { "layout", "anchor", "offset", "profile copy" } },
-		},
-		pet = {
-			{ label = "General", aliases = { "name", "level", "portrait", "size" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs", "none" } },
-			{ label = "Advanced", aliases = { "layout", "anchor", "offset", "profile copy" } },
-		},
-		party = {
-			{ label = "General", aliases = { "show player", "spacing", "layout" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency", "not shown" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing", "heal prediction" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs" } },
-			{ label = "Advanced", aliases = { "visibility", "vehicle", "pet battle" } },
-		},
-		raid = {
-			{ label = "General", aliases = { "group", "layout", "spacing" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency", "not shown" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing", "heal prediction" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs" } },
-			{ label = "Advanced", aliases = { "visibility", "vehicle", "pet battle" } },
-		},
-		boss = {
-			{ label = "General", aliases = { "name", "level", "portrait", "size" } },
-			{ label = "Bars", aliases = { "health", "power", "absorb", "incoming heals" } },
-			{ label = "Castbar", aliases = { "spell", "time", "interrupt", "latency" } },
-			{ label = "Auras", aliases = { "buffs", "debuffs", "icons", "spacing" } },
-			{ label = "Plugins", aliases = { "fader", "aurawatch", "raiddebuffs", "none" } },
-			{ label = "Advanced", aliases = { "layout", "anchor", "offset", "profile copy" } },
-		},
-		credits = {
-			{ label = "Credits", aliases = { "authors", "libraries", "uuf", "ace3", "oUF", "performancelib" } },
-		},
-	}
-	local function TokenizeSearch(searchText)
-		local out = {}
-		local normalized = string.lower(TrimString(SafeText(searchText, "")))
-		if normalized == "" then
-			return out
-		end
-		for token in normalized:gmatch("[^%s]+") do
-			if token ~= "" then
-				out[#out + 1] = token
-			end
-		end
-		return out
-	end
-	local function BuildOptionsSearchFingerprint()
-		local pieces = { tostring(OPTIONS_SEARCH_SCHEMA_VERSION), tostring(#tabs) }
-		for i = 1, #tabs do
-			local t = tabs[i]
-			pieces[#pieces + 1] = tostring(t.key) .. ":" .. tostring(t.label) .. ":" .. tostring(TAB_SEARCH_HINTS[t.key] or "")
-		end
-		local function AddTreeNode(node)
-			if type(node) ~= "table" then
-				return
-			end
-			pieces[#pieces + 1] = tostring(node.label or "")
-			local aliases = node.aliases or node.values
-			if type(aliases) == "table" then
-				for i = 1, #aliases do
-					pieces[#pieces + 1] = tostring(aliases[i])
-				end
-			end
-			local children = node.children
-			if type(children) == "table" then
-				for i = 1, #children do
-					AddTreeNode(children[i])
-				end
-			end
-		end
-		for _, nodes in pairs(OPTIONS_SEARCH_TREE) do
-			if type(nodes) == "table" then
-				for i = 1, #nodes do
-					AddTreeNode(nodes[i])
-				end
-			end
-		end
-		return table.concat(pieces, "|")
-	end
-	local function AddOptionsSearchEntry(cache, tabKey, tabLabel, label, keywords, section)
-		local text = TrimString(SafeText(label, ""))
-		local words = TrimString(SafeText(keywords, ""))
-		if text == "" and words == "" then
-			return
-		end
-		local dedupe = string.lower(tostring(tabKey) .. "|" .. text .. "|" .. words .. "|" .. tostring(section or "control"))
-		if cache.seen[dedupe] then
-			return
-		end
-		cache.seen[dedupe] = true
-		cache.entriesByTab[tabKey] = cache.entriesByTab[tabKey] or {}
-		local entry = {
-			tabKey = tabKey,
-			tabLabel = tabLabel,
-			label = text ~= "" and text or tabLabel,
-			keywords = words,
-			section = section or "control",
-			haystack = string.lower(table.concat({ tabLabel, text, words }, " ")),
-			tabLower = string.lower(tostring(tabLabel or "")),
-			labelLower = string.lower(tostring(text ~= "" and text or tabLabel)),
-			keywordsLower = string.lower(tostring(words)),
-		}
-		cache.entries[#cache.entries + 1] = entry
-		cache.entriesByTab[tabKey][#cache.entriesByTab[tabKey] + 1] = entry
-	end
-	local function IndexOptionsSearchNodes(cache, tabKey, tabLabel, nodes, trail)
-		if type(nodes) ~= "table" then
-			return
-		end
-		local baseTrail = trail or tabLabel or tostring(tabKey)
-		for i = 1, #nodes do
-			local node = nodes[i]
-			if type(node) == "table" then
-				local label = TrimString(SafeText(node.label, ""))
-				local aliases = {}
-				local aliasList = node.aliases or node.values
-				if type(aliasList) == "table" then
-					for j = 1, #aliasList do
-						aliases[#aliases + 1] = tostring(aliasList[j])
-					end
-				end
-				local keywords = table.concat(aliases, " ")
-				local path = baseTrail
-				if label ~= "" then
-					path = baseTrail .. " " .. label
-				end
-				AddOptionsSearchEntry(cache, tabKey, tabLabel, label, table.concat({ keywords, path }, " "), "schema")
-				if type(node.children) == "table" then
-					IndexOptionsSearchNodes(cache, tabKey, tabLabel, node.children, path)
-				end
-			end
-		end
-	end
-	local function EnsureOptionsSearchIndex()
-		local fingerprint = BuildOptionsSearchFingerprint()
-		local cache = frame.optionsSearchIndex
-		if cache and cache.fingerprint == fingerprint and cache.schemaVersion == OPTIONS_SEARCH_SCHEMA_VERSION then
-			return cache
-		end
-		cache = {
-			schemaVersion = OPTIONS_SEARCH_SCHEMA_VERSION,
-			fingerprint = fingerprint,
-			entries = {},
-			entriesByTab = {},
-			seen = {},
-			tabLabels = {},
-		}
-		for i = 1, #tabs do
-			local t = tabs[i]
-			cache.tabLabels[t.key] = t.label or t.key
-			cache.entriesByTab[t.key] = cache.entriesByTab[t.key] or {}
-			local label = tostring(t.label or t.key)
-			local keywords = tostring(TAB_SEARCH_HINTS[t.key] or "")
-			AddOptionsSearchEntry(cache, t.key, label, label, keywords, "tab")
-			IndexOptionsSearchNodes(cache, t.key, label, OPTIONS_SEARCH_TREE[t.key], label)
-		end
-		frame.optionsSearchIndex = cache
-		return cache
-	end
-	local function RegisterOptionsSearchEntry(tabKey, label, keywords, section)
-		if not tabKey then
-			return
-		end
-		local cache = EnsureOptionsSearchIndex()
-		local tabLabel = cache.tabLabels[tabKey] or tostring(tabKey)
-		AddOptionsSearchEntry(cache, tabKey, tabLabel, label, keywords, section or "control")
-	end
-	local function ScoreSearchEntry(entry, normalizedSearch, tokens)
-		if not entry or not entry.haystack then
-			return 0
-		end
-		if #tokens == 0 then
-			return 0
-		end
-		local score = 0
-		for i = 1, #tokens do
-			local token = tokens[i]
-			local tokenScore = 0
-			local startPos = 1
-			local tokenMatched = false
-			while true do
-				local s, e = entry.haystack:find(token, startPos, true)
-				if not s then
-					break
-				end
-				tokenMatched = true
-				tokenScore = tokenScore + ((s <= #(entry.tabLabel or "")) and 3 or 1)
-				startPos = e + 1
-			end
-			if not tokenMatched then
-				return 0
-			end
-			if entry.labelLower == token then
-				tokenScore = tokenScore + 10
-			elseif entry.labelLower:find(token, 1, true) == 1 then
-				tokenScore = tokenScore + 6
-			elseif entry.keywordsLower:find(token, 1, true) == 1 then
-				tokenScore = tokenScore + 3
-			elseif entry.tabLower:find(token, 1, true) == 1 then
-				tokenScore = tokenScore + 4
-			end
-			score = score + tokenScore
-		end
-		if string.lower(entry.label or "") == normalizedSearch then
-			score = score + 6
-		end
-		return score
-	end
-	local function QueryOptionsSearch(searchText)
-		local normalized = string.lower(TrimString(SafeText(searchText, "")))
-		if normalized == "" then
-			return {}
-		end
-		local cache = EnsureOptionsSearchIndex()
-		local tokens = TokenizeSearch(normalized)
-		local grouped = {}
-		for i = 1, #cache.entries do
-			local entry = cache.entries[i]
-			local score = ScoreSearchEntry(entry, normalized, tokens)
-			if score > 0 then
-				local group = grouped[entry.tabKey]
-				if not group then
-					group = {
-						tabKey = entry.tabKey,
-						tabLabel = entry.tabLabel,
-						score = 0,
-						hits = {},
-					}
-					grouped[entry.tabKey] = group
-				end
-				group.score = math.max(group.score, score)
-				group.hits[#group.hits + 1] = { label = entry.label, section = entry.section, score = score }
-			end
-		end
-		local out = {}
-		for _, group in pairs(grouped) do
-			table.sort(group.hits, function(a, b)
-				if a.score == b.score then
-					return tostring(a.label) < tostring(b.label)
-				end
-				return a.score > b.score
-			end)
-			out[#out + 1] = group
-		end
-		table.sort(out, function(a, b)
-			if a.score == b.score then
-				return tostring(a.tabLabel) < tostring(b.tabLabel)
-			end
-			return a.score > b.score
-		end)
-		return out
-	end
-	local function DoesTabMatchSearch(tabKey, searchText)
-		local normalized = string.lower(TrimString(SafeText(searchText, "")))
-		if normalized == "" then
-			return true
-		end
-		local groups = QueryOptionsSearch(normalized)
-		for i = 1, #groups do
-			if groups[i].tabKey == tabKey then
-				return true
-			end
-		end
-		return false
-	end
-
-	local tabButtons = {}
-	local function StopPerformanceSnapshotTicker()
-		if frame and frame.performanceSnapshotTicker then
-			frame.performanceSnapshotTicker:Cancel()
-			frame.performanceSnapshotTicker = nil
-		end
-		if frame then
-			frame.performanceSnapshotText = nil
-			frame.performanceSnapshotPage = nil
-			frame.performanceBuildSnapshotText = nil
-		end
-	end
-	local function ClearContent()
-		for _, child in ipairs({ content:GetChildren() }) do
-			child:Hide()
-			child:SetParent(nil)
-		end
-	end
-
-	local function NewBuilder(page, tabKey)
-		local builder = {
-			addon = self,
-			page = page,
-			y = -16,
-			width = math.max(760, contentHost:GetWidth() - 52),
-			colGap = 24,
-			col = 1,
-			rowHeight = 0,
-			search = "",
-			searchLower = "",
-		}
-		builder.colWidth = math.max(280, math.floor((builder.width - builder.colGap) / 2))
-
-		function builder:SetSearch(searchText)
-			self.search = TrimString(SafeText(searchText, ""))
-			self.searchLower = string.lower(self.search or "")
-		end
-
-		function builder:HasSearch()
-			return self.searchLower ~= ""
-		end
-
-		function builder:Matches(label, keywords)
-			if not self:HasSearch() then
-				return true
-			end
-			local haystack = tostring(label or "")
-			if keywords then
-				haystack = haystack .. " " .. tostring(keywords)
-			end
-			haystack = string.lower(haystack)
-			return haystack:find(self.searchLower, 1, true) ~= nil
-		end
-
-		function builder:BeginNewLine()
-			if self.col == 2 then
-				self.col = 1
-				self.y = self.y - self.rowHeight
-				self.rowHeight = 0
-			end
-		end
-
-		function builder:Reserve(height, span)
-			if span then
-				self:BeginNewLine()
-				local x, y = 12, self.y
-				self.y = self.y - height
-				return x, y, self.width
-			end
-
-			local x = 12 + ((self.col - 1) * (self.colWidth + self.colGap))
-			local y = self.y
-			self.rowHeight = math.max(self.rowHeight, height)
-			if self.col == 1 then
-				self.col = 2
-			else
-				self.col = 1
-				self.y = self.y - self.rowHeight
-				self.rowHeight = 0
-			end
-			return x, y, self.colWidth
-		end
-
-		function builder:Label(text, large)
-			RegisterOptionsSearchEntry(tabKey, text, "label section group heading", "label")
-			if not self:Matches(text, "label section group heading") then
-				return
-			end
-			self:BeginNewLine()
-			if not large and self.y < -24 then
-				local divider = self.page:CreateTexture(nil, "BORDER")
-				divider:SetColorTexture(UI_STYLE.accentSoft[1], UI_STYLE.accentSoft[2], UI_STYLE.accentSoft[3], 0.25)
-				divider:SetPoint("TOPLEFT", self.page, "TOPLEFT", 12, self.y + 6)
-				divider:SetSize(self.width, 1)
-			end
-			local fs = self.page:CreateFontString(nil, "OVERLAY", large and "GameFontNormalLarge" or "GameFontNormal")
-			fs:SetPoint("TOPLEFT", self.page, "TOPLEFT", 12, self.y)
-			fs:SetText(text)
-			if self:HasSearch() then
-				fs:SetTextColor(1.0, 0.92, 0.3)
-			elseif large then
-				fs:SetTextColor(UI_STYLE.accent[1], UI_STYLE.accent[2], UI_STYLE.accent[3])
-			else
-				fs:SetTextColor(0.92, 0.90, 0.84)
-			end
-			self.y = self.y - (large and 26 or 18)
-		end
-
-		function builder:Edit(label, getter, setter)
-			RegisterOptionsSearchEntry(tabKey, label, "edit text input tag", "edit")
-			if not self:Matches(label, "edit text input tag") then
-				return
-			end
-			local x, y, width = self:Reserve(56, false)
-			local fs = self.page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-			fs:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y)
-			fs:SetText(label)
-			if self:HasSearch() then
-				fs:SetTextColor(1.0, 0.92, 0.3)
-			end
-			local eb = CreateFrame("EditBox", nil, self.page, "InputBoxTemplate")
-			eb:SetAutoFocus(false)
-			eb:SetSize(width, 22)
-			eb:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y - 20)
-			eb:SetText(tostring(getter() or ""))
-			eb:SetScript("OnEnterPressed", function(w)
-				setter(w:GetText())
-				w:ClearFocus()
-			end)
-			eb:SetScript("OnEscapePressed", function(w)
-				w:ClearFocus()
-			end)
-		end
-
-		function builder:Slider(label, minv, maxv, step, getter, setter)
-			RegisterOptionsSearchEntry(tabKey, label, "slider value size width height opacity alpha spacing gap offset", "slider")
-			if not self:Matches(label, "slider value size width height opacity alpha spacing gap offset") then
-				return
-			end
-			addon._optSliderId = (addon._optSliderId or 0) + 1
-			local name = "SUF_OptSlider_" .. tabKey .. "_" .. addon._optSliderId
-			local x, y, width = self:Reserve(48, false)
-			local s = CreateFrame("Slider", name, self.page, "OptionsSliderTemplate")
-			s:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y)
-			s:SetWidth(width)
-			s:SetMinMaxValues(minv, maxv)
-			s:SetValueStep(step)
-			s:SetObeyStepOnDrag(true)
-			s:SetValue(type(getter()) == "number" and getter() or minv)
-			local text = _G[name .. "Text"]
-			local low = _G[name .. "Low"]
-			local high = _G[name .. "High"]
-			if text then
-				text:SetText(label)
-				if self:HasSearch() then
-					text:SetTextColor(1.0, 0.92, 0.3)
-				end
-			end
-			if low then low:SetText(tostring(minv)) end
-			if high then high:SetText(tostring(maxv)) end
-			s:SetScript("OnValueChanged", function(_, v)
-				setter(v)
-			end)
-		end
-
-		function builder:Check(label, getter, setter, disabled)
-			RegisterOptionsSearchEntry(tabKey, label, "checkbox toggle enable disable show hide", "check")
-			if not self:Matches(label, "checkbox toggle enable disable show hide") then
-				return
-			end
-			local x, y = self:Reserve(28, false)
-			local c = CreateFrame("CheckButton", nil, self.page, "UICheckButtonTemplate")
-			c:SetPoint("TOPLEFT", self.page, "TOPLEFT", x - 2, y)
-			if c.Text then
-				c.Text:SetText(label)
-				if self:HasSearch() then
-					c.Text:SetTextColor(1.0, 0.92, 0.3)
-				end
-			end
-			c:SetChecked(getter() and true or false)
-			c:SetEnabled(not disabled)
-			c:SetScript("OnClick", function(w)
-				setter(w:GetChecked() and true or false)
-			end)
-		end
-
-		function builder:Button(label, onClick, span)
-			RegisterOptionsSearchEntry(tabKey, label, "button apply validate copy reset import export add remove clear", "button")
-			if not self:Matches(label, "button apply validate copy reset import export add remove clear") then
-				return nil
-			end
-			local height = 36
-			local x, y, width = self:Reserve(height, span == true)
-			local b = CreateFrame("Button", nil, self.page, "UIPanelButtonTemplate")
-			b:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y - 2)
-			b:SetSize(span and math.max(160, width) or math.max(120, width), 24)
-			b:SetText(label or "Button")
-			b:SetNormalFontObject("GameFontHighlight")
-			b:SetHighlightFontObject("GameFontNormal")
-			b:SetScript("OnClick", function()
-				if type(onClick) == "function" then
-					onClick()
-				end
-			end)
-			return b
-		end
-
-		function builder:Dropdown(label, options, getter, setter)
-			RegisterOptionsSearchEntry(tabKey, label, "dropdown select profile preset mode texture font anchor", "dropdown")
-			if not self:Matches(label, "dropdown select profile preset mode texture font anchor") then
-				return
-			end
-			local x, y, width = self:Reserve(58, false)
-			local fs = self.page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-			fs:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y)
-			fs:SetText(label)
-			if self:HasSearch() then
-				fs:SetTextColor(1.0, 0.92, 0.3)
-			end
-			addon._optDropdownId = (addon._optDropdownId or 0) + 1
-			local name = "SUF_OptDropdown_" .. tabKey .. "_" .. addon._optDropdownId
-			local dd = CreateFrame("Frame", name, self.page, "UIDropDownMenuTemplate")
-			dd:SetPoint("TOPLEFT", self.page, "TOPLEFT", x - 16, y - 10)
-			UIDropDownMenu_SetWidth(dd, math.max(180, width - 42))
-			UIDropDownMenu_Initialize(dd, function(_, level)
-				if level ~= 1 then
-					return
-				end
-				for _, item in ipairs(options or {}) do
-					local info = UIDropDownMenu_CreateInfo()
-					info.text = item.text
-					info.value = item.value
-					info.checked = (getter() == item.value)
-					info.func = function()
-						UIDropDownMenu_SetSelectedValue(dd, item.value)
-						UIDropDownMenu_SetText(dd, tostring(item.text))
-						setter(item.value)
-					end
-					UIDropDownMenu_AddButton(info, level)
-				end
-			end)
-
-			local current = getter()
-			if current ~= nil then
-				UIDropDownMenu_SetSelectedValue(dd, current)
-				local selectedText = tostring(current)
-				for _, item in ipairs(options or {}) do
-					if item.value == current then
-						selectedText = tostring(item.text)
-						break
-					end
-				end
-				UIDropDownMenu_SetText(dd, selectedText)
-			end
-		end
-
-		function builder:Color(label, getter, setter)
-			RegisterOptionsSearchEntry(tabKey, label, "color picker red green blue", "color")
-			if not self:Matches(label, "color picker red green blue") then
-				return
-			end
-			local x, y, width = self:Reserve(38, false)
-			local button = CreateFrame("Button", nil, self.page, "UIPanelButtonTemplate")
-			button:SetSize(40, 20)
-			button:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y - 2)
-			button:SetText("")
-
-			local swatch = button:CreateTexture(nil, "ARTWORK")
-			swatch:SetPoint("TOPLEFT", button, "TOPLEFT", 4, -4)
-			swatch:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -4, 4)
-			swatch:SetColorTexture(1, 1, 1, 1)
-
-			local fs = self.page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-			fs:SetPoint("LEFT", button, "RIGHT", 8, 0)
-			fs:SetWidth(math.max(120, width - 52))
-			fs:SetJustifyH("LEFT")
-			fs:SetText(label)
-			if self:HasSearch() then
-				fs:SetTextColor(1.0, 0.92, 0.3)
-			end
-
-			local function RefreshSwatch()
-				local c = getter and getter() or nil
-				local r = c and c[1] or 1
-				local g = c and c[2] or 1
-				local b = c and c[3] or 1
-				swatch:SetColorTexture(r, g, b, 1)
-			end
-
-			local function OpenColorPicker()
-				local c = getter and getter() or { 1, 1, 1 }
-				local r = c[1] or 1
-				local g = c[2] or 1
-				local b = c[3] or 1
-
-				if ColorPickerFrame and ColorPickerFrame.SetupColorPickerAndShow then
-					local previous = { r = r, g = g, b = b }
-					local info = {
-						r = r,
-						g = g,
-						b = b,
-						hasOpacity = false,
-						swatchFunc = function()
-							local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-							setter(nr, ng, nb)
-							RefreshSwatch()
-						end,
-						cancelFunc = function()
-							setter(previous.r, previous.g, previous.b)
-							RefreshSwatch()
-						end,
-					}
-					ColorPickerFrame:SetupColorPickerAndShow(info)
-				elseif ColorPickerFrame then
-					ColorPickerFrame.previousValues = { r, g, b }
-					ColorPickerFrame.hasOpacity = false
-					ColorPickerFrame:SetColorRGB(r, g, b)
-					ColorPickerFrame.func = function()
-						local nr, ng, nb = ColorPickerFrame:GetColorRGB()
-						setter(nr, ng, nb)
-						RefreshSwatch()
-					end
-					ColorPickerFrame.cancelFunc = function(previousValues)
-						local pv = previousValues or ColorPickerFrame.previousValues
-						if pv then
-							setter(pv[1] or pv.r or r, pv[2] or pv.g or g, pv[3] or pv.b or b)
-							RefreshSwatch()
-						end
-					end
-					ColorPickerFrame:Show()
-				end
-			end
-
-			button:SetScript("OnClick", OpenColorPicker)
-			RefreshSwatch()
-		end
-
-		function builder:Paragraph(text, small)
-			RegisterOptionsSearchEntry(tabKey, text, "info help description", "paragraph")
-			if self:HasSearch() and not self:Matches(text, "info help description") then
-				return
-			end
-			self:BeginNewLine()
-			local fs = self.page:CreateFontString(nil, "OVERLAY", small and "GameFontHighlightSmall" or "GameFontHighlight")
-			fs:SetPoint("TOPLEFT", self.page, "TOPLEFT", 12, self.y)
-			fs:SetWidth(self.width)
-			fs:SetJustifyH("LEFT")
-			fs:SetJustifyV("TOP")
-			fs:SetText(text or "")
-			fs:SetTextColor(UI_STYLE.textMuted[1], UI_STYLE.textMuted[2], UI_STYLE.textMuted[3])
-			local height = math.max(16, math.floor((fs:GetStringHeight() or 0) + 0.5))
-			self.y = self.y - (height + 8)
-		end
-
-		function builder:Section(title, key, defaultOpen)
-			RegisterOptionsSearchEntry(tabKey, title, "section group collapse", "section")
-			self:BeginNewLine()
-			self.addon.db.profile.optionsUI = self.addon.db.profile.optionsUI or { sectionState = {} }
-			self.addon.db.profile.optionsUI.sectionState = self.addon.db.profile.optionsUI.sectionState or {}
-			frame.optionsSectionState = self.addon.db.profile.optionsUI.sectionState
-			local stateKey = tostring(tabKey) .. "::" .. tostring(key or title)
-			if frame.optionsSectionState[stateKey] == nil then
-				frame.optionsSectionState[stateKey] = defaultOpen ~= false
-			end
-			local expanded = frame.optionsSectionState[stateKey]
-			if self:HasSearch() then
-				expanded = true
-			end
-
-			local x, y, width = self:Reserve(30, true)
-			local toggle = CreateFrame("Button", nil, self.page, "BackdropTemplate")
-			toggle:SetPoint("TOPLEFT", self.page, "TOPLEFT", x, y)
-			toggle:SetSize(math.max(160, width), 22)
-			toggle:SetBackdrop({
-				bgFile = "Interface\\Buttons\\WHITE8x8",
-				edgeFile = "Interface\\Buttons\\WHITE8x8",
-				edgeSize = 1,
-			})
-			toggle:SetBackdropColor(0.10, 0.10, 0.12, 0.80)
-			toggle:SetBackdropBorderColor(UI_STYLE.panelBorder[1], UI_STYLE.panelBorder[2], UI_STYLE.panelBorder[3], UI_STYLE.panelBorder[4])
-			local txt = toggle:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-			txt:SetPoint("LEFT", toggle, "LEFT", 8, 0)
-			txt:SetJustifyH("LEFT")
-			txt:SetText((expanded and "[-] " or "[+] ") .. tostring(title or "Section"))
-			txt:SetTextColor(UI_STYLE.accent[1], UI_STYLE.accent[2], UI_STYLE.accent[3])
-			toggle:SetScript("OnClick", function()
-				if self:HasSearch() then
-					return
-				end
-				frame.optionsSectionState[stateKey] = not frame.optionsSectionState[stateKey]
-				frame:BuildTab(tabKey)
-			end)
-			return expanded
-		end
-
-		function builder:GetHeight()
-			local tail = self.y - ((self.col == 2) and self.rowHeight or 0)
-			return math.abs(tail) + 24
-		end
-
-		return builder
-	end
-
-	function frame.BuildTab(_, tabKey)
-		frame.currentTab = tabKey
-		StopPerformanceSnapshotTicker()
-		local searchText = frame.searchText or ""
-		if searchHint then
-			searchHint:SetShown(self.db.profile.optionsUI and self.db.profile.optionsUI.searchKeyboardHints ~= false)
-		end
-		for key, button in pairs(tabButtons) do
-			local matchSearch = DoesTabMatchSearch(key, searchText)
-			button:SetAlpha(matchSearch and 1 or ((searchText ~= "" and 0.35) or 1))
-			if button.__sufSetSelected then
-				button:__sufSetSelected(key == tabKey, matchSearch)
-			else
-				button:SetEnabled(key ~= tabKey)
-			end
-		end
-		self.isBuildingOptions = true
-		ClearContent()
-
-		local page = CreateFrame("Frame", nil, content)
-		page:SetPoint("TOPLEFT", content, "TOPLEFT")
-		page:SetWidth(math.max(760, contentHost:GetWidth() - 44))
-		local ui = NewBuilder(page, tabKey)
-		ui:SetSearch(searchText)
-		local function BuildLSMOptions(kind)
-			local values = LSM and LSM:List(kind) or {}
-			local out = {}
-			for _, value in ipairs(values) do
-				out[#out + 1] = { value = value, text = value }
-			end
-			table.sort(out, function(a, b)
-				return a.text < b.text
-			end)
-			return out
-		end
-		local statusbarOptions = BuildLSMOptions("statusbar")
-		local fontOptions = BuildLSMOptions("font")
-		local function GetUnitLabel(unitKey)
-			return UNIT_LABELS[unitKey] or tostring(unitKey)
-		end
-		local function CollectOUFTags()
-			local ouf = self.oUF or GetOuf()
-			if not (ouf and ouf.Tags and ouf.Tags.Methods) then
-				return {}
-			end
-			local tagsList = {}
-			for tagName in pairs(ouf.Tags.Methods) do
-				if type(tagName) == "string" then
-					tagsList[#tagsList + 1] = tagName
-				end
-			end
-			table.sort(tagsList)
-			return tagsList
-		end
-		local function CategorizeTag(tagName)
-			local t = string.lower(tagName or "")
-			if t:find("health", 1, true) or t:find("hp", 1, true) or t:find("absorb", 1, true) then
-				return "Health"
-			elseif t:find("power", 1, true) or t:find("pp", 1, true) or t:find("mana", 1, true) or t:find("energy", 1, true) or t:find("rage", 1, true) or t:find("rune", 1, true) then
-				return "Power"
-			elseif t:find("cast", 1, true) or t:find("channel", 1, true) then
-				return "Cast"
-			elseif t:find("aura", 1, true) or t:find("buff", 1, true) or t:find("debuff", 1, true) then
-				return "Auras"
-			elseif t:find("threat", 1, true) or t:find("combat", 1, true) or t:find("status", 1, true) or t:find("dead", 1, true) or t:find("offline", 1, true) then
-				return "Status"
-			elseif t:find("name", 1, true) or t:find("level", 1, true) or t:find("class", 1, true) or t:find("race", 1, true) then
-				return "Identity"
-			end
-			return "Other"
-		end
-		local TAG_PRESETS = {
-			{
-				value = "COMPACT",
-				text = "Compact",
-				tags = { name = "[raidcolor][name]", level = "[level]", health = "[curhp]", power = "[curpp]" },
-			},
-			{
-				value = "HEALER",
-				text = "Healer",
-				tags = { name = "[raidcolor][name]", level = "[difficulty][level]", health = "[perhp]% | [suf:incoming:abbr]", power = "[curpp]" },
-			},
-			{
-				value = "TANK",
-				text = "Tank",
-				tags = { name = "[raidcolor][name]", level = "[difficulty][level]", health = "[curhp]/[maxhp]", power = "[curpp] | [suf:ehp:abbr]" },
-			},
-			{
-				value = "DPS",
-				text = "DPS",
-				tags = { name = "[raidcolor][name]", level = "[level]", health = "[curhp] ([perhp]%)", power = "[curpp]" },
-			},
-			{
-				value = "ABSORB_FOCUS",
-				text = "Absorb Focus",
-				tags = { name = "[raidcolor][name]", level = "[level]", health = "[curhp] +[suf:absorbs:abbr]", power = "[curpp]" },
-			},
-			{
-				value = "MINIMAL",
-				text = "Minimal",
-				tags = { name = "[name]", level = "", health = "[perhp]%", power = "" },
-			},
-		}
-		local function GetTagPresetByValue(value)
-			for i = 1, #TAG_PRESETS do
-				if TAG_PRESETS[i].value == value then
-					return TAG_PRESETS[i]
-				end
-			end
-			return TAG_PRESETS[1]
-		end
-		local function ApplyUnitTagPreset(unitKey, presetValue)
-			if not (self.db and self.db.profile and self.db.profile.tags and self.db.profile.tags[unitKey]) then
-				return
-			end
-			local preset = GetTagPresetByValue(presetValue)
-			if not preset or not preset.tags then
-				return
-			end
-			local tags = self.db.profile.tags[unitKey]
-			tags.name = preset.tags.name or ""
-			tags.level = preset.tags.level or ""
-			tags.health = preset.tags.health or ""
-			tags.power = preset.tags.power or ""
-			self:ScheduleUpdateAll()
-		end
-		local MODULE_KEYS = self:GetModuleCopyResetKeys()
-		local function ResolveOptionValue(value)
-			if type(value) == "function" then
-				return value()
-			end
-			return value
-		end
-		local function IsOptionDisabled(option)
-			if not option then
-				return false
-			end
-			return ResolveOptionValue(option.disabled) and true or false
-		end
-		local function IsOptionHidden(option)
-			if not option then
-				return false
-			end
-			return ResolveOptionValue(option.hidden) and true or false
-		end
-		local function RenderOptionSpec(uiBuilder, option)
-			if IsOptionHidden(option) then
-				return
-			end
-			local kind = tostring(option.type or "")
-			if kind == "label" then
-				uiBuilder:Label(option.text or "", option.large == true)
-			elseif kind == "paragraph" then
-				uiBuilder:Paragraph(option.text or "", option.small ~= false)
-			elseif kind == "check" then
-				uiBuilder:Check(option.label or "", option.get, option.set, IsOptionDisabled(option))
-			elseif kind == "slider" then
-				uiBuilder:Slider(option.label or "", option.min or 0, option.max or 1, option.step or 1, option.get, option.set)
-			elseif kind == "dropdown" then
-				uiBuilder:Dropdown(option.label or "", ResolveOptionValue(option.options) or {}, option.get, option.set)
-			elseif kind == "edit" then
-				uiBuilder:Edit(option.label or "", option.get, option.set)
-			elseif kind == "color" then
-				uiBuilder:Color(option.label or "", option.get, option.set)
-			elseif kind == "button" then
-				uiBuilder:Button(option.label or "", option.onClick, option.span == true)
-			elseif kind == "dropdown_or_edit" then
-				local opts = ResolveOptionValue(option.options) or {}
-				if #opts > 0 then
-					uiBuilder:Dropdown(option.label or "", opts, option.get, option.set)
-				else
-					uiBuilder:Edit(option.fallbackLabel or option.label or "", option.get, option.set)
-				end
-			end
-		end
-		local function RenderOptionSpecs(uiBuilder, list)
-			for i = 1, #(list or {}) do
-				RenderOptionSpec(uiBuilder, list[i])
-			end
-		end
-		local AURAWATCH_PRESETS = {
-			{ key = "HEALER_CORE", label = "Healer Core", spells = { 17, 774, 139, 1022, 6940, 33206 } },
-			{ key = "RAID_DEFENSIVES", label = "Raid Defensives", spells = { 1022, 6940, 33206, 47788, 97462, 98008 } },
-			{ key = "MYTHIC_PLUS", label = "M+ Utility", spells = { 1022, 6940, 33206, 98008, 77764, 204018 } },
-		}
-		local function RenderAuraWatchSpellListEditor(auraWatchCfg, commitFn)
-			auraWatchCfg.customSpellList = SafeText(auraWatchCfg.customSpellList, "")
-			local parsedAura = self:ParseAuraWatchSpellTokens(auraWatchCfg.customSpellList)
-			local auraEntries = {}
-			for i = 1, #(parsedAura.adds or {}) do
-				auraEntries[#auraEntries + 1] = { id = parsedAura.adds[i], remove = false }
-			end
-			for i = 1, #(parsedAura.removes or {}) do
-				auraEntries[#auraEntries + 1] = { id = parsedAura.removes[i], remove = true }
-			end
-
-			local function DedupEntries()
-				local out = {}
-				local seen = {}
-				for i = #auraEntries, 1, -1 do
-					local entry = auraEntries[i]
-					local key = (entry.remove and "-" or "+") .. tostring(entry.id)
-					if not seen[key] then
-						out[#out + 1] = entry
-						seen[key] = true
-					end
-				end
-				auraEntries = {}
-				for i = #out, 1, -1 do
-					auraEntries[#auraEntries + 1] = out[i]
-				end
-			end
-			local function BuildAuraWatchCustomString()
-				local tokens = {}
-				for i = 1, #auraEntries do
-					local entry = auraEntries[i]
-					tokens[#tokens + 1] = (entry.remove and "-" or "") .. tostring(entry.id)
-				end
-				return table.concat(tokens, " ")
-			end
-			local function SaveAuraWatchList()
-				DedupEntries()
-				auraWatchCfg.customSpellList = BuildAuraWatchCustomString()
-				if commitFn then
-					commitFn()
-				end
-			end
-
-			DedupEntries()
-			ui:Label("AuraWatch Spell List", false)
-			local ax, ay, awidth = ui:Reserve(370, true)
-			local addBox = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
-			addBox:SetAutoFocus(false)
-			addBox:SetSize(140, 22)
-			addBox:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay)
-			addBox:SetText("")
-			addBox:SetScript("OnEscapePressed", function(w)
-				w:ClearFocus()
-			end)
-			local addHint = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			addHint:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 24)
-			addHint:SetText("Spell ID")
-			local addBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			addBtn:SetPoint("LEFT", addBox, "RIGHT", 6, 0)
-			addBtn:SetSize(80, 22)
-			addBtn:SetText("Add")
-			addBtn:SetScript("OnClick", function()
-				local spellID = tonumber(TrimString(SafeText(addBox:GetText(), "")))
-				if not spellID or spellID <= 0 then
-					self:Print(addonName .. ": Enter a valid spell ID.")
-					return
-				end
-				if not self:GetSpellNameForValidation(spellID) then
-					self:Print(addonName .. ": Unknown spell ID " .. tostring(spellID) .. ".")
-					return
-				end
-				auraEntries[#auraEntries + 1] = { id = spellID, remove = false }
-				SaveAuraWatchList()
-			end)
-			local addRemoveBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			addRemoveBtn:SetPoint("LEFT", addBtn, "RIGHT", 6, 0)
-			addRemoveBtn:SetSize(120, 22)
-			addRemoveBtn:SetText("Add Remove Rule")
-			addRemoveBtn:SetScript("OnClick", function()
-				local spellID = tonumber(TrimString(SafeText(addBox:GetText(), "")))
-				if not spellID or spellID <= 0 then
-					self:Print(addonName .. ": Enter a valid spell ID.")
-					return
-				end
-				if not self:GetSpellNameForValidation(spellID) then
-					self:Print(addonName .. ": Unknown spell ID " .. tostring(spellID) .. ".")
-					return
-				end
-				auraEntries[#auraEntries + 1] = { id = spellID, remove = true }
-				SaveAuraWatchList()
-			end)
-			local clearBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			clearBtn:SetPoint("LEFT", addRemoveBtn, "RIGHT", 6, 0)
-			clearBtn:SetSize(100, 22)
-			clearBtn:SetText("Clear List")
-			clearBtn:SetScript("OnClick", function()
-				auraEntries = {}
-				SaveAuraWatchList()
-			end)
-
-			local sortAscBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			sortAscBtn:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 44)
-			sortAscBtn:SetSize(96, 20)
-			sortAscBtn:SetText("Sort Asc")
-			sortAscBtn:SetScript("OnClick", function()
-				table.sort(auraEntries, function(a, b)
-					if a.remove ~= b.remove then
-						return (a.remove and 1 or 0) < (b.remove and 1 or 0)
-					end
-					return (a.id or 0) < (b.id or 0)
-				end)
-				SaveAuraWatchList()
-			end)
-			local sortDescBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			sortDescBtn:SetPoint("LEFT", sortAscBtn, "RIGHT", 6, 0)
-			sortDescBtn:SetSize(96, 20)
-			sortDescBtn:SetText("Sort Desc")
-			sortDescBtn:SetScript("OnClick", function()
-				table.sort(auraEntries, function(a, b)
-					if a.remove ~= b.remove then
-						return (a.remove and 1 or 0) < (b.remove and 1 or 0)
-					end
-					return (a.id or 0) > (b.id or 0)
-				end)
-				SaveAuraWatchList()
-			end)
-			for i = 1, #AURAWATCH_PRESETS do
-				local preset = AURAWATCH_PRESETS[i]
-				local presetBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-				presetBtn:SetPoint("LEFT", (i == 1 and sortDescBtn or page.__sufPrevPresetBtn), (i == 1 and "RIGHT" or "RIGHT"), 6, 0)
-				presetBtn:SetSize(118, 20)
-				presetBtn:SetText(preset.label)
-				presetBtn:SetScript("OnClick", function()
-					for s = 1, #preset.spells do
-						auraEntries[#auraEntries + 1] = { id = preset.spells[s], remove = false }
-					end
-					SaveAuraWatchList()
-				end)
-				page.__sufPrevPresetBtn = presetBtn
-			end
-			page.__sufPrevPresetBtn = nil
-
-			local function MoveAuraEntry(fromIndex, toIndex)
-				fromIndex = tonumber(fromIndex)
-				toIndex = tonumber(toIndex)
-				if not fromIndex or not toIndex then
-					return false
-				end
-				if fromIndex < 1 or toIndex < 1 or fromIndex > #auraEntries or toIndex > #auraEntries then
-					return false
-				end
-				if fromIndex == toIndex then
-					return true
-				end
-				local moving = table.remove(auraEntries, fromIndex)
-				table.insert(auraEntries, toIndex, moving)
-				return true
-			end
-
-			local regularCount = 0
-			local specialCount = 0
-			for i = 1, #auraEntries do
-				if auraEntries[i].remove then
-					specialCount = specialCount + 1
-				else
-					regularCount = regularCount + 1
-				end
-			end
-			local grouping = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			grouping:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 72)
-			grouping:SetText(("Priority Groups: Regular (+)=%d, Special Remove (-)=%d"):format(regularCount, specialCount))
-
-			local dragFrom = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
-			dragFrom:SetAutoFocus(false)
-			dragFrom:SetSize(46, 20)
-			dragFrom:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 92)
-			dragFrom:SetScript("OnEscapePressed", function(w) w:ClearFocus() end)
-			local dragArrow = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-			dragArrow:SetPoint("LEFT", dragFrom, "RIGHT", 4, 0)
-			dragArrow:SetText("->")
-			local dragTo = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
-			dragTo:SetAutoFocus(false)
-			dragTo:SetSize(46, 20)
-			dragTo:SetPoint("LEFT", dragArrow, "RIGHT", 4, 0)
-			dragTo:SetScript("OnEscapePressed", function(w) w:ClearFocus() end)
-			local dragBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			dragBtn:SetPoint("LEFT", dragTo, "RIGHT", 6, 0)
-			dragBtn:SetSize(120, 20)
-			dragBtn:SetText("Drag Move")
-			dragBtn:SetScript("OnClick", function()
-				if MoveAuraEntry(dragFrom:GetText(), dragTo:GetText()) then
-					SaveAuraWatchList()
-				else
-					self:Print(addonName .. ": Invalid drag move indexes.")
-				end
-			end)
-			local regularFirstBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			regularFirstBtn:SetPoint("LEFT", dragBtn, "RIGHT", 6, 0)
-			regularFirstBtn:SetSize(104, 20)
-			regularFirstBtn:SetText("Regular First")
-			regularFirstBtn:SetScript("OnClick", function()
-				table.sort(auraEntries, function(a, b)
-					if a.remove ~= b.remove then
-						return not a.remove
-					end
-					return (a.id or 0) < (b.id or 0)
-				end)
-				SaveAuraWatchList()
-			end)
-			local specialFirstBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			specialFirstBtn:SetPoint("LEFT", regularFirstBtn, "RIGHT", 6, 0)
-			specialFirstBtn:SetSize(104, 20)
-			specialFirstBtn:SetText("Special First")
-			specialFirstBtn:SetScript("OnClick", function()
-				table.sort(auraEntries, function(a, b)
-					if a.remove ~= b.remove then
-						return a.remove
-					end
-					return (a.id or 0) < (b.id or 0)
-				end)
-				SaveAuraWatchList()
-			end)
-
-			local listTitle = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-			listTitle:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 116)
-			listTitle:SetText("Configured Entries (priority order)")
-			local entries = auraEntries
-			local maxRows = math.min(10, #entries)
-			for row = 1, maxRows do
-				local rowIndex = row
-				local entry = entries[row]
-				local rowY = ay - 138 - ((row - 1) * 22)
-				local spellName = self:GetSpellNameForValidation(entry.id) or "Unknown Spell"
-				local rowText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-				rowText:SetPoint("TOPLEFT", page, "TOPLEFT", ax, rowY)
-				rowText:SetWidth(awidth - 164)
-				rowText:SetJustifyH("LEFT")
-				rowText:SetText(("[%d] %s%s  %s"):format(rowIndex, (entry.remove and "- " or "+ "), tostring(entry.id), tostring(spellName)))
-				if entry.remove then
-					rowText:SetTextColor(1.00, 0.40, 0.40)
-				else
-					rowText:SetTextColor(0.40, 1.00, 0.40)
-				end
-				local upBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-				upBtn:SetPoint("TOPRIGHT", page, "TOPLEFT", ax + awidth - 130, rowY + 2)
-				upBtn:SetSize(28, 20)
-				upBtn:SetText("^")
-				upBtn:SetEnabled(rowIndex > 1)
-				upBtn:SetScript("OnClick", function()
-					MoveAuraEntry(rowIndex, rowIndex - 1)
-					SaveAuraWatchList()
-				end)
-				local downBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-				downBtn:SetPoint("LEFT", upBtn, "RIGHT", 2, 0)
-				downBtn:SetSize(28, 20)
-				downBtn:SetText("v")
-				downBtn:SetEnabled(rowIndex < #entries)
-				downBtn:SetScript("OnClick", function()
-					MoveAuraEntry(rowIndex, rowIndex + 1)
-					SaveAuraWatchList()
-				end)
-				local removeBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-				removeBtn:SetPoint("LEFT", downBtn, "RIGHT", 2, 0)
-				removeBtn:SetSize(64, 20)
-				removeBtn:SetText("Remove")
-				removeBtn:SetScript("OnClick", function()
-					table.remove(auraEntries, rowIndex)
-					SaveAuraWatchList()
-				end)
-			end
-			if #entries > maxRows then
-				local extra = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-				extra:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 138 - (maxRows * 22))
-				extra:SetText(("...and %d more entries"):format(#entries - maxRows))
-			end
-			local report = self:ValidateAuraWatchSpellList(auraWatchCfg.customSpellList or "")
-			local hasWarn = (#(report.invalidIDs or {}) > 0 or #(report.invalidTokens or {}) > 0)
-			local summary = ("Validation: add=%d remove=%d invalidIDs=%d invalidTokens=%d"):format(
-				#(report.validAdds or {}),
-				#(report.validRemoves or {}),
-				#(report.invalidIDs or {}),
-				#(report.invalidTokens or {})
-			)
-			local summaryText = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			summaryText:SetPoint("TOPLEFT", page, "TOPLEFT", ax, ay - 142 - (maxRows * 22))
-			summaryText:SetWidth(awidth)
-			summaryText:SetJustifyH("LEFT")
-			summaryText:SetText(summary)
-			if hasWarn then
-				summaryText:SetTextColor(1.00, 0.35, 0.35)
-			else
-				summaryText:SetTextColor(0.35, 1.00, 0.45)
-			end
-		end
-		if searchText ~= "" then
-			ui:Label("Search Results", false)
-			local grouped = QueryOptionsSearch(searchText)
-			frame.searchResultGroups = grouped
-			if #grouped == 0 then
-				ui:Paragraph(("No tab matches found for '%s'."):format(searchText), true)
-			else
-				local rx, ry = 12, ui.y
-				local show = math.min(8, #grouped)
-				local showCounts = self.db.profile.optionsUI and self.db.profile.optionsUI.searchShowCounts ~= false
-				for i = 1, show do
-					local item = grouped[i]
-					local hit1 = item.hits and item.hits[1] and item.hits[1].label or ""
-					local hit2 = item.hits and item.hits[2] and item.hits[2].label or ""
-					local details = hit1
-					if hit2 ~= "" and hit2 ~= hit1 then
-						details = details .. ", " .. hit2
-					end
-					local btn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-					btn:SetSize(184, 22)
-					btn:SetPoint("TOPLEFT", page, "TOPLEFT", rx + (((i - 1) % 3) * 190), ry - (math.floor((i - 1) / 3) * 26))
-					local labelText = item.tabLabel
-					if showCounts then
-						labelText = ("%s (%d/%d)"):format(item.tabLabel, item.score, #(item.hits or {}))
-					end
-					btn:SetText(labelText)
-					btn:SetScript("OnClick", function()
-						frame:BuildTab(item.tabKey)
-					end)
-					if details ~= "" then
-						btn:SetScript("OnEnter", function(widget)
-							GameTooltip:SetOwner(widget, "ANCHOR_TOPLEFT")
-							GameTooltip:AddLine(item.tabLabel, 1, 1, 1)
-							GameTooltip:AddLine(details, 0.7, 0.85, 1, true)
-							GameTooltip:Show()
-						end)
-						btn:SetScript("OnLeave", function()
-							GameTooltip:Hide()
-						end)
-					end
-				end
-				ui.y = ry - (math.max(1, math.ceil(show / 3)) * 26) - 8
-			end
-		else
-			frame.searchResultGroups = nil
-		end
-		if searchText ~= "" and not DoesTabMatchSearch(tabKey, searchText) then
-			ui:Label("Search Navigation", false)
-			ui:Paragraph(("'%s' appears to belong to another tab. Jump to a matching tab:"):format(searchText), true)
-			local jumpX, jumpY = 12, ui.y
-			local shown = 0
-			local groups = QueryOptionsSearch(searchText)
-			for i = 1, #groups do
-				local candidate = groups[i]
-				local jump = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-				jump:SetSize(156, 22)
-				jump:SetPoint("TOPLEFT", page, "TOPLEFT", jumpX + ((shown % 4) * 162), jumpY - (math.floor(shown / 4) * 26))
-				jump:SetText(candidate.tabLabel)
-				jump:SetScript("OnClick", function()
-					frame:BuildTab(candidate.tabKey)
-				end)
-				shown = shown + 1
-				if shown >= 8 then
-					break
-				end
-			end
-			ui.y = jumpY - (math.max(1, math.ceil(shown / 4)) * 26) - 8
-		end
-
-		if tabKey == "global" then
-			local castbarCfg = self.db.profile.castbar
-			local enhancementCfg = self:GetEnhancementSettings()
-			local pluginCfg = self:GetPluginSettings()
-			local backgroundCfg = self:GetMainBarsBackgroundSettings()
-			local absorbTagOptions = {
-				{ value = "[suf:absorbs:abbr]", text = "Abbreviated ([suf:absorbs:abbr])" },
-				{ value = "[suf:absorbs]", text = "Raw ([suf:absorbs])" },
-				{ value = "[suf:ehp:abbr]", text = "Effective HP ([suf:ehp:abbr])" },
-				{ value = "[suf:ehp]", text = "Effective HP Raw ([suf:ehp])" },
-				{ value = "[suf:incoming:abbr]", text = "Incoming Heals ([suf:incoming:abbr])" },
-				{ value = "[suf:incoming]", text = "Incoming Heals Raw ([suf:incoming])" },
-				{ value = "[suf:healabsorbs:abbr]", text = "Heal Absorbs ([suf:healabsorbs:abbr])" },
-				{ value = "[suf:healabsorbs]", text = "Heal Absorbs Raw ([suf:healabsorbs])" },
-				{ value = "", text = "Hidden" },
-			}
-			RenderOptionSpecs(ui, {
-				{ type = "label", text = "Global Options", large = true },
-				{ type = "dropdown_or_edit", label = "Statusbar Texture", fallbackLabel = "Statusbar Texture Name", options = function() return statusbarOptions end, get = function() return self.db.profile.media.statusbar end, set = function(v) self.db.profile.media.statusbar = v; self:ScheduleUpdateAll() end },
-				{ type = "dropdown_or_edit", label = "Font", fallbackLabel = "Font Name", options = function() return fontOptions end, get = function() return self.db.profile.media.font end, set = function(v) self.db.profile.media.font = v; self:ScheduleUpdateAll() end },
-				{ type = "label", text = "Main Bars Background" },
-				{ type = "check", label = "Enable Main Bars Background", get = function() return backgroundCfg.enabled ~= false end, set = function(v) backgroundCfg.enabled = v and true or false; self:ScheduleUpdateAll() end },
-				{ type = "dropdown_or_edit", label = "Main Bars Background Texture", options = function() return statusbarOptions end, get = function() return backgroundCfg.texture end, set = function(v) backgroundCfg.texture = v; self:ScheduleUpdateAll() end },
-				{ type = "color", label = "Main Bars Background Color", get = function() return backgroundCfg.color end, set = function(r, g, b) backgroundCfg.color[1], backgroundCfg.color[2], backgroundCfg.color[3] = r, g, b; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Main Bars Background Opacity", min = 0, max = 1, step = 0.05, get = function() return backgroundCfg.alpha end, set = function(v) backgroundCfg.alpha = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Power Bar Height", min = 4, max = 20, step = 1, get = function() return self.db.profile.powerHeight end, set = function(v) self.db.profile.powerHeight = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Class Power Height", min = 4, max = 20, step = 1, get = function() return self.db.profile.classPowerHeight end, set = function(v) self.db.profile.classPowerHeight = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Class Power Spacing", min = 0, max = 10, step = 1, get = function() return self.db.profile.classPowerSpacing end, set = function(v) self.db.profile.classPowerSpacing = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Castbar Height", min = 8, max = 30, step = 1, get = function() return self.db.profile.castbarHeight end, set = function(v) self.db.profile.castbarHeight = v; self:ScheduleUpdateAll() end },
-				{ type = "label", text = "Castbar Enhancements" },
-				{ type = "dropdown", label = "Castbar Color Profile", options = { { value = "UUF", text = "UUF" }, { value = "Blizzard", text = "Blizzard" }, { value = "HighContrast", text = "High Contrast" } }, get = function() return castbarCfg.colorProfile end, set = function(v) castbarCfg.colorProfile = v; self:ScheduleUpdateAll() end },
-				{ type = "check", label = "Castbar Icon", get = function() return castbarCfg.iconEnabled ~= false end, set = function(v) castbarCfg.iconEnabled = v; self:ScheduleUpdateAll() end },
-				{ type = "dropdown", label = "Castbar Icon Position", options = { { value = "LEFT", text = "Left" }, { value = "RIGHT", text = "Right" } }, get = function() return castbarCfg.iconPosition end, set = function(v) castbarCfg.iconPosition = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Castbar Icon Size", min = 12, max = 40, step = 1, get = function() return castbarCfg.iconSize end, set = function(v) castbarCfg.iconSize = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Castbar Icon Gap", min = 0, max = 12, step = 1, get = function() return castbarCfg.iconGap end, set = function(v) castbarCfg.iconGap = v; self:ScheduleUpdateAll() end },
-				{ type = "check", label = "Castbar Shield", get = function() return castbarCfg.showShield ~= false end, set = function(v) castbarCfg.showShield = v; self:ScheduleUpdateAll() end },
-				{ type = "check", label = "Castbar Latency Safe Zone", get = function() return castbarCfg.showSafeZone ~= false end, set = function(v) castbarCfg.showSafeZone = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Safe Zone Opacity", min = 0.05, max = 1, step = 0.05, get = function() return castbarCfg.safeZoneAlpha end, set = function(v) castbarCfg.safeZoneAlpha = v; self:ScheduleUpdateAll() end },
-				{ type = "check", label = "Castbar Spark", get = function() return castbarCfg.showSpark ~= false end, set = function(v) castbarCfg.showSpark = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Spell Name Max Chars", min = 6, max = 40, step = 1, get = function() return castbarCfg.spellMaxChars end, set = function(v) castbarCfg.spellMaxChars = v; self:ScheduleUpdateAll() end },
-				{ type = "slider", label = "Cast Time Decimals", min = 0, max = 2, step = 1, get = function() return castbarCfg.timeDecimals end, set = function(v) castbarCfg.timeDecimals = v; self:ScheduleUpdateAll() end },
-				{ type = "check", label = "Show Cast Delay", get = function() return castbarCfg.showDelay ~= false end, set = function(v) castbarCfg.showDelay = v; self:ScheduleUpdateAll() end },
-				{ type = "label", text = "Library Enhancements" },
-				{ type = "check", label = "Sticky Window Drag (LibSimpleSticky)", get = function() return enhancementCfg.stickyWindows ~= false end, set = function(v) enhancementCfg.stickyWindows = v and true or false end, disabled = function() return not LibSimpleSticky end },
-				{ type = "slider", label = "Sticky Snap Range", min = 4, max = 36, step = 1, get = function() return enhancementCfg.stickyRange or 15 end, set = function(v) enhancementCfg.stickyRange = v end },
-				{ type = "check", label = "Transliterate Names (LibTranslit)", get = function() return enhancementCfg.translitNames == true end, set = function(v) enhancementCfg.translitNames = v and true or false; self:ScheduleUpdateAll() end, disabled = function() return not LibTranslit end },
-				{ type = "edit", label = "Translit Marker Prefix", get = function() return enhancementCfg.translitMarker or "" end, set = function(v) enhancementCfg.translitMarker = SafeText(v, ""); self:ScheduleUpdateAll() end },
-				{ type = "check", label = "Non-Interruptible Castbar Glow (LibCustomGlow)", get = function() return enhancementCfg.castbarNonInterruptibleGlow ~= false end, set = function(v) enhancementCfg.castbarNonInterruptibleGlow = v and true or false; self:ScheduleUpdateAll() end, disabled = function() return not LibCustomGlow end },
-				{ type = "check", label = "Window Open Animation (LibAnim)", get = function() return enhancementCfg.uiOpenAnimation ~= false end, set = function(v) enhancementCfg.uiOpenAnimation = v and true or false end, disabled = function() return not CreateAnimationGroup end },
-				{ type = "slider", label = "Window Animation Duration", min = 0.05, max = 0.60, step = 0.01, get = function() return tonumber(enhancementCfg.uiOpenAnimationDuration) or 0.18 end, set = function(v) enhancementCfg.uiOpenAnimationDuration = v end },
-				{ type = "slider", label = "Window Animation Offset Y", min = -40, max = 40, step = 1, get = function() return tonumber(enhancementCfg.uiOpenAnimationOffsetY) or 12 end, set = function(v) enhancementCfg.uiOpenAnimationOffsetY = v end },
-				{ type = "label", text = "Search UX" },
-				{ type = "check", label = "Search Result Counts", get = function() return self.db.profile.optionsUI.searchShowCounts ~= false end, set = function(v) self.db.profile.optionsUI.searchShowCounts = v and true or false; frame:BuildTab("global") end },
-				{ type = "check", label = "Search Keyboard Hints", get = function() return self.db.profile.optionsUI.searchKeyboardHints ~= false end, set = function(v) self.db.profile.optionsUI.searchKeyboardHints = v and true or false; frame:BuildTab("global") end },
-				{ type = "label", text = "oUF Plugin Integrations" },
-				{ type = "check", label = "Raid Debuffs (Party/Raid)", get = function() return pluginCfg.raidDebuffs.enabled ~= false end, set = function(v) pluginCfg.raidDebuffs.enabled = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Raid Debuff Glow", get = function() return pluginCfg.raidDebuffs.glow ~= false end, set = function(v) pluginCfg.raidDebuffs.glow = v and true or false; self:SchedulePluginUpdate() end, disabled = function() return not LibCustomGlow end },
-				{ type = "dropdown", label = "Raid Debuff Glow Mode", options = { { value = "ALL", text = "All Debuffs" }, { value = "DISPELLABLE", text = "Dispellable Only" }, { value = "PRIORITY", text = "Boss/Priority Only" } }, get = function() return pluginCfg.raidDebuffs.glowMode or "ALL" end, set = function(v) pluginCfg.raidDebuffs.glowMode = v; self:SchedulePluginUpdate() end },
-				{ type = "slider", label = "Raid Debuff Icon Size", min = 12, max = 36, step = 1, get = function() return tonumber(pluginCfg.raidDebuffs.size) or 18 end, set = function(v) pluginCfg.raidDebuffs.size = v; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Aura Watch (Party/Raid)", get = function() return pluginCfg.auraWatch.enabled ~= false end, set = function(v) pluginCfg.auraWatch.enabled = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "slider", label = "Aura Watch Icon Size", min = 8, max = 22, step = 1, get = function() return tonumber(pluginCfg.auraWatch.size) or 10 end, set = function(v) pluginCfg.auraWatch.size = v; self:SchedulePluginUpdate() end },
-				{ type = "slider", label = "Aura Watch Buff Slots", min = 0, max = 8, step = 1, get = function() return tonumber(pluginCfg.auraWatch.numBuffs) or 3 end, set = function(v) pluginCfg.auraWatch.numBuffs = v; self:SchedulePluginUpdate() end },
-				{ type = "slider", label = "Aura Watch Debuff Slots", min = 0, max = 8, step = 1, get = function() return tonumber(pluginCfg.auraWatch.numDebuffs) or 3 end, set = function(v) pluginCfg.auraWatch.numDebuffs = v; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Aura Watch Debuff Overlay", get = function() return pluginCfg.auraWatch.showDebuffType ~= false end, set = function(v) pluginCfg.auraWatch.showDebuffType = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Frame Fader", get = function() return pluginCfg.fader.enabled == true end, set = function(v) pluginCfg.fader.enabled = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "slider", label = "Fader Min Alpha", min = 0.05, max = 1, step = 0.05, get = function() return tonumber(pluginCfg.fader.minAlpha) or 0.45 end, set = function(v) pluginCfg.fader.minAlpha = v; self:SchedulePluginUpdate() end },
-				{ type = "slider", label = "Fader Max Alpha", min = 0.05, max = 1, step = 0.05, get = function() return tonumber(pluginCfg.fader.maxAlpha) or 1 end, set = function(v) pluginCfg.fader.maxAlpha = v; self:SchedulePluginUpdate() end },
-				{ type = "slider", label = "Fader Smooth", min = 0, max = 1, step = 0.05, get = function() return tonumber(pluginCfg.fader.smooth) or 0.2 end, set = function(v) pluginCfg.fader.smooth = v; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Fader: Combat", get = function() return pluginCfg.fader.combat ~= false end, set = function(v) pluginCfg.fader.combat = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Fader: Hover", get = function() return pluginCfg.fader.hover ~= false end, set = function(v) pluginCfg.fader.hover = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Fader: Player Target", get = function() return pluginCfg.fader.playerTarget ~= false end, set = function(v) pluginCfg.fader.playerTarget = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Fader: Action Targeting", get = function() return pluginCfg.fader.actionTarget == true end, set = function(v) pluginCfg.fader.actionTarget = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Fader: Unit Target", get = function() return pluginCfg.fader.unitTarget == true end, set = function(v) pluginCfg.fader.unitTarget = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Fader: Casting", get = function() return pluginCfg.fader.casting == true end, set = function(v) pluginCfg.fader.casting = v and true or false; self:SchedulePluginUpdate() end },
-				{ type = "check", label = "Hide in Vehicle", get = function() return self.db.profile.visibility.hideVehicle end, set = function(v) self.db.profile.visibility.hideVehicle = v; self:ScheduleApplyVisibility() end },
-				{ type = "check", label = "Hide in Pet Battles", get = function() return self.db.profile.visibility.hidePetBattle end, set = function(v) self.db.profile.visibility.hidePetBattle = v; self:ScheduleApplyVisibility() end },
-				{ type = "check", label = "Hide with Override Bar", get = function() return self.db.profile.visibility.hideOverride end, set = function(v) self.db.profile.visibility.hideOverride = v; self:ScheduleApplyVisibility() end },
-				{ type = "check", label = "Hide with Possess Bar", get = function() return self.db.profile.visibility.hidePossess end, set = function(v) self.db.profile.visibility.hidePossess = v; self:ScheduleApplyVisibility() end },
-				{ type = "check", label = "Hide with Extra Bar", get = function() return self.db.profile.visibility.hideExtra end, set = function(v) self.db.profile.visibility.hideExtra = v; self:ScheduleApplyVisibility() end },
-				{ type = "label", text = "Party Header" },
-				{ type = "check", label = "Show Player In Party", get = function() return self.db.profile.party.showPlayerInParty ~= false end, set = function(v) self.db.profile.party.showPlayerInParty = v; self:TrySpawnGroupHeaders(); self:ApplyPartyHeaderSettings() end },
-				{ type = "check", label = "Show Player When Solo", get = function() return self.db.profile.party.showPlayerWhenSolo == true end, set = function(v) self.db.profile.party.showPlayerWhenSolo = v; self:TrySpawnGroupHeaders(); self:ApplyPartyHeaderSettings() end },
-				{ type = "slider", label = "Party Vertical Spacing", min = 0, max = 40, step = 1, get = function() return self.db.profile.party.spacing end, set = function(v) self.db.profile.party.spacing = v; self:ApplyPartyHeaderSettings() end },
-				{ type = "dropdown", label = "Absorb Value Tag", options = absorbTagOptions, get = function() return self.db.profile.absorbValueTag or "[suf:absorbs:abbr]" end, set = function(v) self.db.profile.absorbValueTag = v; self:ScheduleUpdateAll() end },
-				{ type = "check", label = "Test Mode (Show All Frames)", get = function() return self.testMode end, set = function(v) self:SetTestMode(v) end },
-				{ type = "check", label = "Enable PerformanceLib Integration", get = function() return self.db.profile.performance and self.db.profile.performance.enabled end, set = function(v) self:SetPerformanceIntegrationEnabled(v) end, disabled = function() return not self.performanceLib end },
-			})
-			RenderAuraWatchSpellListEditor(pluginCfg.auraWatch, function()
-				self:SchedulePluginUpdate()
-				frame:BuildTab(tabKey)
-			end)
-		elseif tabKey == "performance" then
-			ui:Label("PerformanceLib", true)
-			ui:Paragraph("Tune presets, launch performance tools, and view a current metrics snapshot.", true)
-
-			ui:Check("Enable PerformanceLib Integration", function()
-				return self.db.profile.performance and self.db.profile.performance.enabled
-			end, function(v)
-				self:SetPerformanceIntegrationEnabled(v)
-			end, not self.performanceLib)
-
-			ui:Dropdown("Active Preset", {
-				{ value = "Low", text = "Low" },
-				{ value = "Medium", text = "Medium" },
-				{ value = "High", text = "High" },
-				{ value = "Ultra", text = "Ultra" },
-			}, function()
-				return self:GetPerformanceLibPreset()
-			end, function(v)
-				if self.performanceLib and self.performanceLib.SetPreset then
-					self.performanceLib:SetPreset(v)
-					self:DebugLog("Performance", "PerformanceLib preset set to " .. tostring(v) .. ".", 2)
-					frame:BuildTab("performance")
-				end
-			end)
-			ui:Check("Auto-refresh Snapshot (1s)", function()
-				return self.db.profile.performance.optionsAutoRefresh ~= false
-			end, function(v)
-				self.db.profile.performance.optionsAutoRefresh = v and true or false
-				frame:BuildTab("performance")
-			end)
-
-			local function AddActionButton(label, onClick)
-				local x, y, width = ui:Reserve(34, false)
-				local button = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-				button:SetSize(math.max(120, width - 8), 24)
-				button:SetPoint("TOPLEFT", page, "TOPLEFT", x, y)
-				button:SetText(label)
-				button:SetScript("OnClick", onClick)
-				return button
-			end
-
-			AddActionButton("Open /perflib UI", function()
-				if self.performanceLib and self.performanceLib.ToggleDashboard then
-					self.performanceLib:ToggleDashboard()
-				end
-			end)
-			AddActionButton("Open SUF Debug", function()
-				self:ShowDebugPanel()
-			end)
-			AddActionButton("Profile Start", function()
-				self:StartPerformanceProfileFromUI()
-			end)
-			AddActionButton("Profile Stop", function()
-				self:StopPerformanceProfileFromUI()
-			end)
-			AddActionButton("Profile Analyze", function()
-				self:AnalyzePerformanceProfileFromUI()
-			end)
-			AddActionButton("Refresh Snapshot", function()
-				frame:BuildTab("performance")
-			end)
-
-			ui:Label("Class Resource Status", false)
-			local function BuildClassResourceStatusText()
-				local data = self:GetClassResourceAuditData() or {}
-				local statusText = "|cffaaaaaaIDLE|r"
-				if not data.hasPlayerFrame then
-					statusText = "|cffff4444NOT SPAWNED|r"
-				elseif data.active and data.classPowerVisible and (tonumber(data.visibleSlots) or 0) > 0 then
-					statusText = "|cff00ff00HEALTHY|r"
-				elseif data.active and not data.classPowerVisible then
-					statusText = "|cffffcc00CONTEXT ACTIVE / BAR HIDDEN|r"
-				elseif (not data.active) and data.classPowerVisible then
-					statusText = "|cffffcc00CONTEXT INACTIVE / BAR VISIBLE|r"
-				end
-				local lines = {
-					("Status: %s"):format(statusText),
-					("Class: %s | SpecID: %s | PowerType: %s"):format(
-						tostring(data.classTag or "UNKNOWN"),
-						tostring(data.specID or "n/a"),
-						tostring(data.powerToken or "n/a")
-					),
-					("Expected: %s | Active Context: %s"):format(
-						tostring(data.expected or "None"),
-						tostring(data.active and true or false)
-					),
-					("Player Frame: %s | Resource Visible: %s | Visible Slots: %s"):format(
-						tostring(data.hasPlayerFrame and true or false),
-						tostring(data.classPowerVisible and true or false),
-						tostring(data.visibleSlots or 0)
-					),
-				}
-				if data.classTag == "DRUID" then
-					lines[#lines + 1] = "Druid combo points are only active in Cat Form."
-				elseif data.classTag == "DEATHKNIGHT" then
-					lines[#lines + 1] = "DK runes use oUF Runes; no dedicated SUF top-row class bar yet."
-				end
-				return table.concat(lines, "\n")
-			end
-			ui:Paragraph(BuildClassResourceStatusText(), true)
-
-			ui:Label("Current Snapshot", false)
-			local function BuildPerformanceSnapshotText()
-				local frameStats = self.performanceLib and self.performanceLib.GetFrameTimeStats and self.performanceLib:GetFrameTimeStats() or {}
-				local eventStats = self.performanceLib and self.performanceLib.EventCoalescer and self.performanceLib.EventCoalescer.GetStats and self.performanceLib.EventCoalescer:GetStats() or {}
-				local dirtyStats = self.performanceLib and self.performanceLib.DirtyFlagManager and self.performanceLib.DirtyFlagManager.GetStats and self.performanceLib.DirtyFlagManager:GetStats() or {}
-				local poolStats = self.performanceLib and self.performanceLib.FramePoolManager and self.performanceLib.FramePoolManager.GetStats and self.performanceLib.FramePoolManager:GetStats() or {}
-				local profilerStats = self.performanceLib and self.performanceLib.PerformanceProfiler and self.performanceLib.PerformanceProfiler.GetStats and self.performanceLib.PerformanceProfiler:GetStats() or {}
-				local isRecording = profilerStats.isRecording and "Yes" or "No"
-				return ("Preset: %s\nFrame: avg %.2fms | p95 %.2f | p99 %.2f\nEventBus: coalesced=%d dispatched=%d queued=%d savings=%.1f%%\nDirty: processed=%d batches=%d queued=%d\nPools: created=%d reused=%d released=%d\nProfiler: recording=%s events=%d"):format(
-					self:GetPerformanceLibPreset(),
-					tonumber(frameStats.avg or 0) or 0,
-					tonumber(frameStats.P95 or 0) or 0,
-					tonumber(frameStats.P99 or 0) or 0,
-					tonumber(eventStats.totalCoalesced or 0) or 0,
-					tonumber(eventStats.totalDispatched or 0) or 0,
-					tonumber(eventStats.queuedEvents or 0) or 0,
-					tonumber(eventStats.savingsPercent or 0) or 0,
-					tonumber(dirtyStats.framesProcessed or 0) or 0,
-					tonumber(dirtyStats.batchesRun or 0) or 0,
-					tonumber(dirtyStats.currentDirtyCount or 0) or 0,
-					tonumber(poolStats.totalCreated or 0) or 0,
-					tonumber(poolStats.totalReused or 0) or 0,
-					tonumber(poolStats.totalReleased or 0) or 0,
-					isRecording,
-					tonumber(profilerStats.eventCount or 0) or 0
-				)
-			end
-
-			ui:BeginNewLine()
-			local snapshot = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			snapshot:SetPoint("TOPLEFT", page, "TOPLEFT", 12, ui.y)
-			snapshot:SetWidth(ui.width)
-			snapshot:SetJustifyH("LEFT")
-			snapshot:SetJustifyV("TOP")
-			snapshot:SetText(BuildPerformanceSnapshotText())
-			local snapshotHeight = math.max(96, math.floor((snapshot:GetStringHeight() or 0) + 0.5))
-			ui.y = ui.y - (snapshotHeight + 8)
-
-			frame.performanceSnapshotText = snapshot
-			frame.performanceSnapshotPage = page
-			frame.performanceBuildSnapshotText = BuildPerformanceSnapshotText
-
-			ui:Label("SUF Status Report", false)
-			local function BuildSUFStatusReport()
-				local plugins = self:GetPluginSettings() or {}
-				local raidDebuffsEnabled = plugins.raidDebuffs and plugins.raidDebuffs.enabled ~= false
-				local auraWatchEnabled = plugins.auraWatch and plugins.auraWatch.enabled ~= false
-				local faderEnabled = plugins.fader and plugins.fader.enabled == true
-				local inCombat = InCombatLockdown and InCombatLockdown() or false
-				local inEditMode = self:IsEditModeActive()
-				local isPerfEnabled = self:IsPerformanceIntegrationEnabled()
-				local pendingPlugins = self._pendingPluginUpdates and true or false
-				local queueAccepted = tonumber(self._perfQueueAccepted or 0) or 0
-				local queueFallback = tonumber(self._perfQueueFallback or 0) or 0
-				local headerCount = 0
-				for _ in pairs(self.headers or {}) do
-					headerCount = headerCount + 1
-				end
-				return ("Runtime: combat=%s editMode=%s perf=%s\nFrames: active=%d headers=%d\nPlugins: raidDebuffs=%s auraWatch=%s fader=%s pendingPluginFlush=%s\nQueue: accepted=%d fallback=%d"):format(
-					tostring(inCombat),
-					tostring(inEditMode),
-					tostring(isPerfEnabled),
-					#(self.frames or {}),
-					headerCount,
-					tostring(raidDebuffsEnabled),
-					tostring(auraWatchEnabled),
-					tostring(faderEnabled),
-					tostring(pendingPlugins),
-					queueAccepted,
-					queueFallback
-				)
-			end
-			ui:Paragraph(BuildSUFStatusReport(), true)
-
-			if self.db.profile.performance.optionsAutoRefresh ~= false then
-				frame.performanceSnapshotTicker = C_Timer.NewTicker(1.0, function()
-					if not frame:IsShown() or frame.currentTab ~= "performance" then
-						StopPerformanceSnapshotTicker()
-						return
-					end
-					if frame.performanceSnapshotText and frame.performanceBuildSnapshotText then
-						frame.performanceSnapshotText:SetText(frame.performanceBuildSnapshotText())
-						local textHeight = frame.performanceSnapshotText:GetStringHeight() or 0
-						if frame.performanceSnapshotPage then
-							local minHeight = math.max(96, math.floor(textHeight + 8))
-							if minHeight > 0 then
-								local currentHeight = frame.performanceSnapshotPage:GetHeight() or 0
-								if minHeight > currentHeight then
-									frame.performanceSnapshotPage:SetHeight(minHeight)
-								end
-							end
-						end
-					end
-				end)
-			end
-		elseif tabKey == "importexport" then
-			ui:Label("Import / Export", true)
-			ui:Paragraph("Wizard flow: paste data, Validate, Preview, then Apply.", true)
-			local box = CreateFrame("EditBox", nil, page, "InputBoxTemplate")
-			box:SetAutoFocus(false)
-			box:SetMultiLine(true)
-			box:SetPoint("TOPLEFT", page, "TOPLEFT", 12, -36)
-			box:SetSize(math.max(420, contentHost:GetWidth() - 72), 220)
-			local wizardState = {
-				parsed = nil,
-				err = nil,
-				validation = nil,
-				preview = nil,
-			}
-			frame.importInstallerState = frame.importInstallerState or { step = 1, status = {} }
-			local installerState = frame.importInstallerState
-			local function MarkInstallerStep(stepIndex, stateText)
-				installerState.status[stepIndex] = stateText
-				if stateText == "done" and installerState.step <= stepIndex then
-					installerState.step = stepIndex + 1
-				elseif stateText == "error" then
-					installerState.step = stepIndex
-				end
-			end
-			local wizardStatus = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			wizardStatus:SetPoint("TOPLEFT", box, "BOTTOMLEFT", 0, -8)
-			wizardStatus:SetWidth(math.max(420, contentHost:GetWidth() - 72))
-			wizardStatus:SetJustifyH("LEFT")
-			wizardStatus:SetText("Ready.")
-			local wizardPreview = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-			wizardPreview:SetPoint("TOPLEFT", wizardStatus, "BOTTOMLEFT", 0, -6)
-			wizardPreview:SetWidth(math.max(420, contentHost:GetWidth() - 72))
-			wizardPreview:SetJustifyH("LEFT")
-			wizardPreview:SetJustifyV("TOP")
-			wizardPreview:SetText("")
-			local function SetWizardStatus(text, warn)
-				wizardStatus:SetText(text or "")
-				if warn then
-					wizardStatus:SetTextColor(1.00, 0.35, 0.35)
-				else
-					wizardStatus:SetTextColor(0.35, 1.00, 0.45)
-				end
-			end
-			local function RunInstallerStep(stepIndex)
-				if stepIndex == 1 then
-					local data, err = self:DeserializeProfile(box:GetText() or "")
-					if not data then
-						wizardState.parsed, wizardState.validation, wizardState.preview = nil, nil, nil
-						SetWizardStatus("Validation failed: " .. tostring(err), true)
-						MarkInstallerStep(1, "error")
-						return false
-					end
-					local validation, validationErr = self:ValidateImportedProfileData(data)
-					if not validation or validation.ok == false then
-						SetWizardStatus("Validation failed: " .. tostring(validationErr or "invalid payload"), true)
-						MarkInstallerStep(1, "error")
-						return false
-					end
-					wizardState.parsed = data
-					wizardState.validation = validation
-					wizardState.preview = nil
-					wizardPreview:SetText("")
-					SetWizardStatus("Validation passed.", false)
-					MarkInstallerStep(1, "done")
-					return true
-				elseif stepIndex == 2 then
-					if not wizardState.parsed then
-						SetWizardStatus("Preview blocked: run validation first.", true)
-						MarkInstallerStep(2, "error")
-						return false
-					end
-					wizardState.preview = self:BuildImportedProfilePreview(wizardState.parsed, wizardState.validation)
-					wizardPreview:SetText(wizardState.preview.summary or "")
-					SetWizardStatus("Preview ready.", false)
-					MarkInstallerStep(2, "done")
-					return true
-				elseif stepIndex == 3 then
-					if not wizardState.parsed then
-						SetWizardStatus("Apply blocked: run validation first.", true)
-						MarkInstallerStep(3, "error")
-						return false
-					end
-					local ok, applyErr, meta = self:ApplyImportedProfile(wizardState.parsed)
-					if not ok then
-						SetWizardStatus("Import failed: " .. tostring(applyErr), true)
-						if meta and meta.manualFallback and meta.manualText then
-							wizardPreview:SetText(meta.manualText)
-						end
-						MarkInstallerStep(3, "error")
-						return false
-					end
-					if meta and meta.preview and meta.preview.summary then
-						wizardPreview:SetText(meta.preview.summary)
-					end
-					SetWizardStatus("Import applied successfully.", false)
-					MarkInstallerStep(3, "done")
-					return true
-				elseif stepIndex == 4 then
-					local summary = "Import complete.\nReload recommended to finalize secure/UI state.\n\nReload UI now?"
-					self:PromptReloadAfterImport(summary)
-					SetWizardStatus("Reload prompt opened.", false)
-					MarkInstallerStep(4, "done")
-					return true
-				end
-				return false
-			end
-			local exportBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			exportBtn:SetSize(140, 24)
-			exportBtn:SetPoint("TOPLEFT", wizardStatus, "BOTTOMLEFT", 0, -8)
-			exportBtn:SetText("Export")
-			exportBtn:SetScript("OnClick", function()
-				local data, err = self:SerializeProfile()
-				if data then
-					box:SetText(data)
-					SetWizardStatus("Exported current profile into the input box.", false)
-				else
-					self:Print(addonName .. ": " .. err)
-					SetWizardStatus(err, true)
-				end
-			end)
-			local validateBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			validateBtn:SetSize(100, 24)
-			validateBtn:SetPoint("LEFT", exportBtn, "RIGHT", 8, 0)
-			validateBtn:SetText("Validate")
-			validateBtn:SetScript("OnClick", function()
-				local data, err = self:DeserializeProfile(box:GetText() or "")
-				if data then
-					local validation, validationErr = self:ValidateImportedProfileData(data)
-					wizardState.parsed = data
-					wizardState.err = nil
-					wizardState.validation = validation
-					wizardState.preview = nil
-					wizardPreview:SetText("")
-					if validation and validation.ok ~= false then
-						SetWizardStatus(("Validation passed. Top-level keys: %d"):format(validation.keyCount or 0), false)
-						MarkInstallerStep(1, "done")
-					else
-						local reason = validationErr or "Validation failed."
-						SetWizardStatus("Validation failed: " .. tostring(reason), true)
-						wizardState.err = reason
-						MarkInstallerStep(1, "error")
-					end
-				else
-					self:Print(addonName .. ": " .. err)
-					wizardState.parsed = nil
-					wizardState.err = err
-					wizardState.validation = nil
-					wizardState.preview = nil
-					wizardPreview:SetText("")
-					SetWizardStatus("Validation failed: " .. tostring(err), true)
-					MarkInstallerStep(1, "error")
-				end
-			end)
-			local previewBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			previewBtn:SetSize(100, 24)
-			previewBtn:SetPoint("LEFT", validateBtn, "RIGHT", 8, 0)
-			previewBtn:SetText("Preview")
-			previewBtn:SetScript("OnClick", function()
-				local data = wizardState.parsed
-				if not data then
-					SetWizardStatus("Nothing validated yet. Click Validate first.", true)
-					return
-				end
-				local validation = wizardState.validation or self:ValidateImportedProfileData(data)
-				if not validation or validation.ok == false then
-					SetWizardStatus("Preview unavailable: validation failed.", true)
-					return
-				end
-				local preview = self:BuildImportedProfilePreview(data, validation)
-				wizardState.preview = preview
-				wizardPreview:SetText(preview.summary or "")
-				SetWizardStatus("Preview generated. Review impact details below.", false)
-				MarkInstallerStep(2, "done")
-			end)
-			local importBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			importBtn:SetSize(100, 24)
-			importBtn:SetPoint("LEFT", previewBtn, "RIGHT", 8, 0)
-			importBtn:SetText("Apply")
-			importBtn:SetScript("OnClick", function()
-				local data = wizardState.parsed
-				if not data then
-					SetWizardStatus("Nothing validated yet. Click Validate first.", true)
-					return
-				end
-				local ok, applyErr, meta = self:ApplyImportedProfile(data)
-				if ok then
-					local adapterText = meta and meta.adapter and (" via " .. tostring(meta.adapter)) or ""
-					SetWizardStatus("Import applied successfully" .. adapterText .. ".", false)
-					if meta and meta.preview and meta.preview.summary then
-						wizardPreview:SetText(meta.preview.summary)
-					end
-					if meta and meta.preview and meta.preview.reloadSummary then
-						self:PromptReloadAfterImport("Import complete.\n" .. tostring(meta.preview.reloadSummary) .. "\n\nReload UI now?")
-					end
-					MarkInstallerStep(3, "done")
-					frame:BuildTab(tabKey)
-				else
-					self:Print(addonName .. ": " .. tostring(applyErr))
-					if meta and meta.manualFallback and meta.manualText then
-						wizardPreview:SetText(meta.manualText)
-					end
-					MarkInstallerStep(3, "error")
-					SetWizardStatus("Import failed: " .. tostring(applyErr), true)
-				end
-			end)
-			local manualBtn = CreateFrame("Button", nil, page, "UIPanelButtonTemplate")
-			manualBtn:SetSize(170, 24)
-			manualBtn:SetPoint("LEFT", importBtn, "RIGHT", 8, 0)
-			manualBtn:SetText("Manual Fallback Plan")
-			manualBtn:SetScript("OnClick", function()
-				local data = wizardState.parsed
-				if not data then
-					SetWizardStatus("Manual fallback needs validated data.", true)
-					return
-				end
-				local text = self:BuildManualImportFallbackText(data, wizardState.validation)
-				wizardPreview:SetText(text)
-				SetWizardStatus("Manual fallback plan generated.", false)
-			end)
-			wizardPreview:ClearAllPoints()
-			wizardPreview:SetPoint("TOPLEFT", exportBtn, "BOTTOMLEFT", 0, -8)
-			wizardPreview:SetWidth(math.max(420, contentHost:GetWidth() - 72))
-
-			local controlsBottom = manualBtn:GetBottom() or importBtn:GetBottom() or wizardPreview:GetBottom()
-			local pageTop = page:GetTop()
-			if controlsBottom and pageTop and pageTop > controlsBottom then
-				ui.y = -((pageTop - controlsBottom) + 16)
-			else
-				ui.y = ui.y - 120
-			end
-			ui:BeginNewLine()
-			ui:Label("Migration Installer", false)
-			local steps = {
-				{ title = "1. Validate Import Payload" },
-				{ title = "2. Preview Impact" },
-				{ title = "3. Apply With Rollback Safety" },
-				{ title = "4. Reload Confirmation" },
-			}
-			local doneSteps = 0
-			for i = 1, #steps do
-				local status = installerState.status[i] or "pending"
-				if status == "done" then
-					doneSteps = doneSteps + 1
-				end
-				local marker = (status == "done" and "[OK]") or (status == "error" and "[ERR]") or (installerState.step == i and "[RUN]") or "[PEND]"
-				ui:Paragraph(("%s %s"):format(marker, steps[i].title), true)
-			end
-			local progress = math.floor((doneSteps / #steps) * 100)
-			ui:Paragraph(("Progress: %d%% (%d/%d)"):format(progress, doneSteps, #steps), true)
-			ui:Button("Run Next Installer Step", function()
-				local nextStep = math.max(1, math.min(#steps, installerState.step or 1))
-				RunInstallerStep(nextStep)
-				frame:BuildTab(tabKey)
-			end, true)
-			ui:Button("Run All Pending Steps", function()
-				local start = math.max(1, math.min(#steps, installerState.step or 1))
-				for i = start, #steps do
-					if not RunInstallerStep(i) then
-						break
-					end
-				end
-				frame:BuildTab(tabKey)
-			end, true)
-			ui:Button("Reset Installer Steps", function()
-				installerState.step = 1
-				installerState.status = {}
-				SetWizardStatus("Installer steps reset.", false)
-				frame:BuildTab(tabKey)
-			end, true)
-		elseif tabKey == "tags" then
-			ui:Label("Tags Reference", true)
-			ui:Paragraph("Use these in Name/Level/Health/Power fields. Grouped below by unit + sub type and by oUF tag category.", true)
-			ui:Label("Per-Unit Sub Types", false)
-			for _, unitKey in ipairs(UNIT_TYPE_ORDER) do
-				local unitTags = self.db.profile.tags and self.db.profile.tags[unitKey]
-				if unitTags then
-					ui:Label(GetUnitLabel(unitKey), false)
-					ui:Paragraph("name: " .. tostring(unitTags.name or "") .. "\nlevel: " .. tostring(unitTags.level or "") .. "\nhealth: " .. tostring(unitTags.health or "") .. "\npower: " .. tostring(unitTags.power or ""), true)
-				end
-			end
-
-			local allTags = CollectOUFTags()
-			local categories = {
-				"Identity",
-				"Health",
-				"Power",
-				"Cast",
-				"Auras",
-				"Status",
-				"Other",
-			}
-			local grouped = {}
-			for i = 1, #categories do
-				grouped[categories[i]] = {}
-			end
-			for i = 1, #allTags do
-				local category = CategorizeTag(allTags[i])
-				grouped[category][#grouped[category] + 1] = allTags[i]
-			end
-
-			ui:Label("Available oUF Tags", false)
-			for i = 1, #categories do
-				local category = categories[i]
-				local list = grouped[category]
-				if list and #list > 0 then
-					ui:Label(category, false)
-					ui:Paragraph(table.concat(list, ", "), true)
-				end
-			end
-			local usedTags = {}
-			for _, unitKey in ipairs(UNIT_TYPE_ORDER) do
-				local unitTags = self.db.profile.tags and self.db.profile.tags[unitKey]
-				if unitTags then
-					local fields = { "name", "level", "health", "power" }
-					for fieldIndex = 1, #fields do
-						local fieldValue = unitTags[fields[fieldIndex]]
-						if type(fieldValue) == "string" then
-							for token in string.gmatch(fieldValue, "%[([^%]]+)%]") do
-								usedTags[token] = true
-							end
-						end
-					end
-				end
-			end
-			local availableNotUsed = {}
-			for i = 1, #allTags do
-				local tagName = allTags[i]
-				if not usedTags[tagName] and string.sub(tagName, 1, 4) ~= "suf:" then
-					availableNotUsed[#availableNotUsed + 1] = tagName
-				end
-			end
-			ui:Label("Available but Not in Current Tag Strings", false)
-			if #availableNotUsed > 0 then
-				local preview = {}
-				local limit = math.min(#availableNotUsed, 60)
-				for i = 1, limit do
-					preview[#preview + 1] = availableNotUsed[i]
-				end
-				ui:Paragraph(table.concat(preview, ", "), true)
-				if #availableNotUsed > limit then
-					ui:Paragraph(string.format("...plus %d more tags.", #availableNotUsed - limit), true)
-				end
-			else
-				ui:Paragraph("All currently available non-SUF tags are already in use by your unit tag strings.", true)
-			end
-
-			ui:Label("SUF Custom Tags", false)
-			local sufTagDescriptions = {
-				["suf:absorbs"] = "Total absorbs (raw)",
-				["suf:absorbs:abbr"] = "Total absorbs (abbreviated)",
-				["suf:incoming"] = "Incoming heals (raw)",
-				["suf:incoming:abbr"] = "Incoming heals (abbreviated)",
-				["suf:healabsorbs"] = "Heal absorbs (raw)",
-				["suf:healabsorbs:abbr"] = "Heal absorbs (abbreviated)",
-				["suf:ehp"] = "Effective health (health + absorbs, raw)",
-				["suf:ehp:abbr"] = "Effective health (health + absorbs, abbreviated)",
-			}
-			local sufTags = {}
-			for i = 1, #allTags do
-				local tagName = allTags[i]
-				if string.sub(tagName, 1, 4) == "suf:" then
-					sufTags[#sufTags + 1] = tagName
-				end
-			end
-			if #sufTags > 0 then
-				local lines = {}
-				for i = 1, #sufTags do
-					local tagName = sufTags[i]
-					lines[#lines + 1] = tagName .. " - " .. (sufTagDescriptions[tagName] or "SUF custom tag")
-				end
-				ui:Paragraph(table.concat(lines, "\n"), true)
-			else
-				ui:Paragraph("No SUF custom tags are currently registered.", true)
-			end
-		elseif tabKey == "credits" then
-			ui:Label("Credits", true)
-			ui:Paragraph("SimpleUnitFrames (SUF)\nPrimary Author: Grevin", true)
-			ui:Paragraph("UnhaltedUnitFrames (UUF)\nReference architecture, performance patterns, and feature inspirations.\nIncludes UUF-inspired ports plus your personal custom changes that are not present in UUF mainline.", true)
-			ui:Paragraph("PerformanceLib\nIntegrated optional performance framework for event coalescing, dirty batching, and profiling workflows.", true)
-			ui:Paragraph("Libraries Used\nAce3 (AceAddon/AceDB/AceGUI/AceSerializer), oUF, oUF_Plugins, LibSharedMedia-3.0, LibDualSpec-1.0, LibSerialize, LibDeflate, LibDataBroker-1.1, LibDBIcon-1.0, LibAnim, LibCustomGlow-1.0, LibActionButton-1.0, LibSimpleSticky, LibTranslit-1.0, UTF8, LibDispel-1.0, CallbackHandler-1.0, LibStub, TaintLess.", true)
-			ui:Paragraph("Special Thanks\nBlizzard UI Source and WoW addon ecosystem maintainers.", true)
-		else
-			local unitSettings = self:GetUnitSettings(tabKey)
-			local tags = self.db.profile.tags[tabKey]
-			local size = self.db.profile.sizes[tabKey]
-			local plugins = self:GetPluginSettings()
-			local unitPluginProfile = nil
-			if IsGroupUnitType(tabKey) then
-				plugins.units = plugins.units or CopyTableDeep(defaults.profile.plugins.units)
-				MergeDefaults(plugins.units, defaults.profile.plugins.units)
-				unitPluginProfile = plugins.units[tabKey] or CopyTableDeep(defaults.profile.plugins.units[tabKey])
-				plugins.units[tabKey] = unitPluginProfile
-				MergeDefaults(unitPluginProfile, defaults.profile.plugins.units[tabKey])
-			end
-			unitSettings.fontSizes = unitSettings.fontSizes or CopyTableDeep(self.db.profile.fontSizes)
-			unitSettings.portrait = unitSettings.portrait or { mode = "none", size = 32, showClass = false, position = "LEFT" }
-			unitSettings.media = unitSettings.media or { statusbar = self.db.profile.media.statusbar }
-			unitSettings.castbar = unitSettings.castbar or CopyTableDeep(DEFAULT_UNIT_CASTBAR)
-			unitSettings.layout = unitSettings.layout or CopyTableDeep(DEFAULT_UNIT_LAYOUT)
-			unitSettings.mainBarsBackground = unitSettings.mainBarsBackground or CopyTableDeep(DEFAULT_UNIT_MAIN_BARS_BACKGROUND)
-			unitSettings.healPrediction = unitSettings.healPrediction or CopyTableDeep(DEFAULT_HEAL_PREDICTION)
-			ui:Label((tabKey == "tot" and "TargetOfTarget" or tabKey:upper()) .. " Options", true)
-			if ui:Section("General", "unit.general", true) then
-				ui:Slider("Frame Width", 80, 400, 1, function() return size.width end, function(v) size.width = v; self:ScheduleUpdateAll() end)
-				ui:Slider("Frame Height", 18, 80, 1, function() return size.height end, function(v) size.height = v; self:ScheduleUpdateAll() end)
-				ui:Edit("Name Tag", function() return tags.name end, function(v) tags.name = v; self:ScheduleUpdateAll() end)
-				ui:Edit("Level Tag", function() return tags.level end, function(v) tags.level = v; self:ScheduleUpdateAll() end)
-				ui:Edit("Health Tag", function() return tags.health end, function(v) tags.health = v; self:ScheduleUpdateAll() end)
-				ui:Edit("Power Tag", function() return tags.power end, function(v) tags.power = v; self:ScheduleUpdateAll() end)
-				self._tagPresetSelection = self._tagPresetSelection or {}
-				if not self._tagPresetSelection[tabKey] then
-					self._tagPresetSelection[tabKey] = "COMPACT"
-				end
-				ui:Label("Tag Presets", false)
-				ui:Dropdown("Preset", TAG_PRESETS, function()
-					return self._tagPresetSelection[tabKey] or "COMPACT"
-				end, function(v)
-					self._tagPresetSelection[tabKey] = v
-				end)
-				ui:Button("Apply Selected Preset", function()
-					ApplyUnitTagPreset(tabKey, self._tagPresetSelection[tabKey] or "COMPACT")
-					frame:BuildTab(tabKey)
-				end, true)
-			end
-			if ui:Section("Bars", "unit.bars", true) then
-				ui:Label("Main Bars Background", false)
-			ui:Check("Use Global Main Bars Background", function()
-				return unitSettings.mainBarsBackground.useGlobal ~= false
-			end, function(v)
-				unitSettings.mainBarsBackground.useGlobal = v and true or false
-				self:ScheduleUpdateAll()
-				frame:BuildTab(tabKey)
-			end)
-			if unitSettings.mainBarsBackground.useGlobal ~= false then
-				ui:Paragraph("Using Global Main Bars Background settings.", true)
-			else
-				ui:Check("Enable Main Bars Background", function()
-					return unitSettings.mainBarsBackground.enabled ~= false
-				end, function(v)
-					unitSettings.mainBarsBackground.enabled = v and true or false
-					self:ScheduleUpdateAll()
-				end)
-				if #statusbarOptions > 0 then
-					ui:Dropdown("Main Bars Background Texture", statusbarOptions, function()
-						return unitSettings.mainBarsBackground.texture
-					end, function(v)
-						unitSettings.mainBarsBackground.texture = v
-						self:ScheduleUpdateAll()
-					end)
-				else
-					ui:Edit("Main Bars Background Texture", function()
-						return unitSettings.mainBarsBackground.texture
-					end, function(v)
-						unitSettings.mainBarsBackground.texture = v
-						self:ScheduleUpdateAll()
-					end)
-				end
-				ui:Color("Main Bars Background Color", function()
-					return unitSettings.mainBarsBackground.color
-				end, function(r, g, b)
-					unitSettings.mainBarsBackground.color[1], unitSettings.mainBarsBackground.color[2], unitSettings.mainBarsBackground.color[3] = r, g, b
-					self:ScheduleUpdateAll()
-				end)
-				ui:Slider("Main Bars Background Opacity", 0, 1, 0.05, function()
-					return unitSettings.mainBarsBackground.alpha
-				end, function(v)
-					unitSettings.mainBarsBackground.alpha = v
-					self:ScheduleUpdateAll()
-				end)
-			end
-			if #statusbarOptions > 0 then
-				ui:Dropdown("Statusbar Texture", statusbarOptions, function() return unitSettings.media.statusbar end, function(v) unitSettings.media.statusbar = v; self:ScheduleUpdateAll() end)
-			else
-				ui:Edit("Statusbar Texture Name", function() return unitSettings.media.statusbar end, function(v) unitSettings.media.statusbar = v; self:ScheduleUpdateAll() end)
-			end
-			ui:Slider("Name Font Size", 8, 20, 1, function() return unitSettings.fontSizes.name end, function(v) unitSettings.fontSizes.name = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Level Font Size", 8, 20, 1, function() return unitSettings.fontSizes.level end, function(v) unitSettings.fontSizes.level = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Health Font Size", 8, 20, 1, function() return unitSettings.fontSizes.health end, function(v) unitSettings.fontSizes.health = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Power Font Size", 8, 20, 1, function() return unitSettings.fontSizes.power end, function(v) unitSettings.fontSizes.power = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Cast Font Size", 8, 20, 1, function() return unitSettings.fontSizes.cast end, function(v) unitSettings.fontSizes.cast = v; self:ScheduleUpdateAll() end)
-			end
-			if ui:Section("Castbar", "unit.castbar", true) then
-			ui:Label("Castbar", false)
-			ui:Check("Enable Castbar", function() return unitSettings.castbar.enabled ~= false end, function(v) unitSettings.castbar.enabled = v; self:ScheduleUpdateAll() end)
-			ui:Check("Show Cast Spell Text", function() return unitSettings.castbar.showText ~= false end, function(v) unitSettings.castbar.showText = v; self:ScheduleUpdateAll() end)
-			ui:Check("Show Cast Time", function() return unitSettings.castbar.showTime ~= false end, function(v) unitSettings.castbar.showTime = v; self:ScheduleUpdateAll() end)
-			ui:Check("Reverse Cast Fill", function() return unitSettings.castbar.reverseFill == true end, function(v) unitSettings.castbar.reverseFill = v; self:ScheduleUpdateAll() end)
-			ui:Dropdown("Castbar Color Profile", {
-				{ value = "GLOBAL", text = "Use Global" },
-				{ value = "UUF", text = "UUF" },
-				{ value = "Blizzard", text = "Blizzard" },
-				{ value = "HighContrast", text = "High Contrast" },
-			}, function() return unitSettings.castbar.colorProfile end, function(v) unitSettings.castbar.colorProfile = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Castbar Width (% of frame)", 50, 150, 1, function() return unitSettings.castbar.widthPercent end, function(v) unitSettings.castbar.widthPercent = v; self:ScheduleUpdateAll() end)
-			ui:Dropdown("Castbar Anchor", {
-				{ value = "BELOW_FRAME", text = "Below Frame" },
-				{ value = "ABOVE_FRAME", text = "Above Frame" },
-				{ value = "BELOW_CLASSPOWER", text = "Below ClassPower" },
-			}, function() return unitSettings.castbar.anchor end, function(v) unitSettings.castbar.anchor = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Castbar Gap", 0, 40, 1, function() return unitSettings.castbar.gap end, function(v) unitSettings.castbar.gap = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Castbar Fine Offset", -40, 40, 1, function() return unitSettings.castbar.offsetY end, function(v) unitSettings.castbar.offsetY = v; self:ScheduleUpdateAll() end)
-			end
-			if ui:Section("Plugins", "unit.plugins", true) then
-				if unitPluginProfile then
-					ui:Label("Plugin Overrides", false)
-					ui:Check("Use Global Plugin Settings", function()
-						return unitPluginProfile.useGlobal ~= false
-					end, function(v)
-						if v then
-							unitPluginProfile.useGlobal = true
-						else
-							self:SeedUnitPluginOverridesFromGlobal(tabKey)
-							unitPluginProfile = self:GetPluginSettings().units[tabKey]
-						end
-						self:SchedulePluginUpdate(tabKey)
-						frame:BuildTab(tabKey)
-					end)
-					if unitPluginProfile.useGlobal ~= false then
-						ui:Paragraph("Using global plugin configuration for this unit type.", true)
-					else
-					ui:Check("Raid Debuffs", function()
-						return unitPluginProfile.raidDebuffs.enabled ~= false
-					end, function(v)
-						unitPluginProfile.raidDebuffs.enabled = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Slider("Raid Debuff Icon Size", 12, 36, 1, function()
-						return tonumber(unitPluginProfile.raidDebuffs.size) or 18
-					end, function(v)
-						unitPluginProfile.raidDebuffs.size = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Raid Debuff Glow", function()
-						return unitPluginProfile.raidDebuffs.glow ~= false
-					end, function(v)
-						unitPluginProfile.raidDebuffs.glow = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end, not LibCustomGlow)
-					ui:Dropdown("Raid Debuff Glow Mode", {
-						{ value = "ALL", text = "All Debuffs" },
-						{ value = "DISPELLABLE", text = "Dispellable Only" },
-						{ value = "PRIORITY", text = "Boss/Priority Only" },
-					}, function()
-						return unitPluginProfile.raidDebuffs.glowMode or "ALL"
-					end, function(v)
-						unitPluginProfile.raidDebuffs.glowMode = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Aura Watch", function()
-						return unitPluginProfile.auraWatch.enabled ~= false
-					end, function(v)
-						unitPluginProfile.auraWatch.enabled = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Slider("Aura Watch Icon Size", 8, 22, 1, function()
-						return tonumber(unitPluginProfile.auraWatch.size) or 10
-					end, function(v)
-						unitPluginProfile.auraWatch.size = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Slider("Aura Watch Buff Slots", 0, 8, 1, function()
-						return tonumber(unitPluginProfile.auraWatch.numBuffs) or 3
-					end, function(v)
-						unitPluginProfile.auraWatch.numBuffs = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Slider("Aura Watch Debuff Slots", 0, 8, 1, function()
-						return tonumber(unitPluginProfile.auraWatch.numDebuffs) or 3
-					end, function(v)
-						unitPluginProfile.auraWatch.numDebuffs = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Aura Watch Debuff Overlay", function()
-						return unitPluginProfile.auraWatch.showDebuffType ~= false
-					end, function(v)
-						unitPluginProfile.auraWatch.showDebuffType = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Aura Watch Replace Defaults", function()
-						return unitPluginProfile.auraWatch.replaceDefaults == true
-					end, function(v)
-						unitPluginProfile.auraWatch.replaceDefaults = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					RenderAuraWatchSpellListEditor(unitPluginProfile.auraWatch, function()
-						self:SchedulePluginUpdate(tabKey)
-						frame:BuildTab(tabKey)
-					end)
-					ui:Check("Frame Fader", function()
-						return unitPluginProfile.fader.enabled == true
-					end, function(v)
-						unitPluginProfile.fader.enabled = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Slider("Fader Min Alpha", 0.05, 1, 0.05, function()
-						return tonumber(unitPluginProfile.fader.minAlpha) or 0.45
-					end, function(v)
-						unitPluginProfile.fader.minAlpha = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Slider("Fader Max Alpha", 0.05, 1, 0.05, function()
-						return tonumber(unitPluginProfile.fader.maxAlpha) or 1
-					end, function(v)
-						unitPluginProfile.fader.maxAlpha = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Slider("Fader Smooth", 0, 1, 0.05, function()
-						return tonumber(unitPluginProfile.fader.smooth) or 0.2
-					end, function(v)
-						unitPluginProfile.fader.smooth = v
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Fader: Combat", function()
-						return unitPluginProfile.fader.combat ~= false
-					end, function(v)
-						unitPluginProfile.fader.combat = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Fader: Hover", function()
-						return unitPluginProfile.fader.hover ~= false
-					end, function(v)
-						unitPluginProfile.fader.hover = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Fader: Player Target", function()
-						return unitPluginProfile.fader.playerTarget ~= false
-					end, function(v)
-						unitPluginProfile.fader.playerTarget = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Fader: Action Targeting", function()
-						return unitPluginProfile.fader.actionTarget == true
-					end, function(v)
-						unitPluginProfile.fader.actionTarget = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Fader: Unit Target", function()
-						return unitPluginProfile.fader.unitTarget == true
-					end, function(v)
-						unitPluginProfile.fader.unitTarget = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					ui:Check("Fader: Casting", function()
-						return unitPluginProfile.fader.casting == true
-					end, function(v)
-						unitPluginProfile.fader.casting = v and true or false
-						self:SchedulePluginUpdate(tabKey)
-					end)
-					end
-				else
-					ui:Paragraph("This unit type does not support plugin overrides.", true)
-				end
-			end
-			if ui:Section("Auras", "unit.auras", true) then
-			ui:Label("Heal Prediction", false)
-			ui:Check("Enable Heal Prediction", function() return unitSettings.healPrediction.enabled ~= false end, function(v) unitSettings.healPrediction.enabled = v; self:ScheduleUpdateAll() end)
-			ui:Check("Incoming Heals", function() return unitSettings.healPrediction.incoming.enabled ~= false end, function(v) unitSettings.healPrediction.incoming.enabled = v; self:ScheduleUpdateAll() end)
-			ui:Check("Split Incoming Heals", function() return unitSettings.healPrediction.incoming.split == true end, function(v) unitSettings.healPrediction.incoming.split = v; self:ScheduleUpdateAll() end)
-			ui:Dropdown("Incoming Value Mode", {
-				{ value = "SAFE", text = "Safe (Placeholder on Secret)" },
-				{ value = "SYMBOLIC", text = "Symbolic (~ / ~~ / ~~~)" },
-				{ value = "SELF_ONLY", text = "Self Only (Show Your Incoming +)" },
-				{ value = "HYBRID_ESTIMATE", text = "Hybrid (Try Estimate, Then Placeholder)" },
-			}, function()
-				local mode = unitSettings.healPrediction.incoming.valueMode
-				if mode == "HYBRID_ESTIMATE" or mode == "SELF_ONLY" or mode == "SYMBOLIC" then
-					return mode
-				end
-				return "SAFE"
-			end, function(v)
-				if v == "HYBRID_ESTIMATE" then
-					unitSettings.healPrediction.incoming.valueMode = "HYBRID_ESTIMATE"
-				elseif v == "SYMBOLIC" then
-					unitSettings.healPrediction.incoming.valueMode = "SYMBOLIC"
-				elseif v == "SELF_ONLY" then
-					unitSettings.healPrediction.incoming.valueMode = "SELF_ONLY"
-				else
-					unitSettings.healPrediction.incoming.valueMode = "SAFE"
-				end
-				self:ScheduleUpdateAll()
-			end)
-			ui:Check("Incoming Value Text", function() return unitSettings.healPrediction.incoming.showValueText ~= false end, function(v) unitSettings.healPrediction.incoming.showValueText = v; self:ScheduleUpdateAll() end)
-			ui:Edit("Incoming Value Placeholder (Secret)", function() return unitSettings.healPrediction.incoming.valuePlaceholder or "~" end, function(v)
-				local text = SafeText(v, "~") or "~"
-				if text == "" then
-					text = "~"
-				end
-				if #text > 8 then
-					text = string.sub(text, 1, 8)
-				end
-				unitSettings.healPrediction.incoming.valuePlaceholder = text
-				self:ScheduleUpdateAll()
-			end)
-			ui:Slider("Incoming Value Font Size", 8, 20, 1, function() return unitSettings.healPrediction.incoming.valueFontSize or 10 end, function(v) unitSettings.healPrediction.incoming.valueFontSize = v; self:ScheduleUpdateAll() end)
-			ui:Color("Incoming Value Color", function()
-				return unitSettings.healPrediction.incoming.valueColor
-			end, function(r, g, b)
-				unitSettings.healPrediction.incoming.valueColor[1], unitSettings.healPrediction.incoming.valueColor[2], unitSettings.healPrediction.incoming.valueColor[3] = r, g, b
-				self:ScheduleUpdateAll()
-			end)
-			ui:Slider("Incoming Value Offset X", -30, 30, 1, function() return unitSettings.healPrediction.incoming.valueOffsetX or 2 end, function(v) unitSettings.healPrediction.incoming.valueOffsetX = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Incoming Value Offset Y", -20, 20, 1, function() return unitSettings.healPrediction.incoming.valueOffsetY or 0 end, function(v) unitSettings.healPrediction.incoming.valueOffsetY = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Incoming Opacity", 0.05, 1, 0.05, function() return unitSettings.healPrediction.incoming.opacity end, function(v) unitSettings.healPrediction.incoming.opacity = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Incoming Height", 0.3, 1, 0.05, function() return unitSettings.healPrediction.incoming.height end, function(v) unitSettings.healPrediction.incoming.height = v; self:ScheduleUpdateAll() end)
-			ui:Color("Incoming All Color", function() return unitSettings.healPrediction.incoming.colorAll end, function(r, g, b) unitSettings.healPrediction.incoming.colorAll[1], unitSettings.healPrediction.incoming.colorAll[2], unitSettings.healPrediction.incoming.colorAll[3] = r, g, b; self:ScheduleUpdateAll() end)
-			ui:Color("Incoming Player Color", function() return unitSettings.healPrediction.incoming.colorPlayer end, function(r, g, b) unitSettings.healPrediction.incoming.colorPlayer[1], unitSettings.healPrediction.incoming.colorPlayer[2], unitSettings.healPrediction.incoming.colorPlayer[3] = r, g, b; self:ScheduleUpdateAll() end)
-			ui:Color("Incoming Other Color", function() return unitSettings.healPrediction.incoming.colorOther end, function(r, g, b) unitSettings.healPrediction.incoming.colorOther[1], unitSettings.healPrediction.incoming.colorOther[2], unitSettings.healPrediction.incoming.colorOther[3] = r, g, b; self:ScheduleUpdateAll() end)
-			ui:Check("Damage Absorb", function() return unitSettings.healPrediction.absorbs.enabled ~= false end, function(v) unitSettings.healPrediction.absorbs.enabled = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Damage Absorb Opacity", 0.05, 1, 0.05, function() return unitSettings.healPrediction.absorbs.opacity end, function(v) unitSettings.healPrediction.absorbs.opacity = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Damage Absorb Height", 0.3, 1, 0.05, function() return unitSettings.healPrediction.absorbs.height end, function(v) unitSettings.healPrediction.absorbs.height = v; self:ScheduleUpdateAll() end)
-			ui:Color("Damage Absorb Color", function() return unitSettings.healPrediction.absorbs.color end, function(r, g, b) unitSettings.healPrediction.absorbs.color[1], unitSettings.healPrediction.absorbs.color[2], unitSettings.healPrediction.absorbs.color[3] = r, g, b; self:ScheduleUpdateAll() end)
-			ui:Check("Damage Absorb Glow", function() return unitSettings.healPrediction.absorbs.showGlow ~= false end, function(v) unitSettings.healPrediction.absorbs.showGlow = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Damage Glow Opacity", 0.1, 1, 0.05, function() return unitSettings.healPrediction.absorbs.glowOpacity end, function(v) unitSettings.healPrediction.absorbs.glowOpacity = v; self:ScheduleUpdateAll() end)
-			ui:Check("Heal Absorb", function() return unitSettings.healPrediction.healAbsorbs.enabled ~= false end, function(v) unitSettings.healPrediction.healAbsorbs.enabled = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Heal Absorb Opacity", 0.05, 1, 0.05, function() return unitSettings.healPrediction.healAbsorbs.opacity end, function(v) unitSettings.healPrediction.healAbsorbs.opacity = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Heal Absorb Height", 0.3, 1, 0.05, function() return unitSettings.healPrediction.healAbsorbs.height end, function(v) unitSettings.healPrediction.healAbsorbs.height = v; self:ScheduleUpdateAll() end)
-			ui:Color("Heal Absorb Color", function() return unitSettings.healPrediction.healAbsorbs.color end, function(r, g, b) unitSettings.healPrediction.healAbsorbs.color[1], unitSettings.healPrediction.healAbsorbs.color[2], unitSettings.healPrediction.healAbsorbs.color[3] = r, g, b; self:ScheduleUpdateAll() end)
-			ui:Check("Heal Absorb Glow", function() return unitSettings.healPrediction.healAbsorbs.showGlow ~= false end, function(v) unitSettings.healPrediction.healAbsorbs.showGlow = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Heal Glow Opacity", 0.1, 1, 0.05, function() return unitSettings.healPrediction.healAbsorbs.glowOpacity end, function(v) unitSettings.healPrediction.healAbsorbs.glowOpacity = v; self:ScheduleUpdateAll() end)
-			if tabKey == "player" or tabKey == "target" then
-				ui:Slider("Aura Icon Size", 12, 40, 1, function() return self:GetUnitAuraSize(tabKey) end, function(v) unitSettings.auraSize = v; self:ScheduleUpdateAll() end)
-			end
-			end
-			if ui:Section("Advanced", "unit.advanced", false) then
-			ui:Check("Show Resting Indicator", function() return unitSettings.showResting end, function(v) unitSettings.showResting = v; self:ScheduleUpdateAll() end)
-			ui:Check("Show PvP Indicator", function() return unitSettings.showPvp end, function(v) unitSettings.showPvp = v; self:ScheduleUpdateAll() end)
-			ui:Dropdown("Portrait Mode", {
-				{ value = "none", text = "None" },
-				{ value = "2D", text = "2D" },
-				{ value = "3D", text = "3D" },
-				{ value = "3DMotion", text = "3D Motion" },
-			}, function() return unitSettings.portrait.mode end, function(v) unitSettings.portrait.mode = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Portrait Size", 16, 64, 1, function() return unitSettings.portrait.size end, function(v) unitSettings.portrait.size = v; self:ScheduleUpdateAll() end)
-			ui:Check("Portrait Show Class", function() return unitSettings.portrait.showClass end, function(v) unitSettings.portrait.showClass = v; self:ScheduleUpdateAll() end)
-			ui:Dropdown("Portrait Position", {
-				{ value = "LEFT", text = "Left" },
-				{ value = "RIGHT", text = "Right" },
-			}, function() return unitSettings.portrait.position end, function(v) unitSettings.portrait.position = v; self:ScheduleUpdateAll() end)
-			ui:Label("Resource Layout", false)
-			ui:Slider("Secondary Power Gap (Top)", -6, 24, 1, function() return unitSettings.layout.secondaryToFrame end, function(v) unitSettings.layout.secondaryToFrame = v; self:ScheduleUpdateAll() end)
-			ui:Slider("Class Resource Gap (Top)", -6, 24, 1, function() return unitSettings.layout.classToSecondary end, function(v) unitSettings.layout.classToSecondary = v; self:ScheduleUpdateAll() end)
-			ui:Label("Unit Test Helpers", false)
-			ui:Paragraph(("Current test mode: %s"):format(self.testMode and "enabled" or "disabled"), true)
-			ui:Button("Force Show This Unit Type", function()
-				self:SetTestModeForUnitType(tabKey)
-			end, true)
-			ui:Button("Force Show All Unit Types", function()
-				self:SetTestMode(true)
-			end, true)
-			ui:Button("Disable Test Mode", function()
-				self:SetTestMode(false)
-			end, true)
-			ui:Label("Quick Unit Actions", false)
-			self._quickUnitCopyState = self._quickUnitCopyState or {}
-			self._quickUnitCopyState[tabKey] = self._quickUnitCopyState[tabKey] or "player"
-			ui:Dropdown("Quick Copy Source Unit", {
-				{ value = "player", text = "Player" },
-				{ value = "target", text = "Target" },
-				{ value = "tot", text = "TargetOfTarget" },
-				{ value = "focus", text = "Focus" },
-				{ value = "pet", text = "Pet" },
-				{ value = "party", text = "Party" },
-				{ value = "raid", text = "Raid" },
-				{ value = "boss", text = "Boss" },
-			}, function()
-				return self._quickUnitCopyState[tabKey]
-			end, function(v)
-				self._quickUnitCopyState[tabKey] = v
-			end)
-			ui:Button("Quick Copy Unit Layout/Tags/Size", function()
-				local src = self._quickUnitCopyState[tabKey]
-				if not src or src == tabKey then
-					self:Print(addonName .. ": Select a different source unit.")
-					return
-				end
-				self.db.profile.units[tabKey] = CopyTableDeep(self.db.profile.units[src] or defaults.profile.units[src] or defaults.profile.units.player)
-				self.db.profile.tags[tabKey] = CopyTableDeep(self.db.profile.tags[src] or defaults.profile.tags[src] or defaults.profile.tags.player)
-				self.db.profile.sizes[tabKey] = CopyTableDeep(self.db.profile.sizes[src] or defaults.profile.sizes[src] or defaults.profile.sizes.player)
-				self:ScheduleUpdateUnitType(tabKey)
-				frame:BuildTab(tabKey)
-			end, true)
-			ui:Button("Quick Reset This Unit to Defaults", function()
-				self.db.profile.units[tabKey] = CopyTableDeep(defaults.profile.units[tabKey])
-				self.db.profile.tags[tabKey] = CopyTableDeep(defaults.profile.tags[tabKey])
-				self.db.profile.sizes[tabKey] = CopyTableDeep(defaults.profile.sizes[tabKey])
-				if IsGroupUnitType(tabKey) then
-					local pluginCfg = self:GetPluginSettings()
-					pluginCfg.units = pluginCfg.units or CopyTableDeep(defaults.profile.plugins.units)
-					pluginCfg.units[tabKey] = CopyTableDeep(defaults.profile.plugins.units[tabKey])
-					pluginCfg.units[tabKey].useGlobal = true
-					self:SchedulePluginUpdate(tabKey)
-				end
-				self:ScheduleUpdateUnitType(tabKey)
-				frame:BuildTab(tabKey)
-			end, true)
-			ui:Label("Module Copy / Reset", false)
-			self._moduleSelection = self._moduleSelection or {}
-			self._moduleSelection[tabKey] = self._moduleSelection[tabKey] or {}
-			local moduleState = self._moduleSelection[tabKey]
-			moduleState.module = moduleState.module or "castbar"
-			moduleState.sourceUnit = moduleState.sourceUnit or tabKey
-			moduleState.profile = moduleState.profile or (self.db and self.db.GetCurrentProfile and self.db:GetCurrentProfile()) or "Global"
-			if self.db.profile.optionsUI.moduleApplyConfirm == nil then
-				self.db.profile.optionsUI.moduleApplyConfirm = true
-			end
-			moduleState.confirmApply = self.db.profile.optionsUI.moduleApplyConfirm ~= false
-			local moduleOptions = {}
-			for i = 1, #MODULE_KEYS do
-				local candidate = MODULE_KEYS[i]
-				if self:IsModuleSupportedForUnit(candidate.value, tabKey) then
-					moduleOptions[#moduleOptions + 1] = candidate
-				end
-			end
-			if #moduleOptions == 0 then
-				moduleOptions = { { value = "castbar", text = "Castbar" } }
-			end
-			ui:Dropdown("Module", moduleOptions, function()
-				local selected = moduleState.module or moduleOptions[1].value
-				if not self:IsModuleSupportedForUnit(selected, tabKey) then
-					return moduleOptions[1].value
-				end
-				return selected
-			end, function(v)
-				moduleState.module = v
-			end)
-			local unitOptions = {}
-			for _, unitKey in ipairs(UNIT_TYPE_ORDER) do
-				if self:IsModuleSupportedForUnit(moduleState.module, unitKey) then
-					unitOptions[#unitOptions + 1] = { value = unitKey, text = GetUnitLabel(unitKey) }
-				end
-			end
-			if #unitOptions == 0 then
-				unitOptions = { { value = tabKey, text = GetUnitLabel(tabKey) } }
-			end
-			ui:Dropdown("Copy From Unit (Current Profile)", unitOptions, function()
-				return moduleState.sourceUnit or tabKey
-			end, function(v)
-				moduleState.sourceUnit = v
-			end)
-			local profileOptions = {}
-			local profiles = self:GetAvailableProfiles()
-			for i = 1, #profiles do
-				profileOptions[#profileOptions + 1] = { value = profiles[i], text = profiles[i] }
-			end
-			if #profileOptions == 0 then
-				profileOptions[1] = { value = "Global", text = "Global" }
-			end
-			ui:Dropdown("Copy From Profile", profileOptions, function()
-				return moduleState.profile
-			end, function(v)
-				moduleState.profile = v
-			end)
-			local function ResolveSourcePayloadFromUnit()
-				local sourceUnit = moduleState.sourceUnit or tabKey
-				if moduleState.module == "castbar" then
-					local sourceSettings = self:GetUnitSettings(sourceUnit)
-					return sourceSettings and sourceSettings.castbar
-				end
-				if moduleState.module == "fader" and IsGroupUnitType(sourceUnit) then
-					local sourcePlugins = self:GetPluginSettings()
-					return sourcePlugins and sourcePlugins.units and sourcePlugins.units[sourceUnit] and sourcePlugins.units[sourceUnit].fader
-				end
-				if moduleState.module == "aurawatch" and IsGroupUnitType(sourceUnit) then
-					local sourcePlugins = self:GetPluginSettings()
-					return sourcePlugins and sourcePlugins.units and sourcePlugins.units[sourceUnit] and sourcePlugins.units[sourceUnit].auraWatch
-				end
-				return nil
-			end
-			ui:Label("Dry-Run Preview", false)
-			local previewFromUnit = self:BuildModuleChangePreview(moduleState.module, tabKey, ResolveSourcePayloadFromUnit(), "copy-from-unit")
-			local previewFromProfile = self:BuildModuleChangePreview(moduleState.module, tabKey, self:GetModulePayloadFromProfile(moduleState.profile, moduleState.module, tabKey), "copy-from-profile")
-			local previewReset = self:BuildModuleResetPreview(moduleState.module, tabKey)
-			ui:Paragraph("Copy From Unit: " .. SafeText(previewFromUnit.summary, "Unavailable"), true)
-			if previewFromUnit.lines and #previewFromUnit.lines > 0 then
-				ui:Paragraph(table.concat(previewFromUnit.lines, "\n"), true)
-			end
-			ui:Paragraph("Copy From Profile: " .. SafeText(previewFromProfile.summary, "Unavailable"), true)
-			if previewFromProfile.lines and #previewFromProfile.lines > 0 then
-				ui:Paragraph(table.concat(previewFromProfile.lines, "\n"), true)
-			end
-			ui:Paragraph("Reset Module: " .. SafeText(previewReset.summary, "Unavailable"), true)
-			if previewReset.lines and #previewReset.lines > 0 then
-				ui:Paragraph(table.concat(previewReset.lines, "\n"), true)
-			end
-			ui:Check("Require Confirmation Before Apply", function()
-				return moduleState.confirmApply ~= false
-			end, function(v)
-				moduleState.confirmApply = v and true or false
-				self.db.profile.optionsUI.moduleApplyConfirm = moduleState.confirmApply
-			end)
-			ui:Button("Copy Module From Unit", function()
-				local sourceUnit = moduleState.sourceUnit or tabKey
-				local sourcePayload = ResolveSourcePayloadFromUnit()
-				local details = ("Unit: %s\nModule: %s\nSource Unit: %s"):format(GetUnitLabel(tabKey), self:GetModuleLabel(moduleState.module), GetUnitLabel(sourceUnit))
-				self:RunWithOptionalModuleApplyConfirmation(moduleState.confirmApply ~= false, "Apply module copy from selected unit?", details, function()
-					if self:CopyModuleIntoCurrent(moduleState.module, tabKey, sourcePayload) then
-						self:Print(addonName .. ": Copied " .. tostring(moduleState.module) .. " from " .. tostring(sourceUnit) .. " to " .. tostring(tabKey) .. ".")
-						frame:BuildTab(tabKey)
-					else
-						self:Print(addonName .. ": Unable to copy module from selected unit.")
-					end
-				end)
-			end, true)
-			ui:Button("Copy Module From Profile", function()
-				local payload = self:GetModulePayloadFromProfile(moduleState.profile, moduleState.module, tabKey)
-				local details = ("Unit: %s\nModule: %s\nSource Profile: %s"):format(GetUnitLabel(tabKey), self:GetModuleLabel(moduleState.module), tostring(moduleState.profile))
-				self:RunWithOptionalModuleApplyConfirmation(moduleState.confirmApply ~= false, "Apply module copy from selected profile?", details, function()
-					if self:CopyModuleIntoCurrent(moduleState.module, tabKey, payload) then
-						self:Print(addonName .. ": Copied " .. tostring(moduleState.module) .. " from profile " .. tostring(moduleState.profile) .. ".")
-						frame:BuildTab(tabKey)
-					else
-						self:Print(addonName .. ": No compatible module data found in profile " .. tostring(moduleState.profile) .. ".")
-					end
-				end)
-			end, true)
-			ui:Button("Reset Selected Module (This Unit)", function()
-				local details = ("Unit: %s\nModule: %s"):format(GetUnitLabel(tabKey), self:GetModuleLabel(moduleState.module))
-				self:RunWithOptionalModuleApplyConfirmation(moduleState.confirmApply ~= false, "Reset selected module for this unit?", details, function()
-					if self:ResetModuleForUnit(moduleState.module, tabKey) then
-						self:Print(addonName .. ": Reset " .. tostring(moduleState.module) .. " for " .. tostring(tabKey) .. ".")
-						frame:BuildTab(tabKey)
-					else
-						self:Print(addonName .. ": Reset is unavailable for this module on " .. tostring(tabKey) .. ".")
-					end
-				end)
-			end, true)
-			end
-		end
-
-		local wanted = ui:GetHeight()
-		page:SetHeight(wanted)
-		content:SetHeight(wanted)
-		self.isBuildingOptions = false
-	end
-
-	searchBox:SetText(frame.searchText or "")
-	frame.searchResultIndex = frame.searchResultIndex or 1
-	local function GetCurrentSearchResults()
-		local groups = frame.searchResultGroups
-		if type(groups) ~= "table" then
-			return nil, 0
-		end
-		return groups, #groups
-	end
-	local function JumpSearchResult(offset)
-		local groups, count = GetCurrentSearchResults()
-		if not groups or count == 0 then
-			return
-		end
-		local idx = tonumber(frame.searchResultIndex) or 1
-		idx = idx + (offset or 0)
-		if idx < 1 then
-			idx = count
-		elseif idx > count then
-			idx = 1
-		end
-		frame.searchResultIndex = idx
-		local target = groups[idx]
-		if target and target.tabKey then
-			frame:BuildTab(target.tabKey)
-		end
-	end
-	searchBox:SetScript("OnTextChanged", function(box, userInput)
-		if not userInput then
-			return
-		end
-		frame.searchText = box:GetText() or ""
-		frame.searchResultIndex = 1
-		if frame.currentTab then
-			frame:BuildTab(frame.currentTab)
-		end
-	end)
-	searchBox:SetScript("OnEnterPressed", function(box)
-		local groups, count = GetCurrentSearchResults()
-		if groups and count > 0 then
-			local idx = tonumber(frame.searchResultIndex) or 1
-			idx = math.max(1, math.min(count, idx))
-			local target = groups[idx]
-			if target and target.tabKey then
-				frame:BuildTab(target.tabKey)
-				box:ClearFocus()
-				return
-			end
-		end
-		box:ClearFocus()
-	end)
-	searchBox:SetScript("OnKeyDown", function(_, key)
-		if IsAltKeyDown() and key == "DOWN" then
-			JumpSearchResult(1)
-			return
-		end
-		if IsAltKeyDown() and key == "UP" then
-			JumpSearchResult(-1)
-			return
-		end
-	end)
-
-	self.db.profile.optionsUI = self.db.profile.optionsUI or {}
-	self.db.profile.optionsUI.navState = self.db.profile.optionsUI.navState or {}
-
-	local function StyleNavButton(button, isChild)
-		button:SetBackdrop({
-			bgFile = "Interface\\Buttons\\WHITE8x8",
-			edgeFile = "Interface\\Buttons\\WHITE8x8",
-			edgeSize = 1,
-		})
-		button:SetBackdropColor(UI_STYLE.navDefault[1], UI_STYLE.navDefault[2], UI_STYLE.navDefault[3], UI_STYLE.navDefault[4])
-		button:SetBackdropBorderColor(UI_STYLE.navDefaultBorder[1], UI_STYLE.navDefaultBorder[2], UI_STYLE.navDefaultBorder[3], UI_STYLE.navDefaultBorder[4])
-		local fs = button:CreateFontString(nil, "OVERLAY", isChild and "GameFontHighlightSmall" or "GameFontNormal")
-		fs:SetPoint("LEFT", button, "LEFT", isChild and 12 or 8, 0)
-		fs:SetJustifyH("LEFT")
-		button._sufText = fs
-		button._sufSelected = false
-		button._sufMatchSearch = false
-		button:SetScript("OnEnter", function(selfButton)
-			if selfButton._sufSelected then
-				return
-			end
-			selfButton:SetBackdropColor(UI_STYLE.navHover[1], UI_STYLE.navHover[2], UI_STYLE.navHover[3], UI_STYLE.navHover[4])
-			selfButton:SetBackdropBorderColor(UI_STYLE.navHoverBorder[1], UI_STYLE.navHoverBorder[2], UI_STYLE.navHoverBorder[3], UI_STYLE.navHoverBorder[4])
-		end)
-		button:SetScript("OnLeave", function(selfButton)
-			if selfButton.__sufSetSelected then
-				selfButton:__sufSetSelected(selfButton._sufSelected, selfButton._sufMatchSearch)
-			end
-		end)
-		button.__sufSetSelected = function(selfButton, selected, matchSearch)
-			selfButton._sufSelected = selected and true or false
-			selfButton._sufMatchSearch = matchSearch and true or false
-			if selected then
-				selfButton:SetBackdropColor(UI_STYLE.navSelected[1], UI_STYLE.navSelected[2], UI_STYLE.navSelected[3], UI_STYLE.navSelected[4])
-				selfButton:SetBackdropBorderColor(UI_STYLE.navSelectedBorder[1], UI_STYLE.navSelectedBorder[2], UI_STYLE.navSelectedBorder[3], UI_STYLE.navSelectedBorder[4])
-				if selfButton._sufText then
-					selfButton._sufText:SetTextColor(1.00, 0.96, 0.86)
-				end
-			else
-				if matchSearch then
-					selfButton:SetBackdropColor(UI_STYLE.navSearch[1], UI_STYLE.navSearch[2], UI_STYLE.navSearch[3], UI_STYLE.navSearch[4])
-					selfButton:SetBackdropBorderColor(UI_STYLE.navSearchBorder[1], UI_STYLE.navSearchBorder[2], UI_STYLE.navSearchBorder[3], UI_STYLE.navSearchBorder[4])
-					if selfButton._sufText then
-						selfButton._sufText:SetTextColor(0.88, 0.96, 0.72)
-					end
-				else
-					selfButton:SetBackdropColor(UI_STYLE.navDefault[1], UI_STYLE.navDefault[2], UI_STYLE.navDefault[3], UI_STYLE.navDefault[4])
-					selfButton:SetBackdropBorderColor(UI_STYLE.navDefaultBorder[1], UI_STYLE.navDefaultBorder[2], UI_STYLE.navDefaultBorder[3], UI_STYLE.navDefaultBorder[4])
-					if selfButton._sufText then
-						selfButton._sufText:SetTextColor(0.90, 0.90, 0.90)
-					end
-				end
-			end
-		end
-	end
-
-	local menuScroll = CreateFrame("ScrollFrame", nil, tabsHost)
-	menuScroll:SetPoint("TOPLEFT", tabsHost, "TOPLEFT", 8, -(iconSize + 24))
-	menuScroll:SetPoint("BOTTOMRIGHT", tabsHost, "BOTTOMRIGHT", -8, 8)
-	local menuContent = CreateFrame("Frame", nil, menuScroll)
-	menuContent:SetSize(150, 1)
-	menuScroll:SetScrollChild(menuContent)
-
-	local navButtons = {}
-	local function RebuildSidebar()
-		for i = 1, #navButtons do
-			navButtons[i]:Hide()
-			navButtons[i]:SetParent(nil)
-			navButtons[i] = nil
-		end
-		wipe(tabButtons)
-
-		local y = -2
-		local width = 150
-		for g = 1, #sidebarGroups do
-			local group = sidebarGroups[g]
-			local expanded = self.db.profile.optionsUI.navState[group.key]
-			if expanded == nil then
-				expanded = true
-				self.db.profile.optionsUI.navState[group.key] = true
-			end
-
-			local parentBtn = CreateFrame("Button", nil, menuContent, "BackdropTemplate")
-			parentBtn:SetSize(width, 24)
-			parentBtn:SetPoint("TOPLEFT", menuContent, "TOPLEFT", 0, y)
-			StyleNavButton(parentBtn, false)
-			parentBtn._sufText:SetText((expanded and "[-] " or "[+] ") .. tostring(group.label))
-			parentBtn:SetScript("OnClick", function()
-				self.db.profile.optionsUI.navState[group.key] = not self.db.profile.optionsUI.navState[group.key]
-				RebuildSidebar()
-				if frame.currentTab then
-					frame:BuildTab(frame.currentTab)
-				end
-			end)
-			navButtons[#navButtons + 1] = parentBtn
-			y = y - 26
-
-			if expanded then
-				for i = 1, #group.items do
-					local tabKey = group.items[i]
-					local tab = tabIndexByKey[tabKey]
-					if tab then
-						local childBtn = CreateFrame("Button", nil, menuContent, "BackdropTemplate")
-						childBtn:SetSize(width - 8, 22)
-						childBtn:SetPoint("TOPLEFT", menuContent, "TOPLEFT", 8, y)
-						StyleNavButton(childBtn, true)
-						childBtn._sufText:SetText(tab.label)
-						childBtn:SetScript("OnClick", function()
-							frame:BuildTab(tab.key)
-						end)
-						tabButtons[tab.key] = childBtn
-						navButtons[#navButtons + 1] = childBtn
-						y = y - 24
-					end
-				end
-			end
-		end
-		menuContent:SetHeight(math.max(1, -y + 6))
-	end
-	RebuildSidebar()
-	frame.RebuildSidebar = RebuildSidebar
-
-	frame:SetScript("OnSizeChanged", function()
-		ClampOptionsHeight(frame)
-		if frame.currentTab and frame:IsShown() then
-			C_Timer.After(0, function()
-				if frame:IsShown() and frame.currentTab then
-					frame:BuildTab(frame.currentTab)
-				end
-			end)
-		end
-	end)
-	frame:HookScript("OnHide", function()
-		StopPerformanceSnapshotTicker()
-	end)
-
-	frame:Show()
-	self:PlayWindowOpenAnimation(frame)
-	frame:BuildTab("global")
-	self.optionsFrame = frame
-end
 
 function addon:OnInitialize()
 	ChatMsg(addonName .. ": OnInitialize")
 	self.allowGroupHeaders = false
+	self:RegisterSharedMediaAssets()
+	self:SetupToolkitAPI()
 	self:SetupPerformanceLib()
 	self:SetupEventBus()
 
@@ -10667,12 +7927,55 @@ function addon:OnInitialize()
 			end
 		end
 	end
+	if not self.db.profile.blizzardFrames then
+		self.db.profile.blizzardFrames = CopyTableDeep(defaults.profile.blizzardFrames)
+	else
+		MergeDefaults(self.db.profile.blizzardFrames, defaults.profile.blizzardFrames)
+	end
+	if not self.db.profile.movers then
+		self.db.profile.movers = CopyTableDeep(defaults.profile.movers)
+	end
+	if not self.db.profile.databars then
+		self.db.profile.databars = CopyTableDeep(defaults.profile.databars)
+	else
+		MergeDefaults(self.db.profile.databars, defaults.profile.databars)
+	end
+	do
+		local mode = tostring(self.db.profile.databars.positionMode or "ANCHOR")
+		if mode == "EDITMODE" or mode == "EDIT" then
+			self.db.profile.databars.positionMode = "EDIT_MODE"
+		end
+	end
+	if not self.db.profile.datatext then
+		self.db.profile.datatext = CopyTableDeep(defaults.profile.datatext)
+	else
+		MergeDefaults(self.db.profile.datatext, defaults.profile.datatext)
+	end
+	do
+		local mode = tostring(self.db.profile.datatext.positionMode or "ANCHOR")
+		if mode == "EDITMODE" or mode == "EDIT" then
+			self.db.profile.datatext.positionMode = "EDIT_MODE"
+		end
+	end
 	if not self.db.profile.plugins then
 		self.db.profile.plugins = CopyTableDeep(defaults.profile.plugins)
 	else
 		MergeDefaults(self.db.profile.plugins, defaults.profile.plugins)
 	end
 	self:NormalizePluginConfig()
+	if not self.db.profile.actionBars then
+		self.db.profile.actionBars = {}
+	end
+	MergeDefaults(self.db.profile.actionBars, {
+		enabled = true,
+		global  = {},
+		fade    = {},
+		blizzardXP = {},
+		bars    = {},
+	})
+	-- Note: Individual bar defaults are set in Modules/ActionBars/Core.lua DEFAULT_ACTIONBARS
+	-- and applied via GetActionBarsSettings() using MergeDefaults
+	
 	if not self.db.profile.minimap then
 		self.db.profile.minimap = CopyTableDeep(defaults.profile.minimap)
 	end
@@ -10697,6 +8000,7 @@ function addon:OnInitialize()
 	for unitType, unitDefaults in pairs(defaults.profile.units) do
 		if not self.db.profile.units[unitType] then
 			self.db.profile.units[unitType] = CopyTableDeep(unitDefaults)
+			self.db.profile.units[unitType].auras = CopyTableDeep(DEFAULT_UNIT_AURA_LAYOUT)
 		else
 			if not self.db.profile.units[unitType].fontSizes then
 				self.db.profile.units[unitType].fontSizes = CopyTableDeep(unitDefaults.fontSizes)
@@ -10744,6 +8048,21 @@ function addon:OnInitialize()
 			else
 				MergeDefaults(self.db.profile.units[unitType].healPrediction, DEFAULT_HEAL_PREDICTION)
 			end
+			if not self.db.profile.units[unitType].targetGlow then
+				self.db.profile.units[unitType].targetGlow = CopyTableDeep(DEFAULT_UNIT_TARGET_GLOW)
+			else
+				MergeDefaults(self.db.profile.units[unitType].targetGlow, DEFAULT_UNIT_TARGET_GLOW)
+			end
+			if not self.db.profile.units[unitType].powerPrediction then
+				self.db.profile.units[unitType].powerPrediction = CopyTableDeep(DEFAULT_UNIT_POWER_PREDICTION)
+			else
+				MergeDefaults(self.db.profile.units[unitType].powerPrediction, DEFAULT_UNIT_POWER_PREDICTION)
+			end
+			if not self.db.profile.units[unitType].auras then
+				self.db.profile.units[unitType].auras = CopyTableDeep(DEFAULT_UNIT_AURA_LAYOUT)
+			else
+				MergeDefaults(self.db.profile.units[unitType].auras, DEFAULT_UNIT_AURA_LAYOUT)
+			end
 			if self.db.profile.units[unitType].auraSize == nil and unitDefaults.auraSize ~= nil then
 				self.db.profile.units[unitType].auraSize = unitDefaults.auraSize
 			end
@@ -10756,14 +8075,25 @@ function addon:OnInitialize()
 
 	self:RegisterChatCommand("suf", "HandleSUFSlash")
 	self:RegisterChatCommand("sufdebug", "HandleDebugSlash")
+	self:RegisterChatCommand("sufstatus", function() self:PrintStatusReport() end)
+	self:RegisterChatCommand("sufinstall", function() self:StartInstallFlow() end)
+	self:RegisterChatCommand("suftutorial", function() self:ShowTutorialOverview(true) end)
+	self:RegisterChatCommand("sufprotected", "HandleProtectedOpsSlash")
 end
 
 function addon:OnEnable()
 	ChatMsg(addonName .. ": OnEnable")
 	self:DebugLog("General", "Addon enabled.", 2)
+	self:RegisterMediaCallbacks()
 	self:InitializeLauncher()
 	if not self.performanceLib then
 		self:SetupPerformanceLib()
+	end
+	
+	--- Initialize protected operations system (combat-lockdown-safe queueing) ---
+	if self.ProtectedOperations then
+		self.ProtectedOperations:Init()
+		self.ProtectedOperations:RegisterAddonAliases()
 	end
 	if self.db and self.db.profile and self.db.profile.performance then
 		local enabled = self.db.profile.performance.enabled
@@ -10783,7 +8113,7 @@ function addon:OnEnable()
 	end
 
 	local function RegisterIfExists(eventName)
-		local ok = pcall(self.RegisterEvent, self, eventName, "UpdateBlizzardFrames")
+		local ok = pcall(self.RegisterEvent, self, eventName, "OnEditModeStateChanged")
 		return ok
 	end
 
@@ -10796,6 +8126,34 @@ function addon:OnEnable()
 	self:RegisterEvent("TRAIT_CONFIG_UPDATED", "OnClassResourceContextChanged")
 	self:RegisterEvent("GROUP_ROSTER_UPDATE", "OnGroupRosterUpdate")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", "OnGroupRosterUpdate")
+	self:RegisterEvent("PLAYER_XP_UPDATE", "ScheduleUpdateDataBars")
+	self:RegisterEvent("UPDATE_EXHAUSTION", "ScheduleUpdateDataBars")
+	self:RegisterEvent("UPDATE_FACTION", "ScheduleUpdateDataBars")
+	self:RegisterEvent("QUEST_LOG_UPDATE", "ScheduleUpdateDataBars")
+	self:RegisterEvent("PET_BAR_UPDATE", "ScheduleUpdateDataBars")
+	self:RegisterEvent("UNIT_PET_EXPERIENCE", "ScheduleUpdateDataBars")
+	self:RegisterEvent("UNIT_PET", "ScheduleUpdateDataBars")
+	self:RegisterEvent("UNIT_INVENTORY_CHANGED", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("UPDATE_INVENTORY_DURABILITY", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("PLAYER_MONEY", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("BAG_UPDATE_DELAYED", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("ZONE_CHANGED", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("ZONE_CHANGED_INDOORS", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("PLAYER_TARGET_CHANGED", "OnPlayerTargetChanged")
+	self:RegisterEvent("QUEST_ACCEPTED", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("QUEST_REMOVED", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("QUEST_TURNED_IN", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("MAIL_INBOX_UPDATE", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("UPDATE_PENDING_MAIL", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("MAIL_CLOSED", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("MAIL_SHOW", "ScheduleUpdateDataTextPanel")
+	self:InitializeDataSystems()
+	self:InitializeActionBars()
+	C_Timer.After(1.0, function()
+		if addon and addon.db and addon.db.profile and addon.db.profile.optionsUI and addon.db.profile.optionsUI.tutorialSeen ~= true then
+			addon:ShowTutorialOverview(false)
+		end
+	end)
 
 end
 
@@ -10833,19 +8191,35 @@ function addon:SetTestModeForUnitType(unitType)
 end
 
 function addon:OnDisable()
+	self:UnregisterMediaCallbacks()
 	if self._pluginUpdateTicker then
 		self._pluginUpdateTicker:Cancel()
 		self._pluginUpdateTicker = nil
 	end
 	self._pendingPluginUpdates = nil
-	if self._unitUpdateTimers then
-		for unitType, timer in pairs(self._unitUpdateTimers) do
-			if timer and timer.Cancel then
-				timer:Cancel()
-			end
-			self._unitUpdateTimers[unitType] = nil
-		end
+	if self._localWorkTimer and self._localWorkTimer.Cancel then
+		self._localWorkTimer:Cancel()
+		self._localWorkTimer = nil
 	end
+	if self._protectedOperationTicker and self._protectedOperationTicker.Cancel then
+		self._protectedOperationTicker:Cancel()
+		self._protectedOperationTicker = nil
+	end
+	self._protectedOperationQueue = nil
+	self._protectedOperationIndex = nil
+	if self.spawnTicker and self.spawnTicker.Cancel then
+		self.spawnTicker:Cancel()
+		self.spawnTicker = nil
+	end
+	if self.groupHeaderTimer and self.groupHeaderTimer.Cancel then
+		self.groupHeaderTimer:Cancel()
+		self.groupHeaderTimer = nil
+	end
+	if self.optionsFrame and self.optionsFrame.performanceSnapshotTicker and self.optionsFrame.performanceSnapshotTicker.Cancel then
+		self.optionsFrame.performanceSnapshotTicker:Cancel()
+		self.optionsFrame.performanceSnapshotTicker = nil
+	end
+	self._localWork = nil
 
 	self:UnregisterIncomingEstimateFrame()
 	self:UnregisterPerformanceEventFrame()
@@ -10856,6 +8230,24 @@ function addon:OnDisable()
 	end
 	if self.performanceLib and self.performanceLib.SetOutputSink then
 		self.performanceLib:SetOutputSink(nil, nil)
+	end
+	if self._dataTextTicker and self._dataTextTicker.Cancel then
+		self._dataTextTicker:Cancel()
+		self._dataTextTicker = nil
+	end
+	if self._dataTextRefreshTimer and self._dataTextRefreshTimer.Cancel then
+		self._dataTextRefreshTimer:Cancel()
+		self._dataTextRefreshTimer = nil
+	end
+	if self._dataBarsRefreshTimer and self._dataBarsRefreshTimer.Cancel then
+		self._dataBarsRefreshTimer:Cancel()
+		self._dataBarsRefreshTimer = nil
+	end
+	if self.dataTextPanel then
+		self.dataTextPanel:Hide()
+	end
+	if self.dataBarsFrame then
+		self.dataBarsFrame:Hide()
 	end
 	self:ReleaseAllPooledResources()
 end
