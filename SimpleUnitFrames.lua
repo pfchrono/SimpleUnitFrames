@@ -48,6 +48,8 @@ local defaults = {
 		media = {
 			statusbar = "Blizzard",
 			font = "Friz Quadrata TT",
+			globalStatusbarOverride = true,
+			globalFontOverride = true,
 		},
 		optionsUI = {
 			sectionState = {},
@@ -67,56 +69,56 @@ local defaults = {
 		units = {
 			player = {
 				fontSizes = { name = 12, level = 10, health = 11, power = 10, cast = 10 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = true,
 				showPvp = true,
 				portrait = { mode = "none", size = 36, showClass = false, motion = false, position = "LEFT" },
 			},
 			target = {
 				fontSizes = { name = 12, level = 10, health = 11, power = 10, cast = 10 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = true,
 				portrait = { mode = "none", size = 36, showClass = false, motion = false, position = "LEFT" },
 			},
 			tot = {
 				fontSizes = { name = 11, level = 9, health = 10, power = 9, cast = 9 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = true,
 				portrait = { mode = "none", size = 28, showClass = false, motion = false, position = "LEFT" },
 			},
 			focus = {
 				fontSizes = { name = 12, level = 10, health = 11, power = 10, cast = 10 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = true,
 				portrait = { mode = "none", size = 32, showClass = false, motion = false, position = "LEFT" },
 			},
 			pet = {
 				fontSizes = { name = 11, level = 9, health = 10, power = 9, cast = 9 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = false,
 				portrait = { mode = "none", size = 28, showClass = false, motion = false, position = "LEFT" },
 			},
 			party = {
 				fontSizes = { name = 11, level = 9, health = 10, power = 9, cast = 9 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = true,
 				portrait = { mode = "none", size = 26, showClass = false, motion = false, position = "LEFT" },
 			},
 			raid = {
 				fontSizes = { name = 10, level = 8, health = 9, power = 8, cast = 8 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = false,
 				portrait = { mode = "none", size = 22, showClass = false, motion = false, position = "LEFT" },
 			},
 			boss = {
 				fontSizes = { name = 12, level = 10, health = 11, power = 10, cast = 10 },
-				media = { statusbar = "Blizzard" },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = false,
 				portrait = { mode = "none", size = 30, showClass = false, motion = false, position = "LEFT" },
@@ -1039,6 +1041,22 @@ function addon:GetFont()
 	return DEFAULT_FONT
 end
 
+function addon:IsGlobalStatusbarOverrideEnabled()
+	local media = self.db and self.db.profile and self.db.profile.media or nil
+	if not media then
+		return true
+	end
+	return media.globalStatusbarOverride ~= false
+end
+
+function addon:IsGlobalFontOverrideEnabled()
+	local media = self.db and self.db.profile and self.db.profile.media or nil
+	if not media then
+		return true
+	end
+	return media.globalFontOverride ~= false
+end
+
 function addon:GetUnitSettings(unitType)
 	return self.db.profile.units[unitType] or {}
 end
@@ -1053,6 +1071,9 @@ function addon:GetUnitFontSizes(unitType)
 end
 
 function addon:GetUnitStatusbarTexture(unitType)
+	if self:IsGlobalStatusbarOverrideEnabled() then
+		return self:GetStatusbarTexture()
+	end
 	local unit = self:GetUnitSettings(unitType)
 	if LSM and unit.media and unit.media.statusbar then
 		local texture = LSM:Fetch("statusbar", unit.media.statusbar)
@@ -1062,6 +1083,20 @@ function addon:GetUnitStatusbarTexture(unitType)
 	end
 
 	return self:GetStatusbarTexture()
+end
+
+function addon:GetUnitFont(unitType)
+	if self:IsGlobalFontOverrideEnabled() then
+		return self:GetFont()
+	end
+	local unit = self:GetUnitSettings(unitType)
+	if LSM and unit.media and unit.media.font then
+		local font = LSM:Fetch("font", unit.media.font)
+		if font then
+			return font
+		end
+	end
+	return self:GetFont()
 end
 
 function addon:GetMainBarsBackgroundSettings()
@@ -2149,7 +2184,24 @@ function addon:GetDisplayNameForUnit(unit)
 		return ""
 	end
 
-	local unitName = SafeText(UnitName and UnitName(unit), "")
+	local rawName = nil
+	if UnitName then
+		local ok, value = pcall(UnitName, unit)
+		if ok then
+			rawName = value
+		end
+	end
+	if rawName == nil then
+		return ""
+	end
+
+	-- Some units can return "secret" string values. We should still display them,
+	-- but avoid transformations/comparisons that can taint or error on those values.
+	if IsSecretValue(rawName) then
+		return rawName
+	end
+
+	local unitName = SafeText(rawName, "")
 	if unitName == "" then
 		return ""
 	end
@@ -2235,7 +2287,8 @@ function addon:RegisterCustomTags()
 	ouf.Tags.Events["suf:missingpp:abbr"] = "UNIT_POWER_FREQUENT UNIT_MAXPOWER UNIT_DISPLAYPOWER PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:status"] = "UNIT_CONNECTION UNIT_HEALTH PLAYER_FLAGS_CHANGED PLAYER_ENTERING_WORLD"
 	ouf.Tags.Events["suf:health:percent-with-absorbs"] = "UNIT_HEALTH UNIT_MAXHEALTH UNIT_ABSORB_AMOUNT_CHANGED UNIT_CONNECTION PLAYER_FLAGS_CHANGED PLAYER_ENTERING_WORLD"
-	ouf.Tags.Events["suf:name"] = "UNIT_NAME_UPDATE PLAYER_ENTERING_WORLD GROUP_ROSTER_UPDATE"
+	-- Include direct target/focus switches so hostile/neutral target names refresh immediately.
+	ouf.Tags.Events["suf:name"] = "UNIT_NAME_UPDATE PLAYER_ENTERING_WORLD GROUP_ROSTER_UPDATE UNIT_TARGET PLAYER_TARGET_CHANGED PLAYER_FOCUS_CHANGED"
 
 	self._customTagsRegistered = true
 end
@@ -3166,6 +3219,18 @@ function addon:EnsureDebugConfig()
 	end
 end
 
+function addon:RegisterDebugSystem(system, defaultEnabled)
+	self:EnsureDebugConfig()
+	if type(system) ~= "string" or system == "" then
+		return
+	end
+	local dbg = self.db.profile.debug
+	dbg.systems = dbg.systems or {}
+	if dbg.systems[system] == nil then
+		dbg.systems[system] = (defaultEnabled ~= false)
+	end
+end
+
 function addon:IsDebugEnabled()
 	return self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.enabled
 end
@@ -3180,9 +3245,11 @@ function addon:DebugLog(system, message, tier)
 	self.debugMessages = self.debugMessages or {}
 	system = system or "General"
 	tier = tier or 3 -- 1=critical,2=info,3=debug
+	self:RegisterDebugSystem(system, true)
 
 	local dbg = self.db.profile.debug
-	if tier >= 3 and (not dbg.enabled or not dbg.systems[system]) then
+	local enabledForSystem = (dbg.systems and dbg.systems[system] ~= false)
+	if tier > 1 and (not dbg.enabled or not enabledForSystem) then
 		return
 	end
 
@@ -4860,7 +4927,7 @@ function addon:ApplyMedia(frame)
 	local bgCfg = self:GetUnitMainBarsBackgroundSettings(frame.sufUnitType)
 	local hpCfgGlobal = self:GetUnitHealPredictionSettings(frame.sufUnitType)
 	local incomingCfgGlobal = hpCfgGlobal and hpCfgGlobal.incoming or DEFAULT_HEAL_PREDICTION.incoming
-	local font = self:GetFont()
+	local font = self:GetUnitFont(frame.sufUnitType)
 	local sizes = self:GetUnitFontSizes(frame.sufUnitType)
 	local castbarCfg = self.db.profile.castbar or {}
 	local unitCastbarCfg = self:GetUnitCastbarSettings(frame.sufUnitType)
@@ -7082,9 +7149,11 @@ function addon:Style(frame, unit)
 	IndicatorFrame.__sufLeaderIndicator = LeaderIndicator
 	frame.LeaderIndicator = LeaderIndicator
 
-	local TargetIndicator = IndicatorFrame.__sufTargetIndicator or CreateFrame("Frame", nil, IndicatorFrame, "BackdropTemplate")
+	local TargetIndicator = IndicatorFrame.__sufTargetIndicator or CreateFrame("Frame", nil, frame, "BackdropTemplate")
 	TargetIndicator:SetPoint("TOPLEFT", frame, "TOPLEFT", -3, 3)
 	TargetIndicator:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 3, -3)
+	TargetIndicator:SetFrameStrata(frame:GetFrameStrata() or "MEDIUM")
+	TargetIndicator:SetFrameLevel((frame:GetFrameLevel() or 1) + 1)
 	TargetIndicator:SetBackdrop({
 		edgeFile = "Interface\\Buttons\\WHITE8x8",
 		edgeSize = 2,
@@ -8072,6 +8141,13 @@ function addon:OnInitialize()
 
 	self:RegisterChatCommand("suf", "HandleSUFSlash")
 	self:RegisterChatCommand("sufdebug", "HandleDebugSlash")
+	self:RegisterChatCommand("sufperf", function()
+		self:TogglePerformanceDashboard()
+	end)
+	self:RegisterChatCommand("libperf", function()
+		self:Print(addonName .. ": /libperf is aliased to /sufperf.")
+		self:TogglePerformanceDashboard()
+	end)
 	self:RegisterChatCommand("sufstatus", function() self:PrintStatusReport() end)
 	self:RegisterChatCommand("sufinstall", function() self:StartInstallFlow() end)
 	self:RegisterChatCommand("suftutorial", function() self:ShowTutorialOverview(true) end)
@@ -8081,6 +8157,9 @@ end
 function addon:OnEnable()
 	ChatMsg(addonName .. ": OnEnable")
 	self:DebugLog("General", "Addon enabled.", 2)
+	if self.SyncThemeFromOptionsV2 then
+		self:SyncThemeFromOptionsV2()
+	end
 	self:RegisterMediaCallbacks()
 	self:InitializeLauncher()
 	if not self.performanceLib then

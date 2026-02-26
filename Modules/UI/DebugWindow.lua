@@ -7,6 +7,106 @@ end
 local core = addon._core or {}
 local addonName = core.addonName or "SimpleUnitFrames"
 
+local function TintTexture(texture, color)
+	if not (texture and texture.SetVertexColor and color) then
+		return
+	end
+	texture:SetVertexColor(color[1] or 1, color[2] or 1, color[3] or 1, color[4] or 1)
+end
+
+local function TintButtonTextures(button, color)
+	if not (button and color) then
+		return
+	end
+	TintTexture(button.GetNormalTexture and button:GetNormalTexture(), color)
+	TintTexture(button.GetPushedTexture and button:GetPushedTexture(), color)
+	TintTexture(button.GetHighlightTexture and button:GetHighlightTexture(), color)
+	TintTexture(button.GetDisabledTexture and button:GetDisabledTexture(), color)
+end
+
+local function TintRegionList(owner, color, nameMatch)
+	if not (owner and owner.GetRegions and color) then
+		return
+	end
+	local regions = { owner:GetRegions() }
+	for i = 1, #regions do
+		local region = regions[i]
+		if region and region.GetObjectType and region:GetObjectType() == "Texture" then
+			local apply = true
+			if nameMatch then
+				local name = string.lower(tostring(region.GetName and region:GetName() or ""))
+				apply = false
+				for j = 1, #nameMatch do
+					if name:find(nameMatch[j], 1, true) then
+						apply = true
+						break
+					end
+				end
+			end
+			if apply then
+				TintTexture(region, color)
+			end
+		end
+	end
+end
+
+local function ApplyDebugTheme(frame)
+	if not frame then
+		return
+	end
+	local style = addon.GetOptionsV2Style and addon:GetOptionsV2Style() or nil
+	if addon.SyncThemeFromOptionsV2 then
+		addon:SyncThemeFromOptionsV2()
+	end
+	if addon.ApplySUFBackdrop then
+		addon:ApplySUFBackdrop(frame, "window")
+	end
+	if style then
+		if frame.NineSlice then
+			TintTexture(frame.NineSlice.TopEdge, style.windowBorder)
+			TintTexture(frame.NineSlice.BottomEdge, style.windowBorder)
+			TintTexture(frame.NineSlice.LeftEdge, style.windowBorder)
+			TintTexture(frame.NineSlice.RightEdge, style.windowBorder)
+			TintTexture(frame.NineSlice.TopLeftCorner, style.windowBorder)
+			TintTexture(frame.NineSlice.TopRightCorner, style.windowBorder)
+			TintTexture(frame.NineSlice.BottomLeftCorner, style.windowBorder)
+			TintTexture(frame.NineSlice.BottomRightCorner, style.windowBorder)
+			TintTexture(frame.NineSlice.TitleBg, style.windowBorder)
+			TintTexture(frame.NineSlice.TitleBG, style.windowBorder)
+		end
+		if frame.Inset then
+			TintTexture(frame.Inset.Bg, style.panelBg)
+			TintTexture(frame.Inset.BgBorder, style.panelBorder)
+		end
+		TintTexture(frame.TitleBg, style.windowBorder)
+		TintTexture(frame.TitleBG, style.windowBorder)
+		TintTexture(frame.TopTileStreaks, style.windowBorder)
+		TintRegionList(frame, style.windowBorder, { "title", "streak", "header" })
+		if frame.TitleContainer then
+			TintRegionList(frame.TitleContainer, style.windowBorder)
+		end
+		if frame.TitleText and frame.TitleText.SetTextColor then
+			frame.TitleText:SetTextColor(style.accent[1], style.accent[2], style.accent[3], 1)
+		end
+		if frame._sufTitleFallback and frame._sufTitleFallback.SetTextColor then
+			frame._sufTitleFallback:SetTextColor(style.accent[1], style.accent[2], style.accent[3], 1)
+		end
+	end
+	if addon.ApplySUFControlSkinsInFrame then
+		addon:ApplySUFControlSkinsInFrame(frame, "subtle")
+	end
+	if addon.ApplySUFScrollBarSkin then
+		local children = { frame:GetChildren() }
+		for i = 1, #children do
+			local child = children[i]
+			if child and child.GetObjectType and child:GetObjectType() == "ScrollFrame" then
+				addon:ApplySUFScrollBarSkin(child)
+			end
+		end
+	end
+	TintButtonTextures(frame.CloseButton, (style and style.accentSoft) or nil)
+end
+
 local function SetSUFWindowTitle(frame, text)
 	if not frame then
 		return
@@ -55,9 +155,7 @@ function addon:ShowDebugExportDialog()
 		frame:SetFrameStrata("DIALOG")
 
 		SetSUFWindowTitle(frame, "SUF Debug Export")
-		if self.ApplySUFBackdrop then
-			self:ApplySUFBackdrop(frame, "window")
-		end
+		ApplyDebugTheme(frame)
 
 		local note = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 		note:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -34)
@@ -80,9 +178,7 @@ function addon:ShowDebugExportDialog()
 	end
 
 	SetSUFWindowTitle(self.debugExportFrame, "SUF Debug Export")
-	if self.ApplySUFBackdrop then
-		self:ApplySUFBackdrop(self.debugExportFrame, "window")
-	end
+	ApplyDebugTheme(self.debugExportFrame)
 	self.debugExportFrame.editBox:SetText(exportText)
 	self.debugExportFrame.editBox:SetCursorPosition(0)
 	self.debugExportFrame.editBox:HighlightText()
@@ -100,9 +196,7 @@ function addon:ShowDebugSettings()
 		self:EnableMovableFrame(frame, true, "debug_settings", { "CENTER", "UIParent", "CENTER", -360, 0 })
 
 		SetSUFWindowTitle(frame, "SUF Debug Settings")
-		if self.ApplySUFBackdrop then
-			self:ApplySUFBackdrop(frame, "window")
-		end
+		ApplyDebugTheme(frame)
 
 		local enableAll = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
 		enableAll:SetSize(90, 24)
@@ -139,9 +233,7 @@ function addon:ShowDebugSettings()
 
 	local frame = self.debugSettingsFrame
 	SetSUFWindowTitle(frame, "SUF Debug Settings")
-	if self.ApplySUFBackdrop then
-		self:ApplySUFBackdrop(frame, "window")
-	end
+	ApplyDebugTheme(frame)
 	local child = frame.scrollChild
 	for i = child:GetNumChildren(), 1, -1 do
 		local element = select(i, child:GetChildren())
@@ -152,12 +244,58 @@ function addon:ShowDebugSettings()
 	end
 
 	local y = -6
-	for system, value in pairs(self.db.profile.debug.systems) do
+	local dbg = self.db.profile.debug
+	local systems = dbg.systems or {}
+	local keys = {}
+	for system in pairs(systems) do
+		keys[#keys + 1] = system
+	end
+	table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+
+	local timestampCB = CreateFrame("CheckButton", nil, child, "UICheckButtonTemplate")
+	timestampCB:SetPoint("TOPLEFT", child, "TOPLEFT", 6, y)
+	timestampCB:SetChecked(dbg.timestamp ~= false)
+	timestampCB:SetScript("OnClick", function(btn)
+		dbg.timestamp = btn:GetChecked() and true or false
+	end)
+	local timestampLabel = timestampCB:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	timestampLabel:SetPoint("LEFT", timestampCB, "RIGHT", 4, 0)
+	timestampLabel:SetText("Show Timestamps")
+	y = y - 24
+
+	local maxLabel = child:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	maxLabel:SetPoint("TOPLEFT", child, "TOPLEFT", 6, y)
+	maxLabel:SetText("Max Messages")
+	y = y - 16
+
+	local maxSlider = CreateFrame("Slider", nil, child, "OptionsSliderTemplate")
+	maxSlider:SetPoint("TOPLEFT", child, "TOPLEFT", 12, y)
+	maxSlider:SetWidth(220)
+	maxSlider:SetMinMaxValues(100, 3000)
+	maxSlider:SetValueStep(50)
+	if maxSlider.SetObeyStepOnDrag then
+		maxSlider:SetObeyStepOnDrag(true)
+	end
+	maxSlider:SetValue(tonumber(dbg.maxMessages) or 500)
+	maxSlider:SetScript("OnValueChanged", function(selfSlider, value)
+		local v = math.max(100, math.min(3000, math.floor((tonumber(value) or 500) + 0.5)))
+		dbg.maxMessages = v
+	end)
+	y = y - 38
+
+	local channelsLabel = child:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	channelsLabel:SetPoint("TOPLEFT", child, "TOPLEFT", 6, y)
+	channelsLabel:SetText("Debug Channels")
+	y = y - 20
+
+	for i = 1, #keys do
+		local system = keys[i]
+		local value = systems[system]
 		local cb = CreateFrame("CheckButton", nil, child, "UICheckButtonTemplate")
 		cb:SetPoint("TOPLEFT", child, "TOPLEFT", 6, y)
 		cb:SetChecked(value)
 		cb:SetScript("OnClick", function(btn)
-			self.db.profile.debug.systems[system] = btn:GetChecked() and true or false
+			systems[system] = btn:GetChecked() and true or false
 		end)
 		local label = cb:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 		label:SetPoint("LEFT", cb, "RIGHT", 4, 0)
@@ -179,9 +317,7 @@ function addon:ShowDebugPanel()
 		self:EnableMovableFrame(frame, true, "debug_console", { "CENTER", "UIParent", "CENTER", 260, 0 })
 
 		SetSUFWindowTitle(frame, "SUF Debug Console")
-		if self.ApplySUFBackdrop then
-			self:ApplySUFBackdrop(frame, "window")
-		end
+		ApplyDebugTheme(frame)
 
 		local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
 		scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -36)
@@ -290,9 +426,7 @@ function addon:ShowDebugPanel()
 		self.debugPanel:UpdateProfileButtons()
 	end
 	SetSUFWindowTitle(self.debugPanel, "SUF Debug Console")
-	if self.ApplySUFBackdrop then
-		self:ApplySUFBackdrop(self.debugPanel, "window")
-	end
+	ApplyDebugTheme(self.debugPanel)
 	self:PrepareWindowForDisplay(self.debugPanel)
 	self.debugPanel:Show()
 	self:PlayWindowOpenAnimation(self.debugPanel)

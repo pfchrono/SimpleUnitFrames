@@ -10,6 +10,9 @@ local addonName = core.addonName or "SimpleUnitFrames"
 local CopyTableDeep = core.CopyTableDeep
 
 function addon:TogglePerformanceDashboard()
+	if self.SyncThemeFromOptionsV2 then
+		self:SyncThemeFromOptionsV2()
+	end
 	if self.performanceLib then
 		if self.performanceLib.ToggleDashboard then
 			self.performanceLib:ToggleDashboard()
@@ -30,9 +33,12 @@ function addon:TogglePerformanceDashboard()
 end
 
 function addon:ShowLauncherHelp()
-	self:Print(addonName .. ": /suf (options)")
+	self:Print(addonName .. ": /suf (open options)")
+	self:Print(addonName .. ": /suf ui v2|legacy|toggle|status")
 	self:Print(addonName .. ": /suf minimap show|hide|toggle|reset")
 	self:Print(addonName .. ": /suf perflib")
+	self:Print(addonName .. ": /sufperf (performance dashboard)")
+	self:Print(addonName .. ": /libperf (alias -> /sufperf)")
 	self:Print(addonName .. ": /suf debug")
 	self:Print(addonName .. ": /suf status")
 	self:Print(addonName .. ": /suf protected (see also: /SUFprotected help)")
@@ -45,6 +51,9 @@ end
 
 function addon:StartInstallFlow()
 	self:ShowOptions()
+	if self.optionsV2Frame and self.optionsV2Frame.SetPage then
+		self.optionsV2Frame:SetPage("importexport")
+	end
 	if self.optionsFrame and self.optionsFrame.BuildTab then
 		self.optionsFrame:BuildTab("importexport")
 	end
@@ -177,6 +186,58 @@ function addon:HandleSUFSlash(msg)
 
 	if command == "protected" then
 		self:HandleProtectedOpsSlash(rest)
+		return
+	end
+
+	if command == "ui" then
+		local mode = (rest:match("^(%S+)") or ""):lower()
+		if mode == "" or mode == "help" then
+			self:Print(addonName .. ": /suf ui v2|legacy|toggle|status")
+			return
+		end
+		if mode == "v2" then
+			if self.SetOptionsV2Enabled then
+				self:SetOptionsV2Enabled(true, true)
+			end
+			if self.ShowOptionsV2 then
+				self:ShowOptionsV2()
+			else
+				self:Print(addonName .. ": OptionsV2 is unavailable in this build.")
+			end
+			return
+		end
+		if mode == "legacy" then
+			if self.SetOptionsV2Enabled then
+				self:SetOptionsV2Enabled(false, true)
+			end
+			self:ShowOptions()
+			return
+		end
+		if mode == "toggle" then
+			local enabled = false
+			if self.IsOptionsV2Enabled then
+				enabled = self:IsOptionsV2Enabled() and true or false
+			end
+			if self.SetOptionsV2Enabled then
+				self:SetOptionsV2Enabled(not enabled, true)
+			end
+			if not enabled then
+				if self.ShowOptionsV2 then
+					self:ShowOptionsV2()
+				else
+					self:ShowOptions()
+				end
+			else
+				self:ShowOptions()
+			end
+			return
+		end
+		if mode == "status" then
+			local enabled = self.IsOptionsV2Enabled and self:IsOptionsV2Enabled()
+			self:Print(addonName .. ": Options UI mode is " .. (enabled and "V2" or "legacy") .. ".")
+			return
+		end
+		self:Print(addonName .. ": /suf ui v2|legacy|toggle|status")
 		return
 	end
 

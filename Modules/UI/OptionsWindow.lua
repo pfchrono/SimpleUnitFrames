@@ -17,6 +17,7 @@ local DEFAULT_UNIT_CASTBAR = core.DEFAULT_UNIT_CASTBAR or {}
 local DEFAULT_UNIT_LAYOUT = core.DEFAULT_UNIT_LAYOUT or {}
 local DEFAULT_UNIT_MAIN_BARS_BACKGROUND = core.DEFAULT_UNIT_MAIN_BARS_BACKGROUND or {}
 local DEFAULT_HEAL_PREDICTION = core.DEFAULT_HEAL_PREDICTION or {}
+local ADDON_ID = "SimpleUnitFrames"
 local function SafeText(value, fallback)
     if value == nil then
         return fallback
@@ -26,6 +27,20 @@ local function SafeText(value, fallback)
         return fallback
     end
     return text
+end
+
+local function GetAddonVersionText()
+	local version = nil
+	if C_AddOns and C_AddOns.GetAddOnMetadata then
+		version = C_AddOns.GetAddOnMetadata(ADDON_ID, "Version")
+	elseif GetAddOnMetadata then
+		version = GetAddOnMetadata(ADDON_ID, "Version")
+	end
+	version = tostring(SafeText(version, "") or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if version == "" then
+		return "v?"
+	end
+	return "v" .. version
 end
 local function TrimString(value)
     if type(value) ~= "string" then
@@ -60,6 +75,11 @@ if type(MergeDefaults) ~= "function" then
 end
 
 function addon:ShowOptions()
+	if self.IsOptionsV2Enabled and self:IsOptionsV2Enabled() and self.ShowOptionsV2 then
+		self:ShowOptionsV2()
+		return
+	end
+
 	local UI_STYLE = (self.GetOptionsUIStyle and self:GetOptionsUIStyle()) or {
 		windowBg = { 0.03, 0.04, 0.05, 0.96 },
 		windowBorder = { 0.34, 0.29, 0.15, 0.90 },
@@ -132,7 +152,7 @@ function addon:ShowOptions()
 	end
 	frame:SetClampedToScreen(true)
 	frame:SetFrameStrata("DIALOG")
-	frame.TitleText:SetText("SimpleUnitFrames Options")
+	frame.TitleText:SetText("SimpleUnitFrames Option")
 	frame.TitleText:SetFontObject("GameFontNormalLarge")
 	frame.TitleText:SetTextColor(UI_STYLE.accent[1], UI_STYLE.accent[2], UI_STYLE.accent[3])
 	self:ApplySUFBackdropColors(frame, UI_STYLE.windowBg, UI_STYLE.windowBorder, true)
@@ -181,6 +201,12 @@ function addon:ShowOptions()
 	icon:SetTexture(ICON_PATH)
 	icon:SetTexCoord(0, 1, 0, 1)
 	icon:SetVertexColor(1, 1, 1, 1)
+
+	local versionLabel = tabsHost:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	versionLabel:SetPoint("TOPLEFT", icon, "TOPRIGHT", 8, -4)
+	versionLabel:SetJustifyH("LEFT")
+	versionLabel:SetText(GetAddonVersionText())
+	versionLabel:SetTextColor(UI_STYLE.accent[1], UI_STYLE.accent[2], UI_STYLE.accent[3], 1)
 
 	local contentHost = CreateFrame("Frame", nil, frame, "InsetFrameTemplate3")
 	contentHost:SetPoint("TOPLEFT", tabsHost, "TOPRIGHT", 8, 0)
@@ -1819,7 +1845,9 @@ function addon:ShowOptions()
 			RenderOptionSpecs(ui, {
 				{ type = "label", text = "Global Options", large = true },
 				{ type = "dropdown_or_edit", label = "Statusbar Texture", fallbackLabel = "Statusbar Texture Name", options = function() return statusbarOptions end, get = function() return self.db.profile.media.statusbar end, set = function(v) self.db.profile.media.statusbar = v; self:ScheduleUpdateAll() end },
+				{ type = "check", label = "Apply Global Statusbar Texture To All Unit Bars", get = function() return self.db.profile.media.globalStatusbarOverride ~= false end, set = function(v) self.db.profile.media.globalStatusbarOverride = v and true or false; self:ScheduleUpdateAll() end },
 				{ type = "dropdown_or_edit", label = "Font", fallbackLabel = "Font Name", options = function() return fontOptions end, get = function() return self.db.profile.media.font end, set = function(v) self.db.profile.media.font = v; self:ScheduleUpdateAll() end },
+				{ type = "check", label = "Apply Global Font To All Unit Frames", get = function() return self.db.profile.media.globalFontOverride ~= false end, set = function(v) self.db.profile.media.globalFontOverride = v and true or false; self:ScheduleUpdateAll() end },
 				{ type = "label", text = "Main Bars Background" },
 				{ type = "check", label = "Enable Main Bars Background", get = function() return backgroundCfg.enabled ~= false end, set = function(v) backgroundCfg.enabled = v and true or false; self:ScheduleUpdateAll() end },
 				{ type = "dropdown_or_edit", label = "Main Bars Background Texture", options = function() return statusbarOptions end, get = function() return backgroundCfg.texture end, set = function(v) backgroundCfg.texture = v; self:ScheduleUpdateAll() end },
@@ -2559,7 +2587,10 @@ function addon:ShowOptions()
 			end
 			unitSettings.fontSizes = unitSettings.fontSizes or CopyTableDeep(self.db.profile.fontSizes)
 			unitSettings.portrait = unitSettings.portrait or { mode = "none", size = 32, showClass = false, position = "LEFT" }
-			unitSettings.media = unitSettings.media or { statusbar = self.db.profile.media.statusbar }
+			unitSettings.media = unitSettings.media or { statusbar = self.db.profile.media.statusbar, font = self.db.profile.media.font }
+			if unitSettings.media.font == nil or unitSettings.media.font == "" then
+				unitSettings.media.font = self.db.profile.media.font
+			end
 			unitSettings.castbar = unitSettings.castbar or CopyTableDeep(DEFAULT_UNIT_CASTBAR)
 			unitSettings.layout = unitSettings.layout or CopyTableDeep(DEFAULT_UNIT_LAYOUT)
 			unitSettings.mainBarsBackground = unitSettings.mainBarsBackground or CopyTableDeep(DEFAULT_UNIT_MAIN_BARS_BACKGROUND)
@@ -2693,6 +2724,23 @@ function addon:ShowOptions()
 			else
 				ui:Edit("Statusbar Texture Name", function() return unitSettings.media.statusbar end, function(v) unitSettings.media.statusbar = v; self:ScheduleUpdateAll() end)
 			end
+			ui:Check("Use Global Statusbar Texture Override", function()
+				return self.db.profile.media.globalStatusbarOverride ~= false
+			end, function(v)
+				self.db.profile.media.globalStatusbarOverride = v and true or false
+				self:ScheduleUpdateAll()
+			end)
+			if #fontOptions > 0 then
+				ui:Dropdown("Font", fontOptions, function() return unitSettings.media.font end, function(v) unitSettings.media.font = v; self:ScheduleUpdateAll() end)
+			else
+				ui:Edit("Font Name", function() return unitSettings.media.font end, function(v) unitSettings.media.font = v; self:ScheduleUpdateAll() end)
+			end
+			ui:Check("Use Global Font Override", function()
+				return self.db.profile.media.globalFontOverride ~= false
+			end, function(v)
+				self.db.profile.media.globalFontOverride = v and true or false
+				self:ScheduleUpdateAll()
+			end)
 			ui:Slider("Name Font Size", 8, 20, 1, function() return unitSettings.fontSizes.name end, function(v) unitSettings.fontSizes.name = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Level Font Size", 8, 20, 1, function() return unitSettings.fontSizes.level end, function(v) unitSettings.fontSizes.level = v; self:ScheduleUpdateAll() end)
 			ui:Slider("Health Font Size", 8, 20, 1, function() return unitSettings.fontSizes.health end, function(v) unitSettings.fontSizes.health = v; self:ScheduleUpdateAll() end)
@@ -3359,11 +3407,12 @@ function addon:ShowOptions()
 		end
 	end
 
-	local menuScroll = CreateFrame("ScrollFrame", nil, tabsHost)
+	local menuScroll = CreateFrame("ScrollFrame", nil, tabsHost, "UIPanelScrollFrameTemplate")
 	menuScroll:SetPoint("TOPLEFT", tabsHost, "TOPLEFT", 8, -(iconSize + 24))
-	menuScroll:SetPoint("BOTTOMRIGHT", tabsHost, "BOTTOMRIGHT", -8, 8)
+	menuScroll:SetPoint("BOTTOMRIGHT", tabsHost, "BOTTOMRIGHT", -28, 8)
 	self:ApplySUFBackdropColors(menuScroll, UI_STYLE.panelBg, UI_STYLE.panelBorder, true)
 	menuScroll:Show()
+	menuScroll:EnableMouseWheel(true)
 	
 	-- Style scrollbar thumb and buttons with theme colors
 	if menuScroll.ScrollBar then
@@ -3375,12 +3424,47 @@ function addon:ShowOptions()
 	end
 	
 	local menuContent = CreateFrame("Frame", nil, menuScroll)
-	menuContent:SetSize(220, 1)
+	menuContent:SetSize(1, 1)
 	menuScroll:SetScrollChild(menuContent)
 	menuContent:Show()
 
 	local navButtons = {}
 	local sectionNavButtons = {}
+	local function RefreshSidebarScroll()
+		local contentHeight = menuContent:GetHeight() or 1
+		local viewportHeight = menuScroll:GetHeight() or 1
+		local maxScroll = math.max(0, contentHeight - viewportHeight)
+		local currentScroll = math.min(menuScroll:GetVerticalScroll() or 0, maxScroll)
+		menuScroll:SetVerticalScroll(currentScroll)
+		if menuScroll.ScrollBar then
+			local scrollBar = menuScroll.ScrollBar
+			scrollBar:SetMinMaxValues(0, maxScroll)
+			scrollBar:SetValueStep(24)
+			scrollBar:SetValue(currentScroll)
+			scrollBar:SetShown(maxScroll > 0)
+			if scrollBar.ScrollUpButton then
+				scrollBar.ScrollUpButton:SetShown(maxScroll > 0)
+			end
+			if scrollBar.ScrollDownButton then
+				scrollBar.ScrollDownButton:SetShown(maxScroll > 0)
+			end
+		end
+	end
+	menuScroll:SetScript("OnMouseWheel", function(selfFrame, delta)
+		local step = 24
+		local current = selfFrame:GetVerticalScroll() or 0
+		local maxScroll = 0
+		if selfFrame.ScrollBar and selfFrame.ScrollBar.GetMinMaxValues then
+			local _, maxValue = selfFrame.ScrollBar:GetMinMaxValues()
+			maxScroll = maxValue or 0
+		end
+		local nextValue = math.max(0, math.min(maxScroll, current - (delta * step)))
+		selfFrame:SetVerticalScroll(nextValue)
+		if selfFrame.ScrollBar then
+			selfFrame.ScrollBar:SetValue(nextValue)
+		end
+	end)
+
 	local function RebuildSidebar()
 		for i = 1, #navButtons do
 			navButtons[i]:Hide()
@@ -3391,7 +3475,8 @@ function addon:ShowOptions()
 		wipe(sectionNavButtons)
 
 		local y = -2
-		local width = 220
+		local width = math.max(170, math.floor(menuScroll:GetWidth() - 6))
+		menuContent:SetWidth(width)
 		for g = 1, #sidebarGroups do
 			local group = sidebarGroups[g]
 			local expanded = self.db.profile.optionsUI.navState[group.key]
@@ -3491,6 +3576,7 @@ function addon:ShowOptions()
 			end
 		end
 		menuContent:SetHeight(math.max(1, -y + 6))
+		RefreshSidebarScroll()
 		frame.sectionNavButtons = sectionNavButtons
 	end
 	RebuildSidebar()
@@ -3498,6 +3584,7 @@ function addon:ShowOptions()
 
 	frame:SetScript("OnSizeChanged", function()
 		ClampOptionsHeight(frame)
+		RebuildSidebar()
 		if frame.currentTab and frame:IsShown() then
 			C_Timer.After(0, function()
 				if frame:IsShown() and frame.currentTab then

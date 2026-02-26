@@ -12,6 +12,8 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 - **Portrait Alpha Syncing** — Portraits now follow frame fader alpha for consistent frame transparency effects
 - **Safe Theming Helpers** — Added `ApplySUFBackdropColors()` utility for backdrop styling with safe color fallbacks
 - **Plugin Compatibility** — Broad oUF compatibility shims for aura iteration, unpacking, and secret-value handling across different runtime environments
+- **Options V2 Theme Propagation** — Active Options V2 preset now skins debug/performance windows for visual consistency
+- **Perf Command Aliases** — Added `/sufperf` as primary performance dashboard command with `/libperf` alias support
 
 ## Screenshots
 
@@ -41,7 +43,7 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
   - Event coalescing with adaptive priorities (CRITICAL/HIGH/MEDIUM/LOW)
   - Dirty flag batching for efficient frame updates
   - Frame time budgeting and frame pooling
-  - Real-time performance dashboard (`/sufdebug`)
+  - Real-time performance dashboard (`/sufperf`)
   - Timeline profiling with bottleneck analysis (`/SUFprofile`)
   - ML-based priority optimization (learns from gameplay patterns)
 - **Relevance Filtering** — Smart event queueing reduces unnecessary event pressure during combat
@@ -73,8 +75,36 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 |---------|---------|
 | `/suf` | Open SimpleUnitFrames options |
 | `/sufdebug` | Toggle debug console with logs and filtering |
+| `/sufperf` | Toggle real-time performance dashboard (requires PerformanceLib) |
+| `/libperf` | Alias to `/sufperf` |
 | `/SUFprotected` | Show protected operations queue stats |
-| `/SUFperf` | Toggle real-time performance dashboard (requires PerformanceLib) |
+| `/suf perflib` | Toggle performance dashboard via `/suf` command router |
+
+### Version Bump Workflow
+Use the helper script to maintain version format `1.<majorX>.<smallX>.<mdyy>`:
+
+```powershell
+# Small change: increment smallX, keep majorX
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -ChangeType small
+
+# Major change: increment majorX, reset smallX to 0
+powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -ChangeType major
+```
+
+### Fully Automatic Versioning (Git Hook)
+This repository now bumps `SimpleUnitFrames.toc` automatically on every commit via `.githooks/pre-commit`:
+
+- Default behavior is `auto`:
+  - `major` if staged changes (excluding TOC) are large (`>=20 files` or `>=1000 lines`).
+  - `small` otherwise.
+- Override per-commit:
+  - `SUF_VERSION_BUMP=major git commit ...`
+  - `SUF_VERSION_BUMP=small git commit ...`
+  - `SUF_SKIP_VERSION_BUMP=1 git commit ...` to bypass.
+
+Threshold overrides:
+- `SUF_MAJOR_FILE_THRESHOLD` (default `20`)
+- `SUF_MAJOR_LINE_THRESHOLD` (default `1000`)
 
 ### Performance Profiling (PerformanceLib)
 ```

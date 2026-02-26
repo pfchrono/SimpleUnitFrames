@@ -238,6 +238,58 @@ function addon:GetOptionsUIStyle()
 	return THEME.options
 end
 
+function addon:SyncThemeFromOptionsV2()
+	if not self.GetOptionsV2Style then
+		return
+	end
+	local v2 = self:GetOptionsV2Style()
+	if type(v2) ~= "table" then
+		return
+	end
+
+	THEME.options.windowBg = { v2.windowBg[1], v2.windowBg[2], v2.windowBg[3], v2.windowBg[4] or 1 }
+	THEME.options.windowBorder = { v2.windowBorder[1], v2.windowBorder[2], v2.windowBorder[3], v2.windowBorder[4] or 1 }
+	THEME.options.panelBg = { v2.panelBg[1], v2.panelBg[2], v2.panelBg[3], v2.panelBg[4] or 1 }
+	THEME.options.panelBorder = { v2.panelBorder[1], v2.panelBorder[2], v2.panelBorder[3], v2.panelBorder[4] or 1 }
+	THEME.options.accent = { v2.accent[1], v2.accent[2], v2.accent[3], v2.accent[4] or 1 }
+	THEME.options.accentSoft = { v2.accentSoft[1], v2.accentSoft[2], v2.accentSoft[3], v2.accentSoft[4] or 1 }
+	THEME.options.textMuted = { v2.textMuted[1], v2.textMuted[2], v2.textMuted[3], v2.textMuted[4] or 1 }
+	THEME.options.navDefault = { v2.navDefault[1], v2.navDefault[2], v2.navDefault[3], v2.navDefault[4] or 1 }
+	THEME.options.navDefaultBorder = { v2.navDefaultBorder[1], v2.navDefaultBorder[2], v2.navDefaultBorder[3], v2.navDefaultBorder[4] or 1 }
+	THEME.options.navHover = { v2.navHover[1], v2.navHover[2], v2.navHover[3], v2.navHover[4] or 1 }
+	THEME.options.navHoverBorder = { v2.navHoverBorder[1], v2.navHoverBorder[2], v2.navHoverBorder[3], v2.navHoverBorder[4] or 1 }
+	THEME.options.navSelected = { v2.navSelected[1], v2.navSelected[2], v2.navSelected[3], v2.navSelected[4] or 1 }
+	THEME.options.navSelectedBorder = { v2.navSelectedBorder[1], v2.navSelectedBorder[2], v2.navSelectedBorder[3], v2.navSelectedBorder[4] or 1 }
+
+	THEME.backdrop.window.bg = THEME.options.windowBg
+	THEME.backdrop.window.border = THEME.options.windowBorder
+	THEME.backdrop.panel.bg = THEME.options.panelBg
+	THEME.backdrop.panel.border = THEME.options.panelBorder
+	THEME.backdrop.subtle.bg = { THEME.options.navDefault[1], THEME.options.navDefault[2], THEME.options.navDefault[3], 0.72 }
+	THEME.backdrop.subtle.border = THEME.options.navDefaultBorder
+
+	THEME.text.title = { THEME.options.accent[1], THEME.options.accent[2], THEME.options.accent[3], 1 }
+	THEME.text.header = { THEME.options.accentSoft[1], THEME.options.accentSoft[2], THEME.options.accentSoft[3], 1 }
+	THEME.text.body = { THEME.options.textMuted[1], THEME.options.textMuted[2], THEME.options.textMuted[3], 1 }
+	THEME.text.muted = { THEME.options.textMuted[1], THEME.options.textMuted[2], THEME.options.textMuted[3], 0.9 }
+	THEME.text.accent = { THEME.options.accent[1], THEME.options.accent[2], THEME.options.accent[3], 1 }
+
+	THEME.controls.editbox.bg = THEME.options.navDefault
+	THEME.controls.editbox.border = THEME.options.navDefaultBorder
+	THEME.controls.slider.bg = THEME.options.navDefault
+	THEME.controls.slider.border = THEME.options.navDefaultBorder
+	THEME.controls.slider.bar = THEME.options.accentSoft
+	THEME.controls.slider.thumb = THEME.options.accent
+	THEME.controls.checkbox.box = THEME.options.navDefault
+	THEME.controls.checkbox.boxBorder = THEME.options.navDefaultBorder
+	THEME.controls.checkbox.check = THEME.options.accent
+	THEME.controls.checkbox.label = THEME.options.textMuted
+	THEME.controls.scrollbar.bg = THEME.options.navDefault
+	THEME.controls.scrollbar.border = THEME.options.navDefaultBorder
+	THEME.controls.scrollbar.thumb = THEME.options.accentSoft
+	THEME.controls.scrollbar.button = THEME.options.accent
+end
+
 function addon:ApplySUFBackdrop(frame, variant)
 	if not frame then
 		return

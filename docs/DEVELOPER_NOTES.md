@@ -27,6 +27,8 @@
 ## Diagnostics
 
 - Gate verbose diagnostics through debug settings (`/sufdebug` systems filters).
+- Performance dashboard commands: `/sufperf` (primary) and `/libperf` (alias).
+- When adding windows, use theme sync path so active Options V2 preset is reflected (`SyncThemeFromOptionsV2` + SUF skin helpers).
 - Avoid unconditional spam in hot paths (events, plugin flush, frame updates).
 
 ## Extension Checklist
