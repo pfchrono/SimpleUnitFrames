@@ -2568,10 +2568,10 @@ function addon:ShowOptions()
 		elseif tabKey == "credits" then
 			ui:Label("Credits", true)
 			ui:Paragraph("SimpleUnitFrames (SUF)\nPrimary Author: Grevin", true)
-			ui:Paragraph("UnhaltedUnitFrames (UUF)\nReference architecture, performance patterns, and feature inspirations.\nIncludes UUF-inspired ports plus your personal custom changes that are not present in UUF mainline.", true)
-			ui:Paragraph("PerformanceLib\nIntegrated optional performance framework for event coalescing, dirty batching, and profiling workflows.", true)
-			ui:Paragraph("Libraries Used\nAce3 (AceAddon/AceDB/AceGUI/AceSerializer), oUF, oUF_Plugins, LibSharedMedia-3.0, LibDualSpec-1.0, LibSerialize, LibDeflate, LibDataBroker-1.1, LibDBIcon-1.0, LibAnim, LibCustomGlow-1.0, LibSimpleSticky, LibTranslit-1.0, UTF8, LibDispel-1.0, CallbackHandler-1.0, LibStub, TaintLess.", true)
-			ui:Paragraph("Special Thanks\nBlizzard UI Source and WoW addon ecosystem maintainers.", true)
+			ui:Paragraph("Core Framework Credits\noUF authors and Ace3 community maintainers.", true)
+			ui:Paragraph("Optional Integration Credits\nPerformanceLib, LibSharedMedia-3.0, LibDualSpec-1.0, LibDataBroker-1.1, LibDBIcon-1.0.", true)
+			ui:Paragraph("Utility Libraries\nLibSerialize, LibDeflate, LibCustomGlow-1.0, LibSimpleSticky, LibTranslit-1.0, UTF8, LibDispel-1.0, CallbackHandler-1.0, LibStub, TaintLess, LibAnim.", true)
+			ui:Paragraph("Reference Credits\nGethe/wow-ui-source and Warcraft Wiki API contributors.", true)
 		else
 			local unitSettings = self:GetUnitSettings(tabKey)
 			local tags = self.db.profile.tags[tabKey]

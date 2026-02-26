@@ -2367,8 +2367,10 @@ function addon:GetOptionsV2PageSpec(pageKey)
 					desc = "Project and library attribution.",
 					controls = {
 						{ type = "paragraph", text = "SimpleUnitFrames (SUF)\nPrimary Author: Grevin" },
-						{ type = "paragraph", text = "PerformanceLib integration and optional tooling contributors." },
-						{ type = "paragraph", text = "Core libraries: Ace3, oUF, LibSharedMedia, LibSerialize, LibDeflate, LibDualSpec, LibDataBroker, LibDBIcon." },
+						{ type = "paragraph", text = "Core Framework Credits:\noUF authors and Ace3 community maintainers." },
+						{ type = "paragraph", text = "Optional Integration Credits:\nPerformanceLib, LibSharedMedia-3.0, LibDualSpec-1.0, LibDataBroker-1.1, LibDBIcon-1.0." },
+						{ type = "paragraph", text = "Utility Library Credits:\nLibSerialize, LibDeflate, LibCustomGlow-1.0, LibSimpleSticky, LibTranslit-1.0, UTF8, TaintLess, LibDispel-1.0." },
+						{ type = "paragraph", text = "Reference Credits:\nGethe/wow-ui-source and Warcraft Wiki API contributors." },
 						{
 							type = "button",
 							label = "Open README",

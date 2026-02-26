@@ -223,13 +223,14 @@ addon:ApplyImportedProfile(data)
 - **Grevin** — SimpleUnitFrames author and maintainer
 
 ### Core Contributors
-- **oUF Authors** — Foundational unit frame framework
-- **Ace3 Community** — AceAddon, AceDB, AceGUI, and related libraries
-- **WoWAddonAPIAgents** — API documentation and widget references
-- **Gethe & Community** — wow-ui-source Blizzard reference implementations
+- **oUF Authors** — Foundational unit frame framework and tag system
+- **Ace3 Community** — AceAddon, AceDB, AceGUI, AceConsole, and related libraries
+- **Gethe & wow-ui-source Contributors** — Blizzard UI reference implementations
+- **Warcraft Wiki Contributors** — API and widget documentation used during development
 
 ### Feature Attribution
-- **UnhaltedUnitFrames (UUF)** — Frame design reference and architectural guidance
+- **UnhaltedUnitFrames (UUF)** — Early frame design and architecture reference points
+- **WoW Addon Ecosystem** — Patterns and compatibility learnings from retail addon authors
 
 ### Integration Partners
 - **PerformanceLib** — Optional performance systems (event coalescing, profiling, ML optimization)
@@ -240,6 +241,7 @@ addon:ApplyImportedProfile(data)
 - **LibDataBroker-1.1** & **LibDBIcon-1.0** — Minimap/LDB support
 - **LibDispel-1.0**, **LibCustomGlow-1.0**, **LibSimpleSticky** — UI enhancements
 - **LibDeflate**, **LibSerialize**, **LibAceConfigHelper** — Data handling and configuration
+- **LibTranslit-1.0**, **UTF8**, **TaintLess** — Text processing and taint-safety helpers
 
 ## License
 
