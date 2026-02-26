@@ -17,21 +17,6 @@
 		},
 		{
 			"path": "../QUI"
-		},
-		{
-			"path": "../../AddOns/Dominos"
-		},
-		{
-			"path": "../../AddOns/Dominos_Cast"
-		},
-		{
-			"path": "../../AddOns/Dominos_Config"
-		},
-		{
-			"path": "../../AddOns/Dominos_Progress"
-		},
-		{
-			"path": "../../AddOns/Dominos_Roll"
 		}
 	],
 	"settings": {}

@@ -100,10 +100,14 @@ local function IsMouseOverObjectOrChild(object)
 		if focus == object then
 			return true
 		end
-		if not focus.GetParent then
+		if type(focus.GetParent) ~= 'function' then
 			break
 		end
-		focus = focus:GetParent()
+		local ok, parent = pcall(focus.GetParent, focus)
+		if not ok or parent == focus then
+			break
+		end
+		focus = parent
 	end
 	return false
 end

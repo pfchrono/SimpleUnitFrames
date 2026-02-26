@@ -359,6 +359,15 @@ local defaults = {
 			hide = false,
 			minimapPos = 220,
 		},
+		customTrackers = {
+			bars = {},
+			autoLearn = {
+				enabled = false,
+				learnSpells = true,
+				learnItems = true,
+				targetBarID = "",
+			},
+		},
 		debug = {
 			enabled = false,
 			showPanel = false,
@@ -592,17 +601,17 @@ local PERF_DIRTY_PRIORITY = {
 }
 
 local EVENT_COALESCE_CONFIG = {
-	UNIT_HEALTH = { delay = 0.16, priority = 3 },
+	UNIT_HEALTH = { delay = 0.18, priority = 3 },
 	UNIT_HEAL_PREDICTION = { delay = 0.14, priority = 3 },
 	UNIT_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
 	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
-	UNIT_POWER_UPDATE = { delay = 0.16, priority = 3 },
+	UNIT_POWER_UPDATE = { delay = 0.20, priority = 4 },
 	UNIT_MAXHEALTH = { delay = 0.12, priority = 2 },
 	UNIT_MAXPOWER = { delay = 0.12, priority = 2 },
 	UNIT_DISPLAYPOWER = { delay = 0.12, priority = 3 },
-	UNIT_AURA = { delay = 0.18, priority = 3 },
+	UNIT_AURA = { delay = 0.22, priority = 4 },
 	UNIT_THREAT_SITUATION_UPDATE = { delay = 0.14, priority = 3 },
-	UNIT_THREAT_LIST_UPDATE = { delay = 0.14, priority = 3 },
+	UNIT_THREAT_LIST_UPDATE = { delay = 0.16, priority = 4 },
 	PLAYER_TOTEM_UPDATE = { delay = 0.05, priority = 3 },
 	RUNE_POWER_UPDATE = { delay = 0.05, priority = 3 },
 	UNIT_SPELLCAST_CHANNEL_UPDATE = { delay = 0.05, priority = 3 },
@@ -2760,11 +2769,11 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	end
 
 	local touched = false
+	local needsHealthDerivedTextUpdate = false
 	for eventName in pairs(dirtyEvents) do
 		if eventName == "UNIT_HEALTH" or eventName == "UNIT_MAXHEALTH" or eventName == "UNIT_THREAT_SITUATION_UPDATE" or eventName == "UNIT_THREAT_LIST_UPDATE" or eventName == "UNIT_HEAL_PREDICTION" or eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
 			touched = SafeUpdateElement(frame, "Health", eventName) or touched
-			self:UpdateAbsorbValue(frame)
-			self:UpdateIncomingHealValue(frame)
+			needsHealthDerivedTextUpdate = true
 		elseif eventName == "UNIT_POWER_UPDATE" or eventName == "UNIT_MAXPOWER" or eventName == "UNIT_DISPLAYPOWER" or eventName == "RUNE_POWER_UPDATE" or eventName == "PLAYER_TOTEM_UPDATE" then
 			touched = SafeUpdateElement(frame, "Power", eventName) or touched
 			touched = SafeUpdateElement(frame, "AdditionalPower", eventName) or touched
@@ -2783,6 +2792,11 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 			self:UpdateUnitFrameStatusIndicators(frame)
 			return
 		end
+	end
+
+	if needsHealthDerivedTextUpdate then
+		self:UpdateAbsorbValue(frame)
+		self:UpdateIncomingHealValue(frame)
 	end
 
 	if not touched then
@@ -8036,6 +8050,13 @@ function addon:OnInitialize()
 			self.db.profile.datatext.positionMode = "EDIT_MODE"
 		end
 	end
+	if not self.db.profile.customTrackers then
+		self.db.profile.customTrackers = CopyTableDeep(defaults.profile.customTrackers)
+	else
+		if not self.db.profile.customTrackers.bars then
+			self.db.profile.customTrackers.bars = {}
+		end
+	end
 	if not self.db.profile.plugins then
 		self.db.profile.plugins = CopyTableDeep(defaults.profile.plugins)
 	else
@@ -8224,6 +8245,12 @@ function addon:OnEnable()
 	self:RegisterEvent("MAIL_CLOSED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("MAIL_SHOW", "ScheduleUpdateDataTextPanel")
 	self:InitializeDataSystems()
+
+	-- Initialize Custom Trackers
+	if self.CustomTrackers and self.CustomTrackers.Init then
+		self.CustomTrackers:Init()
+	end
+
 	C_Timer.After(1.0, function()
 		if addon and addon.db and addon.db.profile and addon.db.profile.optionsUI and addon.db.profile.optionsUI.tutorialSeen ~= true then
 			addon:ShowTutorialOverview(false)

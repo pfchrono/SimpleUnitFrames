@@ -792,6 +792,47 @@ function addon:RenderOptionsV2Page(content, page)
 				end)
 				Track(content, button)
 				sy = sy - 30
+			elseif controlType == "button_row" then
+				local row = CreateFrame("Frame", nil, card)
+				row:SetPoint("TOPLEFT", card, "TOPLEFT", 12, sy)
+				row:SetSize(cardWidth - 24, 24)
+				Track(content, row)
+
+				local rowText = tostring(control.text or labelText or "")
+				if rowText ~= "" then
+					local textFs = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+					textFs:SetPoint("LEFT", row, "LEFT", 0, 0)
+					textFs:SetWidth(math.max(120, row:GetWidth() - 120))
+					textFs:SetJustifyH("LEFT")
+					textFs:SetText(rowText)
+					textFs:SetTextColor((style.textMuted or { 0.8, 0.8, 0.8 })[1], (style.textMuted or { 0.8, 0.8, 0.8 })[2], (style.textMuted or { 0.8, 0.8, 0.8 })[3])
+					Track(content, textFs)
+				end
+
+				local buttons = type(control.buttons) == "table" and control.buttons or {}
+				local offsetRight = 0
+				for bi = #buttons, 1, -1 do
+					local btnDef = buttons[bi]
+					local btn = CreateFrame("Button", nil, row, "UIPanelButtonTemplate")
+					local btnWidth = math.max(20, tonumber(btnDef and btnDef.width) or 24)
+					btn:SetSize(btnWidth, 22)
+					btn:SetPoint("RIGHT", row, "RIGHT", -offsetRight, 0)
+					btn:SetText(tostring((btnDef and btnDef.label) or "?"))
+					local btnDisabled = disabled or (btnDef and SafeCall(btnDef.disabled) == true) or false
+					btn:SetEnabled(not btnDisabled)
+					if addon.ApplySUFButtonSkin then
+						addon:ApplySUFButtonSkin(btn, "subtle")
+					end
+					btn:SetScript("OnClick", function()
+						if btnDisabled then
+							return
+						end
+						SafeCall(btnDef and btnDef.onClick)
+					end)
+					Track(content, btn)
+					offsetRight = offsetRight + btnWidth + 4
+				end
+				sy = sy - 26
 			elseif controlType == "dropdown" then
 				local label = card:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 				label:SetPoint("TOPLEFT", card, "TOPLEFT", 12, sy)
@@ -989,6 +1030,77 @@ function addon:RenderOptionsV2Page(content, page)
 				local initialValue = tostring(SafeCall(control.get) or "")
 				currentText:SetText("Current: " .. initialValue)
 				sy = sy - 40
+			elseif controlType == "dropzone" then
+				-- A drag-and-drop target zone for items/spells from bags/spellbook
+				local zoneHeight = tonumber(control.height) or 52
+				local zone = CreateFrame("Button", nil, card, "BackdropTemplate")
+				zone:SetPoint("TOPLEFT", card, "TOPLEFT", 12, sy)
+				zone:SetSize(cardWidth - 24, zoneHeight)
+				zone:SetBackdrop({
+					bgFile = "Interface\\Buttons\\WHITE8x8",
+					edgeFile = "Interface\\Buttons\\WHITE8x8",
+					edgeSize = 1,
+				})
+				local accentR = (style.accent or {1,1,1})[1]
+				local accentG = (style.accent or {1,1,1})[2]
+				local accentB = (style.accent or {1,1,1})[3]
+				local panelR = (style.panelBg or {0.06,0.06,0.06})[1]
+				local panelG = (style.panelBg or {0.06,0.06,0.06})[2]
+				local panelB = (style.panelBg or {0.06,0.06,0.06})[3]
+				zone:SetBackdropColor(panelR, panelG, panelB, 0.9)
+				zone:SetBackdropBorderColor(accentR, accentG, accentB, 0.4)
+				zone:SetEnabled(not disabled)
+				local zoneLabel = zone:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+				zoneLabel:SetPoint("CENTER", zone, "CENTER", 0, 0)
+				zoneLabel:SetText(disabled and labelText or (labelText .. "\n|cff888888Drag from bags or spellbook, then click|r"))
+				zoneLabel:SetJustifyH("CENTER")
+				zoneLabel:SetTextColor((style.textMuted or {0.8,0.8,0.8})[1], (style.textMuted or {0.8,0.8,0.8})[2], (style.textMuted or {0.8,0.8,0.8})[3], 1)
+				local function HandleDrop(self)
+					if disabled then return end
+					local cursorType, id1, id2, id3, id4 = GetCursorInfo()
+					if cursorType == "item" then
+						local itemID = id1
+						if itemID then
+							SafeCall(control.onDrop, "item", itemID)
+							ClearCursor()
+						end
+					elseif cursorType == "spell" then
+						local slotIndex = id1
+						local bookType = id2 or "spell"
+						local spellID = id4
+						if not spellID and slotIndex then
+							local spellBank = (bookType == "pet") and Enum.SpellBookSpellBank.Pet or Enum.SpellBookSpellBank.Player
+							local ok, spellBookInfo = pcall(C_SpellBook.GetSpellBookItemInfo, slotIndex, spellBank)
+							if ok and spellBookInfo then spellID = spellBookInfo.spellID end
+						end
+						if spellID then
+							local ok2, overrideID = pcall(C_Spell.GetOverrideSpell, spellID)
+							if ok2 and overrideID and overrideID ~= spellID then spellID = overrideID end
+						end
+						if spellID then
+							SafeCall(control.onDrop, "spell", spellID)
+							ClearCursor()
+						end
+					end
+				end
+				zone:SetScript("OnReceiveDrag", HandleDrop)
+				zone:SetScript("OnMouseUp", function(self)
+					local ct = GetCursorInfo()
+					if ct == "item" or ct == "spell" then HandleDrop(self) end
+				end)
+				zone:SetScript("OnEnter", function(self)
+					local ct = GetCursorInfo()
+					if ct == "item" or ct == "spell" then
+						self:SetBackdropBorderColor(accentR, accentG, accentB, 1)
+						zoneLabel:SetTextColor(accentR, accentG, accentB, 1)
+					end
+				end)
+				zone:SetScript("OnLeave", function(self)
+					self:SetBackdropBorderColor(accentR, accentG, accentB, 0.4)
+					zoneLabel:SetTextColor((style.textMuted or {0.8,0.8,0.8})[1], (style.textMuted or {0.8,0.8,0.8})[2], (style.textMuted or {0.8,0.8,0.8})[3], 1)
+				end)
+				Track(content, zone)
+				sy = sy - (zoneHeight + 6)
 			end
 
 			if control.help and control.help ~= "" then
