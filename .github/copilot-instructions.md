@@ -52,7 +52,7 @@
   - Reference: See WoWAddonAPIAgents/.github/skills/wow-lua-api/SKILL.md for complete Lua 5.1 reference
   - Reference: See WoWAddonAPIAgents/.github/skills for available skills and best practices for Lua coding in WoW addons
 
-- Prefer `addon:` namespaced functions with locals declared near the top of each file; keep style compact like existing code in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) and [Modules/ActionBars/Core.lua](../Modules/ActionBars/Core.lua).
+- Prefer `addon:` namespaced functions with locals declared near the top of each file; keep style compact like existing code in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) and [Modules/UI/OptionsWindow.lua](../Modules/UI/OptionsWindow.lua).
 - Use **PERF LOCALS** pattern: localize frequently-called globals at module load (e.g., `local GetTime, UnitExists = GetTime, UnitExists`)
 - Configuration UI uses AceGUI widgets and shared helper wrappers in [Modules/UI/OptionsWidgets.lua](../Modules/UI/OptionsWidgets.lua); follow patterns in [Modules/UI/OptionsWindow.lua](../Modules/UI/OptionsWindow.lua).
 - Defaults live in AceDB tables in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines 45-350; update defaults whenever adding new settings.
@@ -87,13 +87,6 @@
     - Enhancements.lua: UI enhancements (sticky windows, transliteration, animations)
     - Commands.lua: Slash command handlers (/suf, /SUFperf, /SUFdebug)
     - Launcher.lua: Addon initialization orchestration
-  - **Modules/ActionBars/:** Complete action bar replacement system (ported from QUI)
-    - Core.lua: Lifecycle, DB accessors, refresh orchestration
-    - Bindings.lua: LibKeyBound integration for keybind management
-    - Skinning.lua: Button texture skinning (Normal/Gloss/Highlight/Pushed/Checked/Flash)
-    - Layout.lua: Button positioning, scaling, visibility
-    - Fade.lua: Combat/hover/target fading system
-    - Extras.lua: Extra action button, zone ability button
   - **Modules/UI/:** Configuration and debug UI
     - OptionsWindow.lua (3537+ lines): Main options window with tab navigation, search, module copy/reset, profile management
     - OptionsTabs.lua: Tab definitions and metadata
@@ -102,7 +95,7 @@
     - DataSystems.lua: Data bar and data text systems
     - DebugWindow.lua: Debug panel UI
   - **Units/:** oUF unit frame spawning (Player, Target, Pet, Focus, ToT, Party, Raid, Boss)
-  - **Libraries/:** External dependencies (oUF, Ace3, LibSharedMedia, LibDualSpec, LibDeflate, LibDispel, LibTranslit, LibCustomGlow, LibRangeCheck, LibKeyBound, LibStub)
+  - **Libraries/:** External dependencies (oUF, Ace3, LibSharedMedia, LibDualSpec, LibDeflate, LibDispel, LibTranslit, LibCustomGlow, LibRangeCheck, LibStub)
 
 - **PerformanceLib Integration (Optional Dependency):**
   - SimpleUnitFrames integrates with PerformanceLib addon via `addon.performanceLib` references
@@ -123,11 +116,6 @@
   - Units spawned via oUF in Units/ directory (Player.lua, Target.lua, Pet.lua, Focus.lua, Tot.lua, Party.lua, Raid.lua, Boss.lua)
   - Unit builders registered via `addon:RegisterUnitBuilder(unitType, builder)` pattern
   - Frame anchoring uses `addon:HookAnchor(frame, "BlizzardFrameName")` to preserve Edit Mode integration
-- **Action Bar System:**
-  - Configuration: [Modules/UI/OptionsWindow.lua](../Modules/UI/OptionsWindow.lua) lines 1934-2020
-  - Core logic: [Modules/ActionBars/Core.lua](../Modules/ActionBars/Core.lua) with `GetActionBarsSettings()`, `RefreshActionBars()`, `InitializeActionBars()`
-  - Skinning: [Modules/ActionBars/Skinning.lua](../Modules/ActionBars/Skinning.lua) applies textures from Media/iconskin/ (Normal, Gloss, Highlight, Pushed, Checked, Flash)
-  - Fade: [Modules/ActionBars/Fade.lua](../Modules/ActionBars/Fade.lua) handles combat/hover/target alpha transitions
 - **Protected Operations System (Combat Lockdown):**
   - Core: [Core/ProtectedOperations.lua](../Core/ProtectedOperations.lua) — Centralized queue system with automatic flush
   - **Early Initialization:** Addon aliases (`addon:QueueOrRun`, `addon:FlushProtectedOperations`) registered immediately at module load to prevent nil errors during early frame spawning
@@ -136,14 +124,14 @@
   - **Priority Levels:** CRITICAL (immediate flush) → HIGH → MEDIUM → NORMAL → LOW (batched, 48 ops per flush)
   - **Flush Trigger:** Automatic on PLAYER_REGEN_ENABLED (event-driven, zero polling overhead)
   - **Deduplication:** Pass `key` to prevent duplicate queuing in same batch
-  - **When to Use:** Any frame mutation during combat (RefreshActionBars, UpdateFrames, etc.)
+  - **When to Use:** Any frame mutation during combat (UpdateFrames, etc.)
   - **Example:**
     ```lua
     addon:QueueOrRun(function()
-        ActionBars:Refresh()
+        addon:ScheduleUpdateAll()
     end, {
-        key = "ActionBars_Refresh",
-        type = "ACTIONBARS_REFRESH",
+        key = "Frames_Refresh",
+        type = "FRAMES_REFRESH",
         priority = "NORMAL",
     })
     ```
@@ -206,7 +194,7 @@
   - Auto-flush: Triggered on PLAYER_REGEN_ENABLED event (event-driven, zero polling overhead)
   - Deduplication: Keyed operations prevent duplicate queuing in the same batch
   - Diagnostics: `/SUFprotected` command for queue statistics and debugging
-  - Module integration: ActionBars (Core.lua), Unit Frames (refresh callbacks), UI (option changes)
+  - Module integration: Unit Frames (refresh callbacks), UI (option changes)
 - **PerformanceLib Integration (Optional Dependency):**
   - Architecture systems in PerformanceLib addon: EventBus, FramePoolManager, EventCoalescer, FrameTimeBudget, DirtyFlagManager, ReactiveConfig
   - Integration setup: [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) `SetupPerformanceLib()` function (lines ~2295-2350)
@@ -279,6 +267,67 @@
 - **GC Impact:** 60-75% GC reduction with frame pooling + event deferral (vs. naive implementation)
 
 ## Security
+
+### Secure Frame Patterns (WoW 12.0.0+ ActionBar Taint Lessons Learned)
+
+Through comparative analysis of Dominos vs SimpleUnitFrames ActionBars system, the following architectural patterns MUST be followed when modifying secure frames (action buttons, secure templates, etc.) in WoW 12.0.0+:
+
+**Pattern 1: Template Inheritance Over Custom Implementation**
+- ✅ **DO:** Use existing Blizzard secure templates via frame creation: `CreateFrame(..., "ActionBarButtonTemplate")` or inherit from parent templates
+- ❌ **DON'T:** Invent custom button classes or reimplements secure properties (impossible to do safely with addon taint)
+- **Why:** Blizzard templates bake all secure event handlers, attribute systems, and click routing. Addon code cannot replicate this safely.
+- **Impact in 12.0.0+:** Once buttons acquire secret state marks, addon code cannot safely modify their attributes. Only pre-fabricated secure templates remain untainted.
+- **Reference:** WoW 12.0.0 ActionButton system uses secure templates inherited from Blizzard_ActionBar/SecureTemplates.lua
+
+**Pattern 2: Attribute-Driven State Over Method Calls**
+- ✅ **DO:** Mutate secure frame visibility via attributes: `frame:SetAttribute("statehidden", not shouldShow)` → WoW's secure system triggers Show/Hide internally
+- ❌ **DON'T:** Call `frame:SetShown()`, `frame:Hide()`, or other methods directly during combat/instance gameplay
+- **Why:** Method calls violate combat lockdown (forbidden during combat). Attribute mutations are safe; WoW's secure system handles the actual show/hide via secure handlers.
+- **Impact in 12.0.0+:** Combat lockdown restrictions are STRICTER; method calls on secure frames are blocked entirely across instance boundaries.
+- **Pattern Example:**
+  ```lua
+  -- WRONG: Direct method call (combat lockdown violation)
+  if shouldShow then button:Show() else button:Hide() end
+  
+  -- RIGHT: Attribute-driven (safe during combat)
+  button:SetAttribute("statehidden", not shouldShow)
+  ```
+- **Example:** Dominos uses secure state drivers to update visibility; SUF ActionBars tried direct method calls during combat
+
+**Pattern 3: Action-Based APIs Over Unit-Based APIs**
+- ✅ **DO:** Query action button state via `C_ActionBar.*` functions (HasAction, GetActionTexture, GetActionText, GetActionInfo, IsUsableAction, etc.)
+- ❌ **DON'T:** Read unit-based APIs (UnitCasting, UnitHealth, UnitName, UnitIsUnit, etc.) to inform button updates or styling
+- **Why:** Action-based APIs return action data (non-secret). Unit-based APIs return secretly-guarded values in combat/instances, causing comparisons to fail.
+- **Impact in 12.0.0+:** Every UnitCasting(), UnitHealth(), UnitName() call on a non-player unit in an instance returns secret values. Any arithmetic or comparison crashes the addon.
+- **Critical Difference:** `C_ActionBar.GetActionText()` (safe, returns spell/item name) vs UnitName() (secret in instances, returns unreadable value)
+- **Example:** Dominos queries ONLY action slot data; SUF ActionBars likely read unit state for dynamic button updates
+
+**Pattern 4: Secure Wrapping Over Direct Hooks**
+- ✅ **DO:** Use `WrapScript()` (secure method on button controller frames) to insert addon logic into secure event handlers
+- ❌ **DON'T:** Call `hooksecurefunc()` on secure event handlers, or `SetScript()` directly on secure buttons during initialization
+- **Why:** WrapScript creates a sandboxed execution layer between addon code and original secure handlers. Direct hooks taint the button immediately.
+- **Impact in 12.0.0+:** Tainted frames cannot acquire new attributes in instances. WrapScript-wrapped frames remain untainted because the original frame is never modified.
+- **Alternative for Methods:** Use `hooksecurefunc()` ONLY on pure Lua methods (e.g., `hooksecurefunc(button, 'UpdateHotkeys', customUpdate)`), never on secure event handlers
+- **Example:** Dominos uses WrapScript to hook handlers; SUF ActionBars used direct HookScript calls that immediately tainted buttons
+
+**When to Break the Rules (Rare Cases):**
+- If modifying Blizzard's own secure code via hooksecurefunc on methods → safe (pure Lua)
+- If using PerformanceLib's EventCoalescer for high-frequency events → event-driven, not combat-restricted
+- If deferring frame changes via addon:QueueOrRun() with combat lockdown checks → protected operations system handles it
+
+**Impact Summary:**
+- **Before 12.0.0:** These patterns were "nice to have"; addons could get away with direct hooks and method calls
+- **12.0.0+:** These patterns are MANDATORY; violation causes taint errors, secret value crashes, and combat lockdown blocks
+- **Real-world consequence:** SimpleUnitFrames ActionBars removed entirely (6 modules, 2 libraries) because the patterns couldn't be salvaged mid-combat
+
+**For Future Frame Modification Work:**
+If SUF needs to provide UI overrides for protected frames (e.g., custom button theming, rare item alerts):
+1. Defer to third-party addon (Dominos for action bars, Masque for theming)
+2. OR integrate via secure theming system (Masque skinsets) that doesn't modify frame logic
+3. OR use the 4 patterns above religiously, tested in 5-player dungeons (where secret values are active)
+
+See [SECURE_FRAME_SAFETY_CHECKLIST.md](../docs/SECURE_FRAME_SAFETY_CHECKLIST.md) for verification points and debugging workflow.
+
 - **Protected Operations System (Unified Combat Lockdown Handling):**
   - **Location:** [Core/ProtectedOperations.lua](../Core/ProtectedOperations.lua) (event-driven queue system with early init)
   - **API:** `addon:QueueOrRun(func, opts)` — Queue operation for deferred execution during combat
@@ -291,17 +340,17 @@
   - **Batch Processing:** 48 operations per safe-flush window prevents runaway processing
   - **Fallback Ticker:** 200ms fallback ticker if queue remains after flush (edge case handling)
   - **Diagnostics:** `/SUFprotected` command shows queue stats; `/SUFprotected help` for full details
-  - **Example:** Queue ActionBars refresh during combat:
+  - **Example:** Queue a protected refresh during combat:
     ```lua
     addon:QueueOrRun(function()
-        ActionBars:Refresh()
+        addon:ScheduleUpdateAll()
     end, {
-        key = "ActionBars_Refresh",
-        type = "ACTIONBARS_REFRESH",
+        key = "Frames_Refresh",
+        type = "FRAMES_REFRESH",
         priority = "NORMAL",
     })
     ```
-  - **Usage in Modules:** ActionBars (Core.lua), any other module needing protected frame mutations
+  - **Usage in Modules:** Any module needing protected frame mutations
   - **Performance:** Event-driven with no polling overhead; fallback ticker (200ms) for edge cases
 - **WoW 12.0.0+ Secret Values:** Use `SafeNumber()`, `SafeText()`, `SafeAPICall()`, `IsSecretValue()` wrappers (defined in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines ~760-835)
 - **PerformanceLib Safety (when present):**

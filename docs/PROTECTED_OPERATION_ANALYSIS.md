@@ -67,53 +67,20 @@ PLAYER_REGEN_ENABLED: Flush all queued functions
 
 ---
 
-### 1.3 SimpleUnitFrames ActionBars: Pending Flags (Lines 95-97, 720-850)
-
-**Architecture:**
-```lua
-ActionBars module: inCombat flag + pending flags
-PLAYER_REGEN_DISABLED → ActionBars.inCombat = true
-ACTIONBAR_SLOT_CHANGED → Check inCombat; defer if true
-PLAYER_REGEN_ENABLED → Manual flush of specific flags
-```
-
-**Key Features:**
-- **Boolean State**: `ActionBars.inCombat` tracks combat status
-- **Selective Deferral**: Individual flags per operation type
-  - `pendingRefresh` → Full bar refresh deferred
-  - `pendingSlotChanged` → Button text/visibility update deferred
-  - `pendingBindingUpdate` → Keybind text update deferred
-  - `pendingExtraButtonInit/Refresh` → Extra button ops deferred
-- **Manual Flush**: Explicit code in PLAYER_REGEN_ENABLED handler
-- **No Queue Structure**: Simple boolean flags (not general-purpose)
-
-**State Variables:**
-- `inCombat`: Boolean
-- 6 pending flags: All boolean
-
-**Flush Behavior:**
-```
-In-Combat:    Set pending flag
-Out-of-Combat: Check each flag; execute associated operation
-PLAYER_REGEN_ENABLED: Explicit if-checks for each pending operation
-```
-
----
-
 ## 2. Comparative Analysis
 
 ### Feature Matrix
 
-| Feature | SUF QueueOrRun | UUF QueueOrRun | SUF ActionBars |
-|---------|---|---|---|
-| **Queue Structure** | Array of {key,func} | Array of func | N/A (flags) |
-| **Deduplication** | ✅ Keyed dedup | ❌ None | ✅ Single flag per op |
-| **Polling vs Event** | ✅ Ticker (200ms) | ✅ Event-driven | ✅ Event-driven |
-| **Return Status** | ✅ ok/err | ❌ Void | ❌ Void |
-| **Error Logging** | ✅ DebugLog | ❌ Print | ✅ Some operations |
-| **Auto-Cleanup** | ✅ Ticker cancels | ❌ Manual | N/A |
-| **Batch Limit** | ✅ 48 ops/flush | ❌ No limit | N/A |
-| **General-Purpose** | ✅ Any operation | ✅ Any operation | ❌ Action bars only |
+| Feature | SUF QueueOrRun | UUF QueueOrRun |
+|---------|---|---|
+| **Queue Structure** | Array of {key,func} | Array of func |
+| **Deduplication** | ✅ Keyed dedup | ❌ None |
+| **Polling vs Event** | ✅ Ticker (200ms) | ✅ Event-driven |
+| **Return Status** | ✅ ok/err | ❌ Void |
+| **Error Logging** | ✅ DebugLog | ❌ Print |
+| **Auto-Cleanup** | ✅ Ticker cancels | ❌ Manual |
+| **Batch Limit** | ✅ 48 ops/flush | ❌ No limit |
+| **General-Purpose** | ✅ Any operation | ✅ Any operation |
 
 ### Performance Characteristics
 
@@ -131,12 +98,6 @@ PLAYER_REGEN_ENABLED: Explicit if-checks for each pending operation
   - Example: "UpdateFrame" called 5x in combat → 5 functions queued
 - **Full Flush**: All ops execute immediately; O(n) on queue size
 - **Latency**: Exact (event-driven); guaranteed safe if reached PLAYER_REGEN_ENABLED
-
-#### SUF ActionBars Pending Flags
-- **Overhead**: Minimal; plain boolean checks
-- **Specificity**: Each operation type has explicit handler; tight control
-- **Risk**: Not general-purpose; adding new operation requires code changes
-- **Scaling**: 10+ pending flags = cluttered event handler (800+ lines already)
 
 ### Trade-offs Summary
 
@@ -163,23 +124,13 @@ PLAYER_REGEN_ENABLED: Explicit if-checks for each pending operation
 3. **Burst Risk**: All queued ops flush at once (vs 48/tick batching)
 4. **Not General-Purpose**: Only works for "defer until PLAYER_REGEN_ENABLED"
 
-#### SUF ActionBars Pending Flags Strengths
-1. **Specificity**: Each operation type explicitly named and handled
-2. **Minimal Overhead**: Boolean checks only
-3. **Tight Control**: All deferral logic in one event handler
-
-#### SUF ActionBars Pending Flags Weaknesses
-1. **Not Reusable**: Hard-coded for ActionBars module
-2. **Scaling**: 10+ operations → cluttered code (repeating flag checks)
-3. **Maintenance Burden**: New operation = new flag + new handler code
-
 ---
 
 ## 3. Hybrid Recommendation: Unified Protected Operation System
 
 ### Proposed Architecture
 
-**Merge SUF QueueOrRun + UUF Event Flush + ActionBars Pending Patterns**
+**Merge SUF QueueOrRun + UUF Event Flush Patterns**
 
 ```lua
 -- Core/ProtectedOperations.lua (NEW)
@@ -318,27 +269,7 @@ function addon:QueueOrRun(func, opts)
 end
 ```
 
-#### 2. ActionBars Module Integration
-```lua
--- Remove pending flags (lines 95-97)
--- Replace with unified QueueOrRun calls
-
--- OLD:
-if ActionBars.inCombat then
-    ActionBars.pendingSlotChanged = true
-else
-    UpdateButtonText()
-end
-
--- NEW:
-addon:QueueOrRun(UpdateButtonText, {
-    key = "ActionBar_SlotChanged",
-    type = "ACTIONBAR_SLOT_CHANGED",
-    priority = "HIGH"
-})
-```
-
-#### 3. Other Modules
+#### 2. Other Modules
 ```lua
 -- Any module can now use:
 addon:QueueOrRun(function()
@@ -359,17 +290,12 @@ end, {
 2. Add event frame registration to SimpleUnitFrames.lua
 3. Verify backward compatibility with addon:QueueOrRun(func) and addon:QueueOrRun(func, key)
 
-### Phase 2: ActionBars Migration
-1. Remove pending flags and ticker-based system from ActionBars
-2. Replace all `ActionBars.pendingXXX = true` checks with `addon:QueueOrRun()` calls
-3. Test with combat transitions (enter/exit skyriding, PvP, dungeons)
-
-### Phase 3: Analytics & Optimization
+### Phase 2: Analytics & Optimization
 1. Add `/SUF debug` output showing operation statistics
 2. Monitor operation types and priorities in PerformanceProfiler
 3. Tune batch size based on actual queue patterns
 
-### Phase 4: Documentation
+### Phase 3: Documentation
 1. Update copilot-instructions.md with new API
 2. Add examples to dev guide
 3. Mark old ticker system as deprecated
@@ -382,7 +308,7 @@ end, {
 |--------|---------|
 | **Event-Driven** | Zero polling overhead (UUF advantage) |
 | **Deduplication** | Prevent redundant operations (SUF advantage) |
-| **Unified API** | Single addon:QueueOrRun() for all modules (vs ActionBars-specific flags) |
+| **Unified API** | Single addon:QueueOrRun() for all modules |
 | **Batching** | 48 ops/safe-window prevents runaway processing (SUF advantage) |
 | **Priority Ordering** | HIGH priority ops flush before LOW (new capability) |
 | **Diagnostics** | Per-operation-type tracking and error logging (new) |
@@ -489,11 +415,10 @@ Migrate SimpleUnitFrames away from ticker-based polling to event-driven flush on
 **Why:**
 - Ticker polls 5x/sec even with empty queue = wasted CPU
 - Event-driven synchronizes exactly when safe
-- ActionBars pending flags could use same mechanism
 - Zero behavioral risk (still batched, deduped, safe)
 
 ### **Long Term (Phase 2+):**
-After ActionBars stabilizes, consolidate all deferred operations into unified ProtectedOperations system with:
+Consolidate all deferred operations into unified ProtectedOperations system with:
 - Priority ordering (CRITICAL/HIGH/NORMAL/LOW)
 - Per-operation-type analytics
 - Extensible design for future features
@@ -504,5 +429,4 @@ After ActionBars stabilizes, consolidate all deferred operations into unified Pr
 
 1. SimpleUnitFrames.lua: addon:QueueOrRun() + StartProtectedOperationTicker() (lines 7532-7607)
 2. UnhaltedUnitFrames/Core/Core.lua: UUF:QueueOrRun() (lines 270-278)
-3. SimpleUnitFrames/Modules/ActionBars/Core.lua: Pending flags (lines 95-97, 720-850)
-4. WoW 12.0.0 Combat Lockdown: InCombatLockdown(), PLAYER_REGEN_DISABLED/ENABLED
+3. WoW 12.0.0 Combat Lockdown: InCombatLockdown(), PLAYER_REGEN_DISABLED/ENABLED

@@ -971,10 +971,17 @@ addon._core.SetStatusBarTexturePreserveLayer = SetStatusBarTexturePreserveLayer
 addon._core.FormatCompactValue = FormatCompactValue
 addon._core.GetWatchedFactionInfoCompat = GetWatchedFactionInfoCompat
 addon._core.UNIT_TYPE_ORDER = UNIT_TYPE_ORDER
+addon._core.UNIT_LABELS = UNIT_LABELS
 addon._core.DEFAULT_UNIT_CASTBAR = DEFAULT_UNIT_CASTBAR
 addon._core.DEFAULT_UNIT_LAYOUT = DEFAULT_UNIT_LAYOUT
 addon._core.DEFAULT_UNIT_MAIN_BARS_BACKGROUND = DEFAULT_UNIT_MAIN_BARS_BACKGROUND
 addon._core.DEFAULT_HEAL_PREDICTION = DEFAULT_HEAL_PREDICTION
+
+-- Expose safe value helpers on addon table for modules to use
+addon.IsSecretValue = IsSecretValue
+addon.SafeNumber = SafeNumber
+addon.SafeText = SafeText
+addon.SafeAPICall = SafeAPICall
 
 local function GetPowerColor(powerToken)
 	if _G.PowerBarColor and powerToken and _G.PowerBarColor[powerToken] then
@@ -2805,7 +2812,8 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 		if all then
 			for i = 1, #all do
 				local frame = all[i]
-				if frame and not seen[frame] and frame.unit and UnitIsUnit(unit, frame.unit) then
+				local isSameUnit = frame and frame.unit and SafeAPICall(UnitIsUnit, unit, frame.unit)
+				if frame and not seen[frame] and isSameUnit then
 					seen[frame] = true
 					self:MarkFrameDirty(frame, eventName)
 				end
@@ -5561,8 +5569,10 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 			if UnitIsUnit and UnitIsUnit("target", unit) then
 				isTarget = true
 			elseif UnitGUID then
-				local targetGUID = UnitGUID("target")
-				local unitGUID = UnitGUID(unit)
+				-- Use SafeAPICall to handle secret values in WoW 12.0.0+
+				local targetGUID = SafeAPICall(UnitGUID, "target")
+				local unitGUID = SafeAPICall(UnitGUID, unit)
+				-- Only compare if both GUIDs are accessible (not secret)
 				isTarget = (targetGUID and unitGUID and targetGUID == unitGUID) and true or false
 			end
 		end
@@ -7963,19 +7973,6 @@ function addon:OnInitialize()
 		MergeDefaults(self.db.profile.plugins, defaults.profile.plugins)
 	end
 	self:NormalizePluginConfig()
-	if not self.db.profile.actionBars then
-		self.db.profile.actionBars = {}
-	end
-	MergeDefaults(self.db.profile.actionBars, {
-		enabled = true,
-		global  = {},
-		fade    = {},
-		blizzardXP = {},
-		bars    = {},
-	})
-	-- Note: Individual bar defaults are set in Modules/ActionBars/Core.lua DEFAULT_ACTIONBARS
-	-- and applied via GetActionBarsSettings() using MergeDefaults
-	
 	if not self.db.profile.minimap then
 		self.db.profile.minimap = CopyTableDeep(defaults.profile.minimap)
 	end
@@ -8148,7 +8145,6 @@ function addon:OnEnable()
 	self:RegisterEvent("MAIL_CLOSED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("MAIL_SHOW", "ScheduleUpdateDataTextPanel")
 	self:InitializeDataSystems()
-	self:InitializeActionBars()
 	C_Timer.After(1.0, function()
 		if addon and addon.db and addon.db.profile and addon.db.profile.optionsUI and addon.db.profile.optionsUI.tutorialSeen ~= true then
 			addon:ShowTutorialOverview(false)

@@ -11,7 +11,6 @@
 	<Script file="LibAceConfigHelper/LibAceConfigHelper.lua"/>
 	<Script file="LibAnim/LibAnim.lua"/>
 	<Include file="LibCustomGlow-1.0/LibCustomGlow-1.0.xml"/>
-	<Script file="LibActionButton-1.0/LibActionButton-1.0.lua"/>
 	<Script file="LibSimpleSticky/LibSimpleSticky.lua"/>
 	<Include file="LibTranslit-1.0/LibTranslit-1.0.xml"/>
 	<Script file="LibRangeCheck-3.0/LibRangeCheck-3.0.lua"/>

@@ -172,6 +172,7 @@ function addon:ShowOptions()
 	tabsHost:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 14)
 	tabsHost:SetWidth(240)
 	self:ApplySUFBackdropColors(tabsHost, UI_STYLE.panelBg, UI_STYLE.panelBorder, true)
+	tabsHost:Show()
 
 	local iconSize = 96
 	local icon = tabsHost:CreateTexture(nil, "ARTWORK")
@@ -185,6 +186,7 @@ function addon:ShowOptions()
 	contentHost:SetPoint("TOPLEFT", tabsHost, "TOPRIGHT", 8, 0)
 	contentHost:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 14)
 	self:ApplySUFBackdropColors(contentHost, UI_STYLE.panelBg, UI_STYLE.panelBorder, true)
+	contentHost:Show()
 
 	local searchLabel = contentHost:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	searchLabel:SetPoint("TOPLEFT", contentHost, "TOPLEFT", 12, -10)
@@ -213,6 +215,7 @@ function addon:ShowOptions()
 	local scroll = CreateFrame("ScrollFrame", nil, contentHost, "UIPanelScrollFrameTemplate")
 	scroll:SetPoint("TOPLEFT", contentHost, "TOPLEFT", 8, -34)
 	scroll:SetPoint("BOTTOMRIGHT", contentHost, "BOTTOMRIGHT", -28, 8)
+	scroll:Show()
 	
 	-- Style content scrollbar with theme colors
 	if scroll.ScrollBar then
@@ -226,10 +229,10 @@ function addon:ShowOptions()
 	local content = CreateFrame("Frame", nil, scroll)
 	content:SetSize(920, 200)
 	scroll:SetScrollChild(content)
+	content:Show()
 
 	local tabs = {
 		{ key = "global", label = "Global" },
-		{ key = "actionbars", label = "Action Bars" },
 		{ key = "performance", label = "PerformanceLib" },
 		{ key = "importexport", label = "Import / Export" },
 		{ key = "tags", label = "Tags" },
@@ -247,7 +250,7 @@ function addon:ShowOptions()
 		{
 			key = "grp_general",
 			label = "General",
-			items = { "global", "actionbars", "performance", "importexport", "tags", "credits" },
+			items = { "global", "performance", "importexport", "tags", "credits" },
 		},
 		{
 			key = "grp_units",
@@ -267,7 +270,6 @@ function addon:ShowOptions()
 	local OPTIONS_SEARCH_SCHEMA_VERSION = 2
 	local TAB_SEARCH_HINTS = {
 		global = "global media statusbar font visibility indicators castbar plugins fader party minimap",
-		actionbars = "action bars skin fade keybinds macro counts range indicator per-bar visibility",
 		performance = "performance perflib profiler analyze profile coalescing eventbus dirty pools preset dashboard",
 		importexport = "import export wizard profile copy paste validate preview apply",
 		tags = "tags ouf name level health power format token",
@@ -288,13 +290,6 @@ function addon:ShowOptions()
 				{ label = "Castbar", aliases = { "cast", "safe zone", "spark", "shield" } },
 				{ label = "Performance", aliases = { "perflib", "preset", "coalescing", "eventbus" } },
 				{ label = "Debug", aliases = { "sufdebug", "console", "export logs" } },
-			}},
-		},
-		actionbars = {
-			{ label = "Action Bars", aliases = { "actionbar", "bars", "keybind", "macro", "range" }, children = {
-				{ label = "Skinning", aliases = { "skin", "keybinds", "macro names", "counts" } },
-				{ label = "Fade", aliases = { "fade", "mouseover", "linked bars", "hover" } },
-				{ label = "Per-Bar Visibility", aliases = { "bar1", "bar2", "pet", "page arrow", "always show" } },
 			}},
 		},
 		importexport = {
@@ -1127,7 +1122,8 @@ function addon:ShowOptions()
 		local statusbarOptions = BuildLSMOptions("statusbar")
 		local fontOptions = BuildLSMOptions("font")
 		local function GetUnitLabel(unitKey)
-			return UNIT_LABELS[unitKey] or tostring(unitKey)
+			local labels = addon._core and addon._core.UNIT_LABELS
+			return (labels and labels[unitKey]) or tostring(unitKey)
 		end
 		local function CollectOUFTags()
 			local ouf = self.oUF or GetOuf()
@@ -1991,104 +1987,6 @@ function addon:ShowOptions()
 				self:SchedulePluginUpdate()
 				frame:BuildTab(tabKey)
 			end)
-		elseif tabKey == "actionbars" then
-			local actionBars = self.ActionBars
-			if not actionBars then
-				self:InitializeActionBars()
-				actionBars = self.ActionBars
-			end
-			local abSettings = self:GetActionBarsSettings()
-			local globalCfg = actionBars and actionBars.GetGlobalSettings and actionBars.GetGlobalSettings() or (abSettings and abSettings.global) or {}
-			local fadeCfg = actionBars and actionBars.GetFadeSettings and actionBars.GetFadeSettings() or (abSettings and abSettings.fade) or {}
-			local blizzCfg = abSettings and abSettings.blizzardXP or {}
-			local barsCfg = abSettings and abSettings.bars or {}
-			local function RefreshActionBars()
-				self:RefreshActionBars()
-			end
-
-			local function RefreshBlizzardXPFade()
-				if self.ActionBarsFade and self.ActionBarsFade.RefreshBlizzardXPFade then
-					self.ActionBarsFade.RefreshBlizzardXPFade()
-				end
-			end
-
-			ui:Label("Action Bars", true)
-			ui:Paragraph("Enable SUF Action Bars, then tune the shared skin, fade, and per-bar visibility settings.", true)
-
-			ui:Check("Enable Action Bars", function()
-				return abSettings and abSettings.enabled == true
-			end, function(v)
-				abSettings.enabled = v and true or false
-				if v then
-					self:InitializeActionBars()
-				else
-					self:RefreshActionBars()
-				end
-				frame:BuildTab("actionbars")
-			end)
-
-			ui:Label("Skinning", false)
-			ui:Check("Enable Skinning", function() return globalCfg.skinEnabled ~= false end, function(v) globalCfg.skinEnabled = v and true or false; RefreshActionBars() end)
-			ui:Check("Show Backdrop", function() return globalCfg.showBackdrop ~= false end, function(v) globalCfg.showBackdrop = v and true or false; RefreshActionBars() end)
-			ui:Slider("Backdrop Opacity", 0.1, 1.0, 0.05, function() return tonumber(globalCfg.backdropAlpha) or 0.8 end, function(v) globalCfg.backdropAlpha = v; RefreshActionBars() end)
-			ui:Check("Show Gloss", function() return globalCfg.showGloss == true end, function(v) globalCfg.showGloss = v and true or false; RefreshActionBars() end)
-			ui:Slider("Gloss Opacity", 0.1, 1.0, 0.05, function() return tonumber(globalCfg.glossAlpha) or 0.6 end, function(v) globalCfg.glossAlpha = v; RefreshActionBars() end)
-			ui:Slider("Icon Zoom", 0.0, 0.15, 0.01, function() return tonumber(globalCfg.iconZoom) or 0.07 end, function(v) globalCfg.iconZoom = v; RefreshActionBars() end)
-
-			ui:Label("Button Text", false)
-			ui:Check("Show Keybinds", function() return globalCfg.showKeybinds ~= false end, function(v) globalCfg.showKeybinds = v and true or false; RefreshActionBars() end)
-			ui:Check("Hide Empty Keybinds", function() return globalCfg.hideEmptyKeybinds == true end, function(v) globalCfg.hideEmptyKeybinds = v and true or false; RefreshActionBars() end)
-			ui:Slider("Keybind Font Size", 8, 20, 1, function() return tonumber(globalCfg.keybindFontSize) or 11 end, function(v) globalCfg.keybindFontSize = v; RefreshActionBars() end)
-			ui:Color("Keybind Color", function() return globalCfg.keybindColor or { 1, 1, 1 } end, function(r, g, b) globalCfg.keybindColor = { r, g, b, 1 }; RefreshActionBars() end)
-			ui:Check("Show Macro Names", function() return globalCfg.showMacroNames ~= false end, function(v) globalCfg.showMacroNames = v and true or false; RefreshActionBars() end)
-			ui:Slider("Macro Name Font Size", 8, 18, 1, function() return tonumber(globalCfg.macroNameFontSize) or 10 end, function(v) globalCfg.macroNameFontSize = v; RefreshActionBars() end)
-			ui:Color("Macro Name Color", function() return globalCfg.macroNameColor or { 1, 1, 1 } end, function(r, g, b) globalCfg.macroNameColor = { r, g, b, 1 }; RefreshActionBars() end)
-			ui:Check("Show Counts", function() return globalCfg.showCounts ~= false end, function(v) globalCfg.showCounts = v and true or false; RefreshActionBars() end)
-			ui:Slider("Count Font Size", 8, 22, 1, function() return tonumber(globalCfg.countFontSize) or 14 end, function(v) globalCfg.countFontSize = v; RefreshActionBars() end)
-			ui:Color("Count Color", function() return globalCfg.countColor or { 1, 1, 1 } end, function(r, g, b) globalCfg.countColor = { r, g, b, 1 }; RefreshActionBars() end)
-
-			ui:Label("Visibility", false)
-			ui:Check("Hide Empty Slots", function() return globalCfg.hideEmptySlots == true end, function(v) globalCfg.hideEmptySlots = v and true or false; RefreshActionBars() end)
-			ui:Check("Range Indicator", function() return globalCfg.rangeIndicator ~= false end, function(v) globalCfg.rangeIndicator = v and true or false; RefreshActionBars() end)
-			ui:Color("Range Color", function() return globalCfg.rangeColor or { 0.8, 0.1, 0.1 } end, function(r, g, b) globalCfg.rangeColor = { r, g, b, 1 }; RefreshActionBars() end)
-			ui:Check("Usability Indicator", function() return globalCfg.usabilityIndicator ~= false end, function(v) globalCfg.usabilityIndicator = v and true or false; RefreshActionBars() end)
-			ui:Color("Usability Color", function() return globalCfg.usabilityColor or { 0.4, 0.4, 0.4 } end, function(r, g, b) globalCfg.usabilityColor = { r, g, b, 1 }; RefreshActionBars() end)
-			ui:Color("Out of Mana Color", function() return globalCfg.manaColor or { 0.5, 0.5, 1.0 } end, function(r, g, b) globalCfg.manaColor = { r, g, b, 1 }; RefreshActionBars() end)
-			ui:Check("Desaturate Unusable", function() return globalCfg.usabilityDesaturate == true end, function(v) globalCfg.usabilityDesaturate = v and true or false; RefreshActionBars() end)
-			ui:Check("Show Tooltips", function() return globalCfg.showTooltips ~= false end, function(v) globalCfg.showTooltips = v and true or false; RefreshActionBars() end)
-
-			ui:Label("Fade", false)
-			ui:Check("Enable Fade", function() return fadeCfg.enabled == true end, function(v) fadeCfg.enabled = v and true or false; RefreshActionBars() end)
-			ui:Slider("Fade In Duration", 0.05, 1.0, 0.05, function() return tonumber(fadeCfg.fadeInDuration) or 0.2 end, function(v) fadeCfg.fadeInDuration = v; RefreshActionBars() end)
-			ui:Slider("Fade Out Duration", 0.05, 1.2, 0.05, function() return tonumber(fadeCfg.fadeOutDuration) or 0.3 end, function(v) fadeCfg.fadeOutDuration = v; RefreshActionBars() end)
-			ui:Slider("Fade Out Alpha", 0.0, 1.0, 0.05, function() return tonumber(fadeCfg.fadeOutAlpha) or 0 end, function(v) fadeCfg.fadeOutAlpha = v; RefreshActionBars() end)
-			ui:Slider("Fade Out Delay", 0.0, 2.0, 0.05, function() return tonumber(fadeCfg.fadeOutDelay) or 0.5 end, function(v) fadeCfg.fadeOutDelay = v; RefreshActionBars() end)
-			ui:Check("Always Show In Combat", function() return fadeCfg.alwaysShowInCombat ~= false end, function(v) fadeCfg.alwaysShowInCombat = v and true or false; RefreshActionBars() end)
-			ui:Check("Link Bars 1-8", function() return fadeCfg.linkBars1to8 == true end, function(v) fadeCfg.linkBars1to8 = v and true or false; RefreshActionBars() end)
-			ui:Check("Disable Fade Below Max Level", function() return fadeCfg.disableBelowMaxLevel ~= false end, function(v) fadeCfg.disableBelowMaxLevel = v and true or false; RefreshActionBars() end)
-
-			ui:Label("Per-Bar Visibility", false)
-			ui:Paragraph("Control visibility for each action bar. Note: Microbar and Bags visibility are controlled via Edit Mode.", false)
-			local barOrder = { "bar1", "bar2", "bar3", "bar4", "bar5", "bar6", "bar7", "bar8", "pet", "stance", "extraActionButton", "zoneAbility" }
-			for i = 1, #barOrder do
-				local barKey = barOrder[i]
-				local barCfg = barsCfg[barKey] or {}
-				local label = barKey:gsub("(%u)", " %1")
-				label = label:gsub("^(%l)", string.upper)
-				ui:Check(("Enable %s"):format(label), function() return barCfg.enabled ~= false end, function(v)
-					barCfg.enabled = v and true or false
-					barsCfg[barKey] = barCfg
-					RefreshActionBars()
-				end)
-				-- Add hideArtwork option for bars that support it
-				if barKey == "bar1" or barKey == "pet" or barKey == "stance" or barKey == "extraActionButton" or barKey == "zoneAbility" then
-					ui:Check(("Hide %s Artwork"):format(label), function() return barCfg.hideArtwork == true end, function(v)
-						barCfg.hideArtwork = v and true or false
-						barsCfg[barKey] = barCfg
-						RefreshActionBars()
-					end)
-				end
-			end
 		elseif tabKey == "performance" then
 			ui:Label("PerformanceLib", true)
 			ui:Paragraph("Tune presets, launch performance tools, and view a current metrics snapshot.", true)
@@ -2644,7 +2542,7 @@ function addon:ShowOptions()
 			ui:Paragraph("SimpleUnitFrames (SUF)\nPrimary Author: Grevin", true)
 			ui:Paragraph("UnhaltedUnitFrames (UUF)\nReference architecture, performance patterns, and feature inspirations.\nIncludes UUF-inspired ports plus your personal custom changes that are not present in UUF mainline.", true)
 			ui:Paragraph("PerformanceLib\nIntegrated optional performance framework for event coalescing, dirty batching, and profiling workflows.", true)
-			ui:Paragraph("Libraries Used\nAce3 (AceAddon/AceDB/AceGUI/AceSerializer), oUF, oUF_Plugins, LibSharedMedia-3.0, LibDualSpec-1.0, LibSerialize, LibDeflate, LibDataBroker-1.1, LibDBIcon-1.0, LibAnim, LibCustomGlow-1.0, LibActionButton-1.0, LibSimpleSticky, LibTranslit-1.0, UTF8, LibDispel-1.0, CallbackHandler-1.0, LibStub, TaintLess.", true)
+			ui:Paragraph("Libraries Used\nAce3 (AceAddon/AceDB/AceGUI/AceSerializer), oUF, oUF_Plugins, LibSharedMedia-3.0, LibDualSpec-1.0, LibSerialize, LibDeflate, LibDataBroker-1.1, LibDBIcon-1.0, LibAnim, LibCustomGlow-1.0, LibSimpleSticky, LibTranslit-1.0, UTF8, LibDispel-1.0, CallbackHandler-1.0, LibStub, TaintLess.", true)
 			ui:Paragraph("Special Thanks\nBlizzard UI Source and WoW addon ecosystem maintainers.", true)
 		else
 			local unitSettings = self:GetUnitSettings(tabKey)
@@ -3342,6 +3240,7 @@ function addon:ShowOptions()
 
 		local wanted = ui:GetHeight()
 		page:SetHeight(wanted)
+		page:Show()
 		content:SetHeight(wanted)
 		self.isBuildingOptions = false
 	end
@@ -3464,6 +3363,7 @@ function addon:ShowOptions()
 	menuScroll:SetPoint("TOPLEFT", tabsHost, "TOPLEFT", 8, -(iconSize + 24))
 	menuScroll:SetPoint("BOTTOMRIGHT", tabsHost, "BOTTOMRIGHT", -8, 8)
 	self:ApplySUFBackdropColors(menuScroll, UI_STYLE.panelBg, UI_STYLE.panelBorder, true)
+	menuScroll:Show()
 	
 	-- Style scrollbar thumb and buttons with theme colors
 	if menuScroll.ScrollBar then
@@ -3477,6 +3377,7 @@ function addon:ShowOptions()
 	local menuContent = CreateFrame("Frame", nil, menuScroll)
 	menuContent:SetSize(220, 1)
 	menuScroll:SetScrollChild(menuContent)
+	menuContent:Show()
 
 	local navButtons = {}
 	local sectionNavButtons = {}
@@ -3627,4 +3528,3 @@ function addon:ShowOptions()
 	frame:BuildTab("global")
 	self.optionsFrame = frame
 end
-

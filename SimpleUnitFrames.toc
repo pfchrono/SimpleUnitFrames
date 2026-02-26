@@ -27,14 +27,6 @@ Modules/UI/OptionsWindow.lua
 Modules/UI/DataSystems.lua
 Modules/UI/DebugWindow.lua
 
-# Action Bars
-Modules/ActionBars/Core.lua
-Modules/ActionBars/Bindings.lua
-Modules/ActionBars/Skinning.lua
-Modules/ActionBars/Layout.lua
-Modules/ActionBars/Fade.lua
-Modules/ActionBars/Extras.lua
-
 # Unit Frames
 Units/Player.lua
 Units/Pet.lua

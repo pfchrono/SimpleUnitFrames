@@ -2,11 +2,10 @@
 
 # SimpleUnitFrames (SUF)
 
-SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of Warcraft Retail. Built on `oUF` with Ace3 configuration, it features an integrated Action Bars system (ported from QUI), extensive customization options, and optional `PerformanceLib` integration for advanced event coalescing, performance profiling, and diagnostics.
+SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of Warcraft Retail. Built on `oUF` with Ace3 configuration, it focuses on unit frame customization and optional `PerformanceLib` integration for advanced event coalescing, performance profiling, and diagnostics.
 
 ## Recent Updates
 
-- **Action Bars System** — Complete implementation with button skinning, fade engine (combat/mouseover/target-based), keybind management (LibKeyBound + Midnight-safe patching), and Edit Mode support
 - **Blizzard Frame Integration** — Per-frame hide controls for default unit frames with Edit Mode visibility toggle and global options
 - **Health Color Hardening** — Threat/reaction/class colors now safe against WoW 12.0.0+ secret value restrictions
 - **Data Text/Bars System** — New draggable data bar framework with Shift+click-restricted drag handles, XP/Reputation fade controls, and dynamic repositioning
@@ -37,14 +36,6 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 - **Aura System** — Configurable aura display with icon sizing, buff/debuff filtering, and preview tooltips
 - **Edit Mode Integration** — Full compatibility with Blizzard Edit Mode for frame positioning
 
-### Action Bars System
-- **Button Management** — Complete reimplementation with button skinning (Normal, Gloss, Highlight, Pushed states)
-- **Keybind Display** — LibKeyBound integration with Midnight-safe keybind patching
-- **Fade Engine** — Smart fading with combat, mouseover, and target-based activation modes
-- **Layout Control** — Per-bar scale, lock, visibility modes, and page arrow management
-- **Extra Action Buttons** — Support for Extra Action Button and Zone Ability with custom positioning and movers
-- **Edit Mode Support** — Full Edit Mode integration for action bar positioning and customization
-
 ### Performance & Diagnostics
 - **PerformanceLib Integration** — Optional advanced performance systems including:
   - Event coalescing with adaptive priorities (CRITICAL/HIGH/MEDIUM/LOW)
@@ -59,7 +50,7 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 ### Data Bars & Text System
 - **Draggable Data Bars** — Repositionable bars for XP, reputation, and custom data displays
 - **Shift+Click Drag Handles** — Drag handles restricted to Shift+click for accidental protection
-- **XP/Reputation Control** — Per-bar visibility and fade behavior tied to Action Bars fade system
+- **XP/Reputation Control** — Per-bar visibility and fade behavior tied to data bar settings
 - **Customizable Text** — Data text system with multiple text display options
 
 ### Options & Configuration
@@ -118,7 +109,6 @@ SimpleUnitFrames provides extended tag support beyond standard oUF tags:
 - **Secret Values (WoW 12.0.0+)** — Some prediction API returns are restricted; SUF uses safe fallback colors and text when values are unavailable
 - **PerformanceLib Features** — Advanced diagnostics and ML optimization only available when PerformanceLib addon is installed
 - **Broker/LDB** — Minimap behavior depends on optional broker libraries present in the addon environment
-- **Action Bar Paging** — Paging follows WoW's built-in action bar paging system; custom paging logic is not supported
 
 ## API Reference (Addon Integration)
 
@@ -149,7 +139,6 @@ addon:ApplyImportedProfile(data)
 ### Key Modules
 - **[SimpleUnitFrames.lua](SimpleUnitFrames.lua)** — Core addon initialization, profile management, unit configuration, and custom tag registration
 - **[Core/ProtectedOperations.lua](Core/ProtectedOperations.lua)** — Unified combat lockdown handling with priority-based operation queueing
-- **[Modules/ActionBars/](Modules/ActionBars/)** — Complete action bar system with skinning, layout, fading, and keybind management
 - **[Modules/UI/](Modules/UI/)** — Options window, debug panel, and data bar system with theming helpers
 - **[Units/](Units/)** — oUF unit frame builders for each frame type
 
@@ -157,7 +146,6 @@ addon:ApplyImportedProfile(data)
 - [DEVELOPER_NOTES.md](docs/DEVELOPER_NOTES.md) — Safe extension patterns and contribution guidelines
 - [MIGRATION.md](docs/MIGRATION.md) — Profile migration and import system details
 - [PROTECTED_OPERATION_ANALYSIS.md](docs/PROTECTED_OPERATION_ANALYSIS.md) — Combat lockdown handling deep dive
-- [docs/QUI_PORT/](docs/QUI_PORT/) — Feature-specific import documentation from QUI port
 
 ### Development
 - Use `addon:QueueOrRun(func, opts)` for all frame mutations during combat
@@ -181,7 +169,6 @@ addon:ApplyImportedProfile(data)
 - **PerformanceLib** (optional) — Event coalescing, profiling, ML optimization, diagnostics
 - **LibDataBroker-1.1** (optional) — Minimap/LDB broker support
 - **LibDBIcon-1.0** (optional) — Minimap icon management
-- **LibKeyBound-1.0** — Action bar keybind management
 
 ### Utilities & Enhancements
 - **LibDispel-1.0** — Dispel helper functions
@@ -190,7 +177,6 @@ addon:ApplyImportedProfile(data)
 - **LibTranslit-1.0** — Text transliteration
 - **LibAnim** — Animation utilities
 - **TaintLess** — Taint management
-- **LibActionButton-1.0** — Button framework
 - **LibAceConfigHelper** — Configuration UI helpers
 - **UTF8** — Unicode text handling
 
@@ -213,12 +199,10 @@ addon:ApplyImportedProfile(data)
 - **Gethe & Community** — wow-ui-source Blizzard reference implementations
 
 ### Feature Attribution
-- **QUI (zol-wow)** — Action bar system architecture, button skinning, fade engine, and keybind patterns ported with modifications
 - **UnhaltedUnitFrames (UUF)** — Frame design reference and architectural guidance
 
 ### Integration Partners
 - **PerformanceLib** — Optional performance systems (event coalescing, profiling, ML optimization)
-- **LibKeyBound** — Keybind management UI
 - **LibSharedMedia-3.0** — Texture and font management
 - **LibDualSpec-1.0** — Per-spec profile support
 
