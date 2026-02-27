@@ -634,7 +634,6 @@ local EVENT_COALESCE_CONFIG = {
 	UNIT_MAXHEALTH = { delay = 0.12, priority = 2 },
 	UNIT_MAXPOWER = { delay = 0.12, priority = 2 },
 	UNIT_DISPLAYPOWER = { delay = 0.12, priority = 3 },
-	UNIT_AURA = { delay = 0.22, priority = 4 },
 	UNIT_THREAT_SITUATION_UPDATE = { delay = 0.14, priority = 3 },
 	UNIT_THREAT_LIST_UPDATE = { delay = 0.16, priority = 4 },
 	PLAYER_TOTEM_UPDATE = { delay = 0.05, priority = 3 },
@@ -2778,19 +2777,26 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	local profileStart = debugprofilestop and debugprofilestop() or nil
 
 	if type(dirtyEvents) ~= "table" then
-		frame:UpdateAllElements("SimpleUnitFrames_PerfDirty")
-		self:UpdateUnitFrameStatusIndicators(frame)
 		return
 	end
 
 	local eventCount = 0
+	local auraOnly = true
 	for eventName in pairs(dirtyEvents) do
 		eventCount = eventCount + 1
-		if eventCount > 4 then
-			frame:UpdateAllElements("SimpleUnitFrames_PerfDirtyBatch")
-			self:UpdateUnitFrameStatusIndicators(frame)
-			return
+		if eventName ~= "UNIT_AURA" then
+			auraOnly = false
 		end
+	end
+
+	-- Fast path: aura spam should not force full frame/status refresh work.
+	if auraOnly and eventCount > 0 then
+		SafeUpdateElement(frame, "Auras", "UNIT_AURA")
+		if profileStart then
+			local profileEnd = debugprofilestop() or profileStart
+			self:RecordProfilerEvent("suf:dirty.update", profileEnd - profileStart)
+		end
+		return
 	end
 
 	local touched = false
@@ -2808,14 +2814,14 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 		elseif eventName == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
 			touched = SafeUpdateElement(frame, "Castbar", eventName) or touched
 		elseif eventName == "UNIT_PORTRAIT_UPDATE" or eventName == "UNIT_NAME_UPDATE" or eventName == "UNIT_FACTION" then
-			touched = SafeUpdateElement(frame, "Portrait", eventName) or touched
+			touched = self:RefreshPortraitFrame(frame) or touched
 		elseif eventName == "UNIT_FLAGS" or eventName == "UNIT_CONNECTION" or eventName == "RAID_TARGET_UPDATE" or eventName == "GROUP_ROSTER_UPDATE" or eventName == "PLAYER_ROLES_ASSIGNED" or eventName == "PARTY_LEADER_CHANGED" then
 			touched = true
 			self:UpdateUnitFrameStatusIndicators(frame)
 		else
-			frame:UpdateAllElements("SimpleUnitFrames_PerfDirtyFallback")
-			self:UpdateUnitFrameStatusIndicators(frame)
-			return
+			-- Keep dirty-path incremental; avoid full frame refresh fallback
+			-- here because it causes visible churn under event storms.
+			touched = true
 		end
 	end
 
@@ -2825,7 +2831,7 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	end
 
 	if not touched then
-		frame:UpdateAllElements("SimpleUnitFrames_PerfDirtyFallback")
+		return
 	end
 	self:UpdateUnitFrameStatusIndicators(frame)
 
@@ -2835,11 +2841,45 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	end
 end
 
+function addon:ShouldBypassPerformanceDirty(frame, eventName)
+	if not frame then
+		return false
+	end
+	if not self:IsPerformanceIntegrationEnabled() then
+		return false
+	end
+	local unitType = frame.sufUnitType
+	if unitType == "player" or unitType == "target" or unitType == "tot" then
+		return true
+	end
+	return false
+end
+
 function addon:MarkFrameDirty(frame, eventName)
 	if not frame then
 		return
 	end
 	if not self:IsFrameEventRelevant(frame, eventName) then
+		return
+	end
+	if self:ShouldBypassPerformanceDirty(frame, eventName) then
+		return
+	end
+
+	-- Keep UNIT_AURA isolated from full dirty-frame processing to avoid
+	-- unnecessary frame-wide updates (and fader/portrait alpha churn).
+	if eventName == "UNIT_AURA" then
+		if frame.__sufAuraDirtyQueued then
+			return
+		end
+		frame.__sufAuraDirtyQueued = true
+		C_Timer.After(0, function()
+			frame.__sufAuraDirtyQueued = nil
+			if not frame then
+				return
+			end
+			SafeUpdateElement(frame, "Auras", "UNIT_AURA")
+		end)
 		return
 	end
 
@@ -3529,7 +3569,6 @@ function addon:PrintStatusReport()
 		self:Print(addonName .. ": " .. line)
 	end
 end
-
 function addon:IsEditModeActive()
 	if C_EditMode and C_EditMode.IsEditModeActive then
 		return C_EditMode.IsEditModeActive()
@@ -4945,17 +4984,41 @@ function addon:ApplyPluginElements(frame)
 	if frame.Fader and frame.Fader.SetOption then
 		local faderCfg = plugins.fader or defaults.profile.plugins.fader
 		local enabled = faderCfg.enabled == true
-		SafeSetFaderOption(frame.Fader, "MinAlpha", tonumber(faderCfg.minAlpha) or 0.45)
-		SafeSetFaderOption(frame.Fader, "MaxAlpha", tonumber(faderCfg.maxAlpha) or 1)
-		SafeSetFaderOption(frame.Fader, "Smooth", tonumber(faderCfg.smooth) or 0.2)
+		local hasElementApi = frame.EnableElement and frame.DisableElement and frame.IsElementEnabled
+		if hasElementApi then
+			if enabled and not frame:IsElementEnabled("Fader") then
+				pcall(frame.EnableElement, frame, "Fader")
+			elseif (not enabled) and frame:IsElementEnabled("Fader") then
+				pcall(frame.DisableElement, frame, "Fader")
+			end
+		end
+		local minAlpha = math.max(0.05, math.min(1, tonumber(faderCfg.minAlpha) or 0.45))
+		local maxAlpha = math.max(0.05, math.min(1, tonumber(faderCfg.maxAlpha) or 1))
+		if minAlpha > maxAlpha then
+			minAlpha = maxAlpha
+		end
+		local smooth = math.max(0, math.min(1, tonumber(faderCfg.smooth) or 0.2))
+		SafeSetFaderOption(frame.Fader, "MinAlpha", minAlpha)
+		SafeSetFaderOption(frame.Fader, "MaxAlpha", maxAlpha)
+		SafeSetFaderOption(frame.Fader, "Smooth", smooth)
 		SafeSetFaderOption(frame.Fader, "Hover", enabled and (faderCfg.hover ~= false) or false)
 		SafeSetFaderOption(frame.Fader, "Combat", enabled and (faderCfg.combat ~= false) or false)
 		SafeSetFaderOption(frame.Fader, "Casting", enabled and (faderCfg.casting == true) or false)
 		SafeSetFaderOption(frame.Fader, "PlayerTarget", enabled and (faderCfg.playerTarget ~= false) or false)
 		SafeSetFaderOption(frame.Fader, "ActionTarget", enabled and (faderCfg.actionTarget == true) or false)
 		SafeSetFaderOption(frame.Fader, "UnitTarget", enabled and (faderCfg.unitTarget == true) or false)
-		if frame.Fader.ForceUpdate then
+		if enabled and frame.Fader.ForceUpdate then
 			frame.Fader:ForceUpdate("SUF_FaderApply")
+		elseif not enabled and frame.SetAlpha then
+			if frame.Fader.ClearTimers then
+				frame.Fader:ClearTimers()
+			end
+			frame.Fader.count = 0
+			frame.Fader.TargetHooked = 0
+			frame.Fader.HoverHooked = 0
+			frame.Fader.__fadingTo = nil
+			frame.Fader.__lastTargetAlpha = nil
+			frame:SetAlpha(1)
 		end
 	end
 end
@@ -4986,24 +5049,51 @@ function addon:ApplyMedia(frame)
 
 	if frame.Auras then
 		local auraCfg = self:GetUnitAuraLayoutSettings(frame.sufUnitType)
+		local spacingX = tonumber(auraCfg.spacingX) or 4
+		local spacingY = tonumber(auraCfg.spacingY) or 4
+		local maxCols = math.max(1, tonumber(auraCfg.maxCols) or 8)
+		local initialAnchor = tostring(auraCfg.initialAnchor or "BOTTOMLEFT")
+		local growthX = tostring(auraCfg.growthX or "RIGHT")
+		local growthY = tostring(auraCfg.growthY or "UP")
+		local sortMethod = tostring(auraCfg.sortMethod or "DEFAULT")
+		local sortDirection = tostring(auraCfg.sortDirection or "ASC")
+		local onlyShowPlayer = auraCfg.onlyShowPlayer == true
+		local showStealableBuffs = auraCfg.showStealableBuffs ~= false
+		local numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 8)
+		local numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 8)
+		local enabled = auraCfg.enabled ~= false
+		local layoutSig = table.concat({
+			spacingX, spacingY, maxCols, initialAnchor, growthX, growthY,
+			sortMethod, sortDirection, tostring(onlyShowPlayer), tostring(showStealableBuffs),
+			numBuffs, numDebuffs
+		}, "|")
+
 		frame.Auras.tooltipAnchor = "ANCHOR_BOTTOMRIGHT"
 		frame.Auras.tooltipOffsetX = 0
 		frame.Auras.tooltipOffsetY = 0
-		frame.Auras.spacingX = tonumber(auraCfg.spacingX) or 4
-		frame.Auras.spacingY = tonumber(auraCfg.spacingY) or 4
-		frame.Auras.maxCols = math.max(1, tonumber(auraCfg.maxCols) or 8)
-		frame.Auras.initialAnchor = tostring(auraCfg.initialAnchor or "BOTTOMLEFT")
-		frame.Auras.growthX = tostring(auraCfg.growthX or "RIGHT")
-		frame.Auras.growthY = tostring(auraCfg.growthY or "UP")
-		frame.Auras.sortMethod = tostring(auraCfg.sortMethod or "DEFAULT")
-		frame.Auras.sortDirection = tostring(auraCfg.sortDirection or "ASC")
-		frame.Auras.onlyShowPlayer = auraCfg.onlyShowPlayer == true
-		frame.Auras.showStealableBuffs = auraCfg.showStealableBuffs ~= false
-		frame.Auras.numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 8)
-		frame.Auras.numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 8)
-		frame.Auras.reanchorIfVisibleChanged = true
-		frame.Auras.needFullUpdate = true
-		frame.Auras:SetShown(auraCfg.enabled ~= false)
+		frame.Auras.reanchorIfVisibleChanged = false
+
+		if frame.__sufAuraLayoutSig ~= layoutSig then
+			frame.Auras.spacingX = spacingX
+			frame.Auras.spacingY = spacingY
+			frame.Auras.maxCols = maxCols
+			frame.Auras.initialAnchor = initialAnchor
+			frame.Auras.growthX = growthX
+			frame.Auras.growthY = growthY
+			frame.Auras.sortMethod = sortMethod
+			frame.Auras.sortDirection = sortDirection
+			frame.Auras.onlyShowPlayer = onlyShowPlayer
+			frame.Auras.showStealableBuffs = showStealableBuffs
+			frame.Auras.numBuffs = numBuffs
+			frame.Auras.numDebuffs = numDebuffs
+			frame.Auras.needFullUpdate = true
+			frame.__sufAuraLayoutSig = layoutSig
+		end
+
+		if frame.__sufAuraEnabled ~= enabled then
+			frame.Auras:SetShown(enabled)
+			frame.__sufAuraEnabled = enabled
+		end
 	end
 
 	if frame.PowerBG then
@@ -5712,6 +5802,42 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 	end
 end
 
+function addon:RefreshPortraitFrame(frame)
+	if not frame then
+		return false
+	end
+	local unit = frame.unit
+	if type(unit) ~= "string" or unit == "" then
+		return false
+	end
+	local widget = frame.Portrait
+	if not widget then
+		return false
+	end
+	if widget == frame.Portrait2D then
+		if type(SetPortraitTexture) == "function" then
+			local ok = pcall(SetPortraitTexture, widget, unit)
+			return ok
+		end
+		return false
+	end
+	if widget == frame.Portrait3D then
+		if widget.SetUnit then
+			local guid = SafeAPICall(UnitGUID, unit)
+			if guid and frame.__sufPortrait3DGuid == guid then
+				return true
+			end
+			local ok = pcall(widget.SetUnit, widget, unit)
+			if ok then
+				frame.__sufPortrait3DGuid = guid
+			end
+			return ok
+		end
+		return false
+	end
+	return false
+end
+
 function addon:RefreshAllTargetGlowIndicators()
 	for _, frame in ipairs(self.frames or {}) do
 		if frame and frame.TargetIndicator then
@@ -5723,11 +5849,30 @@ end
 function addon:OnPlayerTargetChanged()
 	self:ScheduleUpdateDataTextPanel()
 	self:RefreshAllTargetGlowIndicators()
+	if self.frames then
+		for _, frame in ipairs(self.frames) do
+			if frame and frame.sufUnitType == "target" then
+				self:RefreshPortraitFrame(frame)
+			end
+		end
+	end
 end
 
 function addon:ApplyPortrait(frame)
 	local settings = self:GetUnitSettings(frame.sufUnitType)
 	local portrait = settings.portrait or { mode = "none", size = 0, position = "LEFT", showClass = false, motion = false }
+	local portraitMode = portrait.mode or "none"
+	local portraitSize = tonumber(portrait.size) or 0
+	local portraitPosition = portrait.position or "LEFT"
+	local portraitShowClass = portrait.showClass == true
+
+	if frame.__sufPortraitMode == portraitMode
+		and frame.__sufPortraitSize == portraitSize
+		and frame.__sufPortraitPosition == portraitPosition
+		and frame.__sufPortraitShowClass == portraitShowClass
+	then
+		return
+	end
 
 	if frame.Portrait2D then
 		frame.Portrait2D:Hide()
@@ -5737,17 +5882,23 @@ function addon:ApplyPortrait(frame)
 		frame.Portrait3D:SetScript("OnUpdate", nil)
 	end
 
-	if portrait.mode == "none" then
+	if portraitMode == "none" then
 		if frame.DisableElement then
 			frame:DisableElement("Portrait")
 		end
+		frame.Portrait = nil
+		frame.__sufPortrait3DGuid = nil
+		frame.__sufPortraitMode = portraitMode
+		frame.__sufPortraitSize = portraitSize
+		frame.__sufPortraitPosition = portraitPosition
+		frame.__sufPortraitShowClass = portraitShowClass
 		return
 	end
 
 	local widget
-	if portrait.mode == "2D" then
+	if portraitMode == "2D" then
 		widget = frame.Portrait2D
-	elseif portrait.mode == "3D" or portrait.mode == "3DMotion" then
+	elseif portraitMode == "3D" or portraitMode == "3DMotion" then
 		widget = frame.Portrait3D
 	end
 
@@ -5756,31 +5907,36 @@ function addon:ApplyPortrait(frame)
 	end
 
 	widget:ClearAllPoints()
-	if portrait.position == "RIGHT" then
+	if portraitPosition == "RIGHT" then
 		widget:SetPoint("LEFT", frame, "RIGHT", 4, 0)
 	else
 		widget:SetPoint("RIGHT", frame, "LEFT", -4, 0)
 	end
-	widget:SetSize(portrait.size, portrait.size)
-	widget.showClass = portrait.showClass
+	widget:SetSize(portraitSize, portraitSize)
+	widget.showClass = portraitShowClass
 	widget:Show()
 
-	if widget.SetAlpha then
-		widget:SetAlpha(frame:GetAlpha() or 1)
-	end
-
 	frame.Portrait = widget
-	if frame.EnableElement then
-		frame:EnableElement("Portrait")
+	-- Keep 3D portraits on a GUID-gated manual update path to avoid
+	-- frequent model clear/rebind flicker from full portrait event churn.
+	if frame.DisableElement then
+		pcall(frame.DisableElement, frame, "Portrait")
 	end
+	frame.__sufPortrait3DGuid = nil
+	self:RefreshPortraitFrame(frame)
 
-	if portrait.mode == "3DMotion" and widget.SetFacing then
+	if portraitMode == "3DMotion" and widget.SetFacing then
 		local facing = 0
 		widget:SetScript("OnUpdate", function(_, elapsed)
 			facing = facing + elapsed * 0.5
 			widget:SetFacing(facing)
 		end)
 	end
+
+	frame.__sufPortraitMode = portraitMode
+	frame.__sufPortraitSize = portraitSize
+	frame.__sufPortraitPosition = portraitPosition
+	frame.__sufPortraitShowClass = portraitShowClass
 end
 
 function addon:LayoutClassPower(frame)
@@ -5890,12 +6046,6 @@ function addon:ApplySize(frame)
 
 	if frame.Auras then
 		local auraSize = self:GetUnitAuraSize(frame.sufUnitType)
-		frame.Auras.size = auraSize
-		frame.Auras.width = auraSize
-		frame.Auras.height = auraSize
-		frame.Auras:SetHeight(auraSize + 2)
-		frame.Auras:ClearAllPoints()
-
 		local topAnchor = frame
 		if frame.AdditionalPower and frame.AdditionalPower.IsShown and frame.AdditionalPower:IsShown() then
 			topAnchor = frame.AdditionalPower
@@ -5903,9 +6053,18 @@ function addon:ApplySize(frame)
 		if frame.ClassPowerAnchor and HasVisibleClassPower(frame) then
 			topAnchor = frame.ClassPowerAnchor
 		end
-
-		frame.Auras:SetPoint("BOTTOMLEFT", topAnchor, "TOPLEFT", 0, 4)
-		frame.Auras:SetPoint("BOTTOMRIGHT", topAnchor, "TOPRIGHT", 0, 4)
+		local anchorSig = tostring(topAnchor) .. "|" .. tostring(auraSize)
+		if frame.__sufAuraAnchorSig ~= anchorSig then
+			frame.Auras.size = auraSize
+			frame.Auras.width = auraSize
+			frame.Auras.height = auraSize
+			frame.Auras:SetHeight(auraSize + 2)
+			frame.Auras:ClearAllPoints()
+			frame.Auras:SetPoint("BOTTOMLEFT", topAnchor, "TOPLEFT", 0, 4)
+			frame.Auras:SetPoint("BOTTOMRIGHT", topAnchor, "TOPRIGHT", 0, 4)
+			frame.Auras.needFullUpdate = true
+			frame.__sufAuraAnchorSig = anchorSig
+		end
 	end
 
 	self:UpdateMainBarsBackgroundAnchors(frame)
@@ -6317,7 +6476,7 @@ local function CreateAuras(self)
 	Auras.sortDirection = tostring(auraCfg.sortDirection or "ASC")
 	Auras.onlyShowPlayer = auraCfg.onlyShowPlayer == true
 	Auras.showStealableBuffs = auraCfg.showStealableBuffs ~= false
-	Auras.reanchorIfVisibleChanged = true
+	Auras.reanchorIfVisibleChanged = false
 	Auras.numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 8)
 	Auras.numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 8)
 	Auras.disableCooldown = false
@@ -6631,6 +6790,18 @@ end
 function addon:UpdateSingleFrame(frame)
 	if not frame then
 		return
+	end
+	local unitType = frame.sufUnitType
+	if unitType == "player" or unitType == "target" or unitType == "tot" then
+		local optionsOpen = self.optionsFrame and self.optionsFrame.IsShown and self.optionsFrame:IsShown()
+		if not optionsOpen then
+			local now = (GetTime and GetTime()) or 0
+			local last = tonumber(frame.__sufLastFullRefreshAt) or 0
+			if now - last < 1.0 then
+				return
+			end
+			frame.__sufLastFullRefreshAt = now
+		end
 	end
 
 	self:ApplyTags(frame)
@@ -7284,13 +7455,100 @@ function addon:Style(frame, unit)
 	self:EnableUnitFrameEditModeDrag(frame)
 	self:UpdateUnitFrameUnlockHandle(frame)
 	self:UpdateUnitFrameStatusIndicators(frame)
-	if not frame.Update then
-		frame.Update = function(widget)
+	local function FlushQueuedDirtyEvents(widget)
+		local events = widget.__sufDirtyEvents
+		widget.__sufDirtyQueued = false
+		widget.__sufDirtyEvents = {}
+		addon:UpdateFrameFromDirtyEvents(widget, events)
+		ClearTableInPlace(events)
+	end
+	local function ShouldAllowFullRefreshPassthrough(eventName)
+		if type(eventName) ~= "string" then
+			return false
+		end
+		if eventName == "SimpleUnitFrames_Update" then
+			return true
+		end
+		if eventName == "RefreshUnit" then
+			return true
+		end
+		if eventName == "ForceUpdate" then
+			return true
+		end
+		return false
+	end
+	local function ShouldApplyAntiFlickerGuards(unitType)
+		return type(unitType) == "string" and unitType ~= ""
+	end
+	local function TryIncrementalEventUpdate(widget, eventName, statKey)
+		if type(eventName) ~= "string" or eventName == "" then
+			return false
+		end
+		if eventName == "OnShow" then
+			return true
+		end
+		addon:UpdateFrameFromDirtyEvents(widget, { [eventName] = true })
+		return true
+	end
+	if frame.UpdateAll and not frame.__sufOriginalUpdateAll then
+		frame.__sufOriginalUpdateAll = frame.UpdateAll
+		frame.UpdateAll = function(widget, ...)
+			local eventName = select(1, ...)
+			local unitType = widget and widget.sufUnitType
+			if ShouldApplyAntiFlickerGuards(unitType) and eventName == "OnUpdate" then
+				return
+			end
 			local events = widget.__sufDirtyEvents
-			widget.__sufDirtyQueued = false
-			widget.__sufDirtyEvents = {}
-			addon:UpdateFrameFromDirtyEvents(widget, events)
-			ClearTableInPlace(events)
+			if widget.__sufDirtyQueued and type(events) == "table" and next(events) ~= nil then
+				FlushQueuedDirtyEvents(widget)
+				return
+			end
+			if ShouldApplyAntiFlickerGuards(unitType) then
+				if not ShouldAllowFullRefreshPassthrough(eventName) then
+					if TryIncrementalEventUpdate(widget, eventName, "WrappedUpdateAllIncremental") then
+						return
+					end
+					return
+				end
+			end
+			return widget:__sufOriginalUpdateAll(...)
+		end
+	end
+	if frame.UpdateAllElements and not frame.__sufOriginalUpdateAllElements then
+		frame.__sufOriginalUpdateAllElements = frame.UpdateAllElements
+		frame.UpdateAllElements = function(widget, ...)
+			local eventName = select(1, ...)
+			local unitType = widget and widget.sufUnitType
+			if ShouldApplyAntiFlickerGuards(unitType) and eventName == "OnUpdate" then
+				return
+			end
+			local events = widget.__sufDirtyEvents
+			if widget.__sufDirtyQueued and type(events) == "table" and next(events) ~= nil then
+				FlushQueuedDirtyEvents(widget)
+				return
+			end
+			if ShouldApplyAntiFlickerGuards(unitType) then
+				if not ShouldAllowFullRefreshPassthrough(eventName) then
+					if TryIncrementalEventUpdate(widget, eventName, "WrappedUpdateAllElementsIncremental") then
+						return
+					end
+					return
+				end
+			end
+			return widget:__sufOriginalUpdateAllElements(...)
+		end
+	end
+	if not frame.__sufOriginalUpdate then
+		frame.__sufOriginalUpdate = frame.Update
+		frame.Update = function(widget, ...)
+			local events = widget.__sufDirtyEvents
+			if widget.__sufDirtyQueued and type(events) == "table" and next(events) ~= nil then
+				FlushQueuedDirtyEvents(widget)
+				return
+			end
+			if widget.__sufOriginalUpdate then
+				return widget:__sufOriginalUpdate(...)
+			end
 		end
 	end
 	table.insert(self.frames, frame)
@@ -7507,21 +7765,24 @@ function addon:ApplyVisibilityRules()
 
 	for _, frame in ipairs(self.frames or {}) do
 		if frame then
-			local frameName = tostring(frame:GetName() or frame.sufUnitType or frame.unit or "frame")
+			local unitType = frame.sufUnitType or "frame"
 			self:QueueOrRun(function()
 				UnregisterStateDriver(frame, "visibility")
-				RegisterStateDriver(frame, "visibility", driver)
-			end, "visibility-driver-frame-" .. frameName)
+			end, "visibility-driver-skip-" .. tostring(frame:GetName() or unitType))
 		end
 	end
 
 	for _, header in pairs(self.headers or {}) do
 		if header then
-			local headerName = tostring(header:GetName() or "header")
-			self:QueueOrRun(function()
-				UnregisterStateDriver(header, "visibility")
-				RegisterStateDriver(header, "visibility", driver)
-			end, "visibility-driver-header-" .. headerName)
+			if header.__sufVisibilityDriver == driver then
+			else
+				header.__sufVisibilityDriver = driver
+				local headerName = tostring(header:GetName() or "header")
+				self:QueueOrRun(function()
+					UnregisterStateDriver(header, "visibility")
+					RegisterStateDriver(header, "visibility", driver)
+				end, "visibility-driver-header-" .. headerName)
+			end
 		end
 	end
 end
@@ -8488,4 +8749,5 @@ function addon:OnDisable()
 	end
 	self:ReleaseAllPooledResources()
 end
+
 

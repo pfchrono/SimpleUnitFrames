@@ -19,5 +19,7 @@
 			"path": "../QUI"
 		}
 	],
-	"settings": {}
+	"settings": {
+		"powershell.cwd": "SimpleUnitFrames"
+	}
 }
