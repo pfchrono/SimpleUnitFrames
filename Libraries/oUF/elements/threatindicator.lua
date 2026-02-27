@@ -49,9 +49,12 @@ local function Update(self, event, unit)
 	local feedbackUnit = element.feedbackUnit
 	unit = unit or self.unit
 
+	-- Don't show threat indicator for player units
+	local isPlayer = UnitIsPlayer(unit)
+	
 	local status
 	-- BUG: Non-existent '*target' or '*pet' units cause UnitThreatSituation() errors
-	if(unitExists(unit)) then
+	if(not isPlayer and unitExists(unit)) then
 		if(feedbackUnit and feedbackUnit ~= unit and unitExists(feedbackUnit)) then
 			status = UnitThreatSituation(feedbackUnit, unit)
 		else

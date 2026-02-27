@@ -39,7 +39,9 @@ local function Update(self, event, unit)
 		element:PreUpdate()
 	end
 
-	local isQuestBoss = UnitIsQuestBoss(unit)
+	-- Don't show quest indicator for player units
+	local isPlayer = UnitIsPlayer(unit)
+	local isQuestBoss = not isPlayer and UnitIsQuestBoss(unit)
 	if(isQuestBoss) then
 		element:Show()
 	else

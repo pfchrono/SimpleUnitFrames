@@ -653,6 +653,7 @@ local EVENT_COALESCE_CONFIG = {
 local NON_UNIT_EVENT_TARGETS = {
 	PLAYER_TOTEM_UPDATE = { "player" },
 	RUNE_POWER_UPDATE = { "player" },
+	PLAYER_FLAGS_CHANGED = { "player" },
 }
 
 local UNIT_SCOPED_EVENTS = {
@@ -2815,7 +2816,7 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 			touched = SafeUpdateElement(frame, "Castbar", eventName) or touched
 		elseif eventName == "UNIT_PORTRAIT_UPDATE" or eventName == "UNIT_NAME_UPDATE" or eventName == "UNIT_FACTION" then
 			touched = self:RefreshPortraitFrame(frame) or touched
-		elseif eventName == "UNIT_FLAGS" or eventName == "UNIT_CONNECTION" or eventName == "RAID_TARGET_UPDATE" or eventName == "GROUP_ROSTER_UPDATE" or eventName == "PLAYER_ROLES_ASSIGNED" or eventName == "PARTY_LEADER_CHANGED" then
+		elseif eventName == "UNIT_FLAGS" or eventName == "UNIT_CONNECTION" or eventName == "PLAYER_FLAGS_CHANGED" or eventName == "RAID_TARGET_UPDATE" or eventName == "GROUP_ROSTER_UPDATE" or eventName == "PLAYER_ROLES_ASSIGNED" or eventName == "PARTY_LEADER_CHANGED" then
 			touched = true
 			self:UpdateUnitFrameStatusIndicators(frame)
 		else
@@ -5659,6 +5660,35 @@ function addon:ApplyIndicators(frame)
 		end
 	end
 
+	if frame.ThreatIndicator then
+		local threatSize = math.max(12, math.floor(size * 0.6))
+		frame.ThreatIndicator:SetSize(threatSize, threatSize)
+		frame.ThreatIndicator:ClearAllPoints()
+		frame.ThreatIndicator:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -2)
+	end
+
+	if frame.QuestIndicator then
+		-- Fixed size 30x30, positioned outside frame at top right corner
+		frame.QuestIndicator:SetSize(30, 30)
+		frame.QuestIndicator:ClearAllPoints()
+		frame.QuestIndicator:SetPoint("BOTTOMLEFT", frame, "TOPRIGHT", 2, -2)
+	end
+
+	if frame.PvPClassificationIndicator then
+		local classSize = math.max(12, math.floor(size * 0.6))
+		frame.PvPClassificationIndicator:SetSize(classSize, classSize)
+		frame.PvPClassificationIndicator:ClearAllPoints()
+		frame.PvPClassificationIndicator:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 2)
+	end
+
+	if frame.ClassificationIndicator then
+		-- Elite/Rare/Boss badges positioned at top-right
+		local classificationSize = math.max(18, math.floor(size * 0.6)) -- Keep at 18x18 for consistent display
+		frame.ClassificationIndicator:SetSize(classificationSize, classificationSize)
+		frame.ClassificationIndicator:ClearAllPoints()
+		frame.ClassificationIndicator:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 8, 8)
+	end
+
 	if frame.RoleIndicator then
 		local roleSize = math.max(12, math.floor(size * 0.75))
 		frame.RoleIndicator:SetSize(roleSize, roleSize)
@@ -5796,9 +5826,42 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		elseif isPlayerUnit and UnitIsAFK and UnitIsAFK(unit) then
 			text = "AFK"
 			r, g, b = 1.0, 0.90, 0.35
+		elseif isPlayerUnit and UnitIsDND and UnitIsDND(unit) then
+			text = "DND"
+			r, g, b = 1.0, 0.25, 0.25
 		end
 		frame.StatusIndicator:SetText(text)
 		frame.StatusIndicator:SetTextColor(r, g, b, 1.0)
+	end
+
+	-- Update ClassificationIndicator (Elite/Rare/Boss badges)
+	if frame.ClassificationIndicator then
+		local classification = UnitClassification and UnitClassification(unit)
+		if classification == "elite" then
+			frame.ClassificationIndicator:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Elite")
+			-- Elite texture is 64x16; crop center 16 pixels to create square dragon head
+			-- (24 to 40 pixels out of 64 = 0.375 to 0.625)
+			frame.ClassificationIndicator:SetTexCoord(0.375, 0.625, 0, 1)
+			frame.ClassificationIndicator:Show()
+		elseif classification == "rare" then
+			-- Reset texture coordinates before SetAtlas to ensure clean slate
+			frame.ClassificationIndicator:SetTexCoord(0, 1, 0, 1)
+			-- SetAtlas with useAtlasSize=false means we control size, but atlas manages its own texture coords
+			frame.ClassificationIndicator:SetAtlas("VignetteKill", false)
+			frame.ClassificationIndicator:Show()
+		elseif classification == "rareelite" then
+			-- Reset texture coordinates before SetAtlas to ensure clean slate
+			frame.ClassificationIndicator:SetTexCoord(0, 1, 0, 1)
+			-- SetAtlas with useAtlasSize=false means we control size, but atlas manages its own texture coords
+			frame.ClassificationIndicator:SetAtlas("VignetteKillElite", false)
+			frame.ClassificationIndicator:Show()
+		elseif classification == "worldboss" then
+			frame.ClassificationIndicator:SetTexture("Interface\\TargetingFrame\\UI-TargetingFrame-Skull")
+			frame.ClassificationIndicator:SetTexCoord(0, 1, 0, 1)  -- Full texture for skull
+			frame.ClassificationIndicator:Show()
+		else
+			frame.ClassificationIndicator:Hide()
+		end
 	end
 end
 
@@ -5830,6 +5893,10 @@ function addon:RefreshPortraitFrame(frame)
 			local ok = pcall(widget.SetUnit, widget, unit)
 			if ok then
 				frame.__sufPortrait3DGuid = guid
+				-- Zoom in for closer portrait view (1 = head/shoulders, 0 = full body)
+				if widget.SetPortraitZoom then
+					pcall(widget.SetPortraitZoom, widget, 1)
+				end
 			end
 			return ok
 		end
@@ -5861,6 +5928,10 @@ function addon:OnPlayerTargetChanged()
 					UNIT_NAME_UPDATE = true,
 					UNIT_PORTRAIT_UPDATE = true,
 					UNIT_AURA = true,
+					UNIT_THREAT_SITUATION_UPDATE = true,
+					UNIT_THREAT_LIST_UPDATE = true,
+					UNIT_CLASSIFICATION_CHANGED = true,
+					UNIT_RANGE = true,
 				})
 				if frame.UpdateTags then
 					pcall(frame.UpdateTags, frame)
@@ -5868,7 +5939,28 @@ function addon:OnPlayerTargetChanged()
 				if frame.HealthValue and frame.HealthValue.UpdateTag then
 					pcall(frame.HealthValue.UpdateTag, frame.HealthValue)
 				end
+				-- Force update oUF elements that respond to threat/classification changes
+				if frame.ThreatIndicator and frame.ThreatIndicator.ForceUpdate then
+					pcall(frame.ThreatIndicator.ForceUpdate, frame.ThreatIndicator)
+				end
+				if frame.QuestIndicator and frame.QuestIndicator.ForceUpdate then
+					pcall(frame.QuestIndicator.ForceUpdate, frame.QuestIndicator)
+				end
+				if frame.Range and frame.Range.ForceUpdate then
+					pcall(frame.Range.ForceUpdate, frame.Range)
+				end
 				self:RefreshPortraitFrame(frame)
+			end
+		end
+	end
+end
+
+function addon:OnPlayerFlagsChanged()
+	-- Mark player frame dirty to update status indicators (AFK/DND/DC)
+	if self.frames then
+		for _, frame in ipairs(self.frames) do
+			if frame and frame.sufUnitType == "player" then
+				self:MarkFrameDirty(frame, "PLAYER_FLAGS_CHANGED")
 			end
 		end
 	end
@@ -6058,6 +6150,37 @@ function addon:ApplySize(frame)
 			bar:SetHeight(self.db.profile.classPowerHeight)
 		end
 		self:LayoutClassPower(frame)
+	end
+
+	if frame.Runes then
+		local count = #frame.Runes
+		local spacing = self.db.profile.classPowerSpacing
+		local totalWidth = frame:GetWidth()
+		local barWidth = math.floor((totalWidth - spacing * (count - 1)) / count)
+		if barWidth < 4 then
+			barWidth = 4
+		end
+		local runeHeight = math.max(4, math.floor(self.db.profile.classPowerHeight * 0.85))
+		local anchor = frame.ClassPowerAnchor or frame
+		for index, bar in ipairs(frame.Runes) do
+			bar:SetHeight(runeHeight)
+			bar:ClearAllPoints()
+			if index == 1 then
+				bar:SetPoint("TOPLEFT", anchor, "TOPLEFT", 0, 0)
+			else
+				bar:SetPoint("LEFT", frame.Runes[index - 1], "RIGHT", spacing, 0)
+			end
+			bar:SetWidth(barWidth)
+		end
+	end
+
+	if frame.Stagger then
+		local staggerHeight = math.max(4, math.floor(self.db.profile.classPowerHeight * 0.8))
+		local anchor = frame.ClassPowerAnchor or frame
+		frame.Stagger:SetHeight(staggerHeight)
+		frame.Stagger:ClearAllPoints()
+		frame.Stagger:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+		frame.Stagger:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
 	end
 
 	if frame.Auras then
@@ -7337,6 +7460,7 @@ function addon:Style(frame, unit)
 	local IndicatorFrame = self:AcquireRuntimeFrame("Frame", frame, "SUF_IndicatorFrame")
 	IndicatorFrame:Show()
 	IndicatorFrame:SetAllPoints(frame)
+	IndicatorFrame:SetClipsChildren(false)
 	IndicatorFrame:SetFrameStrata("HIGH")
 	IndicatorFrame:SetFrameLevel(frame:GetFrameLevel() + 10)
 	SetMousePassthrough(IndicatorFrame)
@@ -7353,6 +7477,47 @@ function addon:Style(frame, unit)
 	PvPIndicator:SetPoint("BOTTOMRIGHT", frame, "TOPRIGHT", 4, 6)
 	PvPIndicator:SetDrawLayer("OVERLAY", 7)
 	frame.PvPIndicator = PvPIndicator
+
+	-- ThreatIndicator: Only for units that can have threat (not player/pet)
+	if frame.sufUnitType ~= "player" and frame.sufUnitType ~= "pet" then
+		local ThreatIndicator = IndicatorFrame.__sufThreatIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+		ThreatIndicator:SetDrawLayer("OVERLAY", 6)
+		IndicatorFrame.__sufThreatIndicator = ThreatIndicator
+		frame.ThreatIndicator = ThreatIndicator
+	else
+		frame.ThreatIndicator = nil
+	end
+
+	-- QuestIndicator: Only for NPC units (not player/pet/party/raid)
+	if frame.sufUnitType ~= "player" and frame.sufUnitType ~= "pet" and 
+	   frame.sufUnitType ~= "party" and frame.sufUnitType ~= "raid" then
+		local QuestIndicator = IndicatorFrame.__sufQuestIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+		QuestIndicator:SetDrawLayer("OVERLAY", 6)
+		IndicatorFrame.__sufQuestIndicator = QuestIndicator
+		frame.QuestIndicator = QuestIndicator
+	else
+		frame.QuestIndicator = nil
+	end
+
+	local PvPClassificationIndicator = IndicatorFrame.__sufPvPClassificationIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+	PvPClassificationIndicator.useAtlasSize = true
+	PvPClassificationIndicator:SetDrawLayer("OVERLAY", 6)
+	IndicatorFrame.__sufPvPClassificationIndicator = PvPClassificationIndicator
+	frame.PvPClassificationIndicator = PvPClassificationIndicator
+
+	-- ClassificationIndicator: Shows Elite/Rare/Boss badges on NPCs
+	if frame.sufUnitType ~= "player" and frame.sufUnitType ~= "pet" and
+	   frame.sufUnitType ~= "party" and frame.sufUnitType ~= "raid" then
+		local ClassificationIndicator = IndicatorFrame.__sufClassificationIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+		ClassificationIndicator:SetSize(18, 18)
+		ClassificationIndicator:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 8, 8)
+		ClassificationIndicator:SetDrawLayer("OVERLAY", 7)
+		ClassificationIndicator.useAtlasSize = false  -- We'll manage size ourselves for consistency
+		IndicatorFrame.__sufClassificationIndicator = ClassificationIndicator
+		frame.ClassificationIndicator = ClassificationIndicator
+	else
+		frame.ClassificationIndicator = nil
+	end
 
 	local RoleIndicator = IndicatorFrame.__sufRoleIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
 	RoleIndicator:SetSize(18, 18)
@@ -7398,7 +7563,56 @@ function addon:Style(frame, unit)
 	TextOverlay.__sufStatusIndicator = StatusIndicator
 	frame.StatusIndicator = StatusIndicator
 
+	-- Add SetAlphaFromBoolean method for Range element
+	if not frame.SetAlphaFromBoolean then
+		frame.SetAlphaFromBoolean = function(self, condition, trueAlpha, falseAlpha)
+			self:SetAlpha(condition and trueAlpha or falseAlpha)
+		end
+	end
+
 	frame.Fader = frame.Fader or {}
+	-- Only apply Range element to unit types that can go out of range
+	-- (tot, focus, boss; party/raid are handled by oUF directly)
+	if frame.sufUnitType == "tot" or frame.sufUnitType == "focus" or frame.sufUnitType == "boss" then
+		if not frame.Range then
+			frame.Range = {
+				insideAlpha = 1,
+				outsideAlpha = 0.55,
+			}
+		elseif type(frame.Range) == "table" then
+			frame.Range.insideAlpha = frame.Range.insideAlpha or 1
+			frame.Range.outsideAlpha = frame.Range.outsideAlpha or 0.55
+		end
+		
+		-- Override Range element for non-party frames to work with target/tot/focus/boss
+		frame.Range.Override = function(self, event)
+			local element = self.Range
+			local unit = self.unit
+			
+			if element.PreUpdate then
+				element:PreUpdate()
+			end
+			
+			local inRange
+			-- For non-party frames, check if unit exists and is connected
+			if UnitExists(unit) and UnitIsConnected(unit) then
+				inRange = UnitInRange(unit)
+				if inRange == nil then
+					-- UnitInRange returns nil for invalid units or units that don't support range
+					-- Default to in-range (full alpha) for these cases
+					inRange = true
+				end
+				self:SetAlphaFromBoolean(inRange, element.insideAlpha, element.outsideAlpha)
+			else
+				-- Unit doesn't exist or is offline, use full alpha
+				self:SetAlpha(element.insideAlpha)
+			end
+			
+			if element.PostUpdate then
+				return element:PostUpdate(self, inRange, UnitExists(unit) and UnitIsConnected(unit))
+			end
+		end
+	end
 	if self:IsGroupUnitType(frame.sufUnitType) then
 		self:EnsureRaidDebuffsElement(frame)
 		self:EnsureAuraWatchElement(frame)
@@ -7450,6 +7664,32 @@ function addon:Style(frame, unit)
 			frame.ClassPowerAnchor:SetPoint("BOTTOMRIGHT", AdditionalPower, "TOPRIGHT", 0, classGap)
 			SetMousePassthrough(frame.ClassPowerAnchor)
 			HookRightClickProxy(frame.ClassPowerAnchor, frame)
+		end
+
+		local playerClass = UnitClassBase and UnitClassBase("player") or select(2, UnitClass("player"))
+		if playerClass == "DEATHKNIGHT" and not frame.Runes then
+			-- Per Blizzard_UnitFrame/Mainline/RuneFrame.lua line 5: DK runes are gated by UnitClass("player").
+			local Runes = {}
+			local runeHeight = math.max(4, math.floor(self.db.profile.classPowerHeight * 0.85))
+			local runeAnchor = frame.ClassPowerAnchor or frame
+			for index = 1, 6 do
+				local bar = CreateStatusBar(frame, runeHeight)
+				bar:SetPoint("TOPLEFT", runeAnchor, "TOPLEFT", 0, 0)
+				bar:SetWidth(12)
+				SetMousePassthrough(bar)
+				Runes[index] = bar
+			end
+			frame.Runes = Runes
+		end
+		if playerClass == "MONK" and not frame.Stagger then
+			-- Per Blizzard_UnitFrame/Mainline/MonkStaggerBar.lua line 69-74: Stagger uses UnitStagger/UnitHealthMax.
+			local Stagger = CreateStatusBar(frame, math.max(4, math.floor(self.db.profile.classPowerHeight * 0.8)))
+			local anchor = frame.ClassPowerAnchor or frame
+			Stagger:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -4)
+			Stagger:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
+			Stagger.smoothing = Enum.StatusBarInterpolation and Enum.StatusBarInterpolation.Immediate or nil
+			SetMousePassthrough(Stagger)
+			frame.Stagger = Stagger
 		end
 	end
 
@@ -7569,6 +7809,10 @@ function addon:Style(frame, unit)
 	end
 	table.insert(self.frames, frame)
 	self:InvalidateFrameEventIndex()
+	-- Initialize status indicators for the player frame (AFK/DND/DC status)
+	if frame.sufUnitType == "player" then
+		self:UpdateUnitFrameStatusIndicators(frame)
+	end
 end
 
 function addon:HookAnchor(frame, anchorName)
@@ -8196,6 +8440,18 @@ function addon:OnPlayerEnteringWorld()
 	end)
 	C_Timer.After(0.75, function()
 		self:OnPlayerTargetChanged()
+		-- Also update player frame status indicators (AFK/DND/DC) on login
+		if self.frames then
+			for _, frame in ipairs(self.frames) do
+				if frame and frame.sufUnitType == "player" then
+					self:UpdateUnitFrameStatusIndicators(frame)
+					-- Force update Power bar to prevent visual glitches on login (e.g., Shadow Priest Insanity overflow)
+					if frame.Power and frame.Power.ForceUpdate then
+						pcall(frame.Power.ForceUpdate, frame.Power)
+					end
+				end
+			end
+		end
 	end)
 end
 
@@ -8693,6 +8949,7 @@ function addon:OnEnable()
 	self:RegisterEvent("ZONE_CHANGED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("ZONE_CHANGED_INDOORS", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("PLAYER_TARGET_CHANGED", "OnPlayerTargetChanged")
+	self:RegisterEvent("PLAYER_FLAGS_CHANGED", "OnPlayerFlagsChanged")
 	self:RegisterEvent("QUEST_ACCEPTED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("QUEST_REMOVED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("QUEST_TURNED_IN", "ScheduleUpdateDataTextPanel")
