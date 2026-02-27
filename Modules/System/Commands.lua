@@ -42,8 +42,10 @@ function addon:ShowLauncherHelp()
 	self:Print(addonName .. ": /suf debug")
 	self:Print(addonName .. ": /suf status")
 	self:Print(addonName .. ": /suf protected (see also: /SUFprotected help)")
+	self:Print(addonName .. ": /suf skinreport (Blizzard skin coverage report)")
 	self:Print(addonName .. ": /suf install")
 	self:Print(addonName .. ": /suf tutorial")
+	self:Print(addonName .. ": /sufskinreport (direct alias)")
 	self:Print(addonName .. ": /suf reload")
 	self:Print(addonName .. ": /suf resources")
 	self:Print(addonName .. ": /suf help")
@@ -186,6 +188,17 @@ function addon:HandleSUFSlash(msg)
 
 	if command == "protected" then
 		self:HandleProtectedOpsSlash(rest)
+		return
+	end
+
+	if command == "skinreport" or command == "skincoverage" or command == "blizzskin" then
+		if self.PrintBlizzardSkinCoverageReport then
+			self:PrintBlizzardSkinCoverageReport()
+		elseif self.PrintBlizzardSkinReport then
+			self:PrintBlizzardSkinReport()
+		else
+			self:Print(addonName .. ": Blizzard skin report is unavailable.")
+		end
 		return
 	end
 

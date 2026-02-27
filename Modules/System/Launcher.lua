@@ -1,6 +1,7 @@
 local AceAddon = LibStub("AceAddon-3.0")
 local LDB = LibStub("LibDataBroker-1.1", true)
 local LibDBIcon = LibStub("LibDBIcon-1.0", true)
+local LibDropDown = LibStub("LibDropdown-1.0", true)
 local addon = AceAddon and AceAddon:GetAddon("SimpleUnitFrames", true)
 if not addon then
 	return
@@ -151,8 +152,77 @@ function addon:ShowLauncherMenu(anchorFrame)
 		menu:Show()
 	end
 
+	local function ShowLibDropDownMenu(anchor)
+		if not (LibDropDown and LibDropDown.OpenAce3Menu) then
+			return false
+		end
+		if self._launcherLibDropDownMenu and self._launcherLibDropDownMenu.Release then
+			pcall(self._launcherLibDropDownMenu.Release, self._launcherLibDropDownMenu)
+			self._launcherLibDropDownMenu = nil
+		end
+
+		local menuConfig = {
+			type = "group",
+			name = "SimpleUnitFrames",
+			args = {
+				title = {
+					type = "header",
+					name = "SimpleUnitFrames",
+					order = 1,
+				},
+				openOptions = {
+					type = "execute",
+					name = "Open SUF Options",
+					order = 10,
+					func = function()
+						if addon then addon:ShowOptions() end
+					end,
+				},
+				openPerf = {
+					type = "execute",
+					name = "Open PerfLib UI",
+					order = 20,
+					func = function()
+						if addon then addon:TogglePerformanceDashboard() end
+					end,
+				},
+				openDebug = {
+					type = "execute",
+					name = "Open SUF Debug",
+					order = 30,
+					func = function()
+						if addon then addon:ShowDebugPanel() end
+					end,
+				},
+			},
+		}
+
+		local ok, menuFrame = pcall(function()
+			return LibDropDown:OpenAce3Menu(menuConfig)
+		end)
+		if not ok or not menuFrame then
+			return false
+		end
+
+		menuFrame:ClearAllPoints()
+		if type(anchor) == "table" and anchor.GetCenter then
+			menuFrame:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -2)
+		else
+			local x, y = GetCursorPosition()
+			local scale = UIParent:GetEffectiveScale() or 1
+			menuFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", x / scale + 8, y / scale - 8)
+		end
+
+		self._launcherLibDropDownMenu = menuFrame
+		return true
+	end
+
 	if forceFallbackMenu then
 		ShowFallbackMenu(anchorFrame)
+		return
+	end
+
+	if ShowLibDropDownMenu(anchorFrame) then
 		return
 	end
 

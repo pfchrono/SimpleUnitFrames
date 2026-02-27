@@ -1,6 +1,6 @@
 ## Title: SimpleUnitFrames
 ## Interface: 120001
-## Version: 1.17.0.22626
+## Version: 1.18.0.22626
 ## Author: |cFF8080FFGrevin|r
 ## Notes: Simple Unitframe replacement with WIP features.
 ## IconTexture: Interface\AddOns\SimpleUnitFrames\Media\AddonIcon
@@ -22,6 +22,8 @@ Modules/System/CustomTrackers.lua
 Modules/System/Commands.lua
 Modules/System/Launcher.lua
 Modules/UI/Theme.lua
+Modules/UI/SkinRegistry.lua
+Modules/UI/BlizzardSkin.lua
 Modules/UI/OptionsV2/Theme.lua
 Modules/UI/OptionsV2/Registry.lua
 Modules/UI/OptionsV2/Renderer.lua

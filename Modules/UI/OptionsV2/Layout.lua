@@ -150,6 +150,45 @@ function addon:CreateOptionsV2Window()
 	subtitle:SetText("Use search to jump directly to pages and settings.")
 	subtitle:SetTextColor(style.textMuted[1], style.textMuted[2], style.textMuted[3])
 
+	local utilityRow = CreateFrame("Frame", nil, header)
+	utilityRow:SetPoint("TOPLEFT", subtitle, "BOTTOMLEFT", 0, -6)
+	utilityRow:SetPoint("RIGHT", header, "RIGHT", -312, 0)
+	utilityRow:SetHeight(22)
+
+	local reloadButton = CreateFrame("Button", nil, utilityRow, "UIPanelButtonTemplate")
+	reloadButton:SetPoint("LEFT", utilityRow, "LEFT", 0, 0)
+	reloadButton:SetSize(76, 22)
+	reloadButton:SetText("ReloadUI")
+	reloadButton:SetScript("OnClick", function()
+		if addon.PromptReloadUI then
+			addon:PromptReloadUI("Reload UI now?")
+		elseif ReloadUI then
+			ReloadUI()
+		end
+	end)
+
+	local debugButton = CreateFrame("Button", nil, utilityRow, "UIPanelButtonTemplate")
+	debugButton:SetPoint("LEFT", reloadButton, "RIGHT", 4, 0)
+	debugButton:SetSize(54, 22)
+	debugButton:SetText("Debug")
+	debugButton:SetScript("OnClick", function()
+		if addon.ToggleDebugPanel then
+			addon:ToggleDebugPanel()
+		elseif addon.ShowDebugPanel then
+			addon:ShowDebugPanel()
+		end
+	end)
+
+	local perfButton = CreateFrame("Button", nil, utilityRow, "UIPanelButtonTemplate")
+	perfButton:SetPoint("LEFT", debugButton, "RIGHT", 4, 0)
+	perfButton:SetSize(44, 22)
+	perfButton:SetText("Perf")
+	perfButton:SetScript("OnClick", function()
+		if addon.TogglePerformanceDashboard then
+			addon:TogglePerformanceDashboard()
+		end
+	end)
+
 	local searchLabel = header:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
 	searchLabel:SetPoint("TOPRIGHT", header, "TOPRIGHT", -12, -12)
 	searchLabel:SetText("Search")
@@ -407,6 +446,11 @@ function addon:CreateOptionsV2Window()
 		subtitle:SetTextColor(style.textMuted[1], style.textMuted[2], style.textMuted[3])
 		searchLabel:SetTextColor(style.accent[1], style.accent[2], style.accent[3])
 		searchStatus:SetTextColor(style.textMuted[1], style.textMuted[2], style.textMuted[3])
+		if addon.ApplySUFButtonSkin then
+			addon:ApplySUFButtonSkin(reloadButton, "subtle")
+			addon:ApplySUFButtonSkin(debugButton, "subtle")
+			addon:ApplySUFButtonSkin(perfButton, "subtle")
+		end
 		frame.currentPage = page.key
 		local cfg = addon:EnsureOptionsV2Config()
 		cfg.lastPage = page.key

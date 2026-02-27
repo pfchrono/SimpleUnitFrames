@@ -3861,8 +3861,274 @@ function addon:GetOptionsV2PageSpec(pageKey)
 			{
 				tab = "blizzard",
 				title = "Blizzard Frames",
-				desc = "Toggle default Blizzard frame visibility integration.",
+				desc = "Toggle default Blizzard frame visibility and optional skinning integration.",
 				controls = {
+					{
+						type = "paragraph",
+						getText = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							local state = (cfg.labMode == true) and "|cff66ff66ON|r" or "|cffff6666OFF|r"
+							return "Lab Mode: " .. state
+						end,
+					},
+					{
+						type = "check",
+						label = "Enable Blizzard UI Skinning (safe windows only)",
+						get = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.enabled == true
+						end,
+						set = function(v)
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil
+							if not cfg then return end
+							cfg.enabled = v and true or false
+							if cfg.enabled == true then
+								if addon.PromptReloadUI then
+									addon:PromptReloadUI("Enabling Blizzard UI skinning is safest after a reload.\nReload UI now?")
+								end
+							elseif addon.RemoveBlizzardSkinningNow then
+								addon:RemoveBlizzardSkinningNow()
+							end
+						end,
+					},
+					{
+						type = "dropdown",
+						label = "Skin Intensity",
+						options = function()
+							return {
+								{ value = "subtle", text = "Subtle" },
+								{ value = "strong", text = "Strong" },
+								{ value = "strongplus", text = "Strong+" },
+							}
+						end,
+						disabled = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.enabled ~= true
+						end,
+						get = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return tostring(cfg.intensity or "subtle")
+						end,
+						set = function(v)
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil
+							if not cfg then return end
+							cfg.intensity = tostring(v or "subtle")
+							if addon.ApplyBlizzardSkinningNow then
+								addon:ApplyBlizzardSkinningNow()
+							end
+						end,
+					},
+					{
+						type = "check",
+						label = "Enable Lab Mode (Unsafe Experimental Skinning)",
+						desc = "Unlocks aggressive recursive tinting and reassert hooks. Keep OFF for stable gameplay visuals.",
+						disabled = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.enabled ~= true
+						end,
+						get = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.labMode == true
+						end,
+						set = function(v)
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil
+							if not cfg then return end
+							cfg.labMode = v and true or false
+							if cfg.labMode ~= true then
+								cfg.aggressiveRecursive = false
+								cfg.aggressiveReassertHooks = false
+							end
+							if addon.ApplyBlizzardSkinningNow then
+								addon:ApplyBlizzardSkinningNow(true)
+							end
+						end,
+					},
+					{
+						type = "check",
+						label = "Experimental: Aggressive Recursive Recolor",
+						desc = "More aggressive tint pass on eligible Blizzard textures. Higher visual coverage, higher artifact risk.",
+						disabled = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.enabled ~= true or cfg.labMode ~= true
+						end,
+						get = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.aggressiveRecursive == true
+						end,
+						set = function(v)
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil
+							if not cfg then return end
+							cfg.aggressiveRecursive = v and true or false
+							if cfg.aggressiveRecursive == true then
+								cfg.intensity = "strongplus"
+							end
+							if addon.ApplyBlizzardSkinningNow then
+								addon:ApplyBlizzardSkinningNow(true)
+							end
+						end,
+					},
+					{
+						type = "check",
+						label = "Experimental: Reassert Texture Tints (Scoped Hooks)",
+						desc = "Hooks SetVertexColor on aggressively-skinned textures under SUF-managed frames only.",
+						disabled = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.enabled ~= true or cfg.labMode ~= true
+						end,
+						get = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.aggressiveReassertHooks == true
+						end,
+						set = function(v)
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil
+							if not cfg then return end
+							cfg.aggressiveReassertHooks = v and true or false
+							if cfg.aggressiveReassertHooks == true then
+								cfg.intensity = "strongplus"
+							end
+							if addon.ApplyBlizzardSkinningNow then
+								addon:ApplyBlizzardSkinningNow(true)
+							end
+						end,
+					},
+					{
+						type = "button",
+						label = "Apply Safe Skin Profile (Recommended)",
+						disabled = function()
+							local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {}
+							return cfg.enabled ~= true
+						end,
+						onClick = function()
+							if addon.ApplyBlizzardSkinSafeProfile then
+								addon:ApplyBlizzardSkinSafeProfile()
+							elseif addon.GetBlizzardSkinSettings then
+								local cfg = addon:GetBlizzardSkinSettings()
+								if cfg then
+									cfg.labMode = false
+									cfg.aggressiveRecursive = false
+									cfg.aggressiveReassertHooks = false
+									cfg.intensity = "strongplus"
+								end
+								if addon.ApplyBlizzardSkinningNow then
+									addon:ApplyBlizzardSkinningNow(true)
+								end
+							end
+						end,
+					},
+					{
+						type = "check",
+						label = "Skin Character UI",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.character ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.character = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Spellbook / Talents",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.spellbook ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.spellbook = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Collections",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.collections ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.collections = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Quest Log",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.questlog ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.questlog = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin LFG / PvE",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.lfg ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.lfg = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin World Map",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.map ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.map = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Social (Friends / Guild)",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return (cfg.friends ~= false) or (cfg.guild ~= false) end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end local state = v and true or false; cfg.friends = state; cfg.guild = state; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Calendar",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.calendar ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.calendar = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Professions",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.professions ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.professions = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Housing Dashboard",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.housing ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.housing = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin DressUp",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.dressup ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.dressup = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Merchant / Mail / Gossip",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return (cfg.merchant ~= false) or (cfg.mail ~= false) or (cfg.gossip ~= false) end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end local state = v and true or false; cfg.merchant = state; cfg.mail = state; cfg.gossip = state; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Economy (Auction/Void/Socketing)",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.economy ~= false end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end cfg.economy = v and true or false; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "check",
+						label = "Skin Achievements / Encounter Journal",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						get = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return (cfg.achievement ~= false) or (cfg.encounter ~= false) end,
+						set = function(v) local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or nil if not cfg then return end local state = v and true or false; cfg.achievement = state; cfg.encounter = state; if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow() end end,
+					},
+					{
+						type = "button",
+						label = "Reapply Blizzard Skin Now",
+						disabled = function() local cfg = (addon.GetBlizzardSkinSettings and addon:GetBlizzardSkinSettings()) or {} return cfg.enabled ~= true end,
+						onClick = function() if addon.ApplyBlizzardSkinningNow then addon:ApplyBlizzardSkinningNow(true) end end,
+					},
+					{
+						type = "button",
+						label = "Remove Blizzard Skin Now",
+						onClick = function() if addon.RemoveBlizzardSkinningNow then addon:RemoveBlizzardSkinningNow() end end,
+					},
+					{
+						type = "button",
+						label = "Print Blizzard Skin Report",
+						onClick = function() if addon.PrintBlizzardSkinReport then addon:PrintBlizzardSkinReport() end end,
+					},
 					{ type = "check", label = "Hide Blizzard Player Frame", get = function() return addon.db.profile.blizzardFrames.player ~= false end, set = function(v) addon.db.profile.blizzardFrames.player = v and true or false; addon:UpdateBlizzardFrames() end },
 					{ type = "check", label = "Hide Blizzard Pet Frame", get = function() return addon.db.profile.blizzardFrames.pet ~= false end, set = function(v) addon.db.profile.blizzardFrames.pet = v and true or false; addon:UpdateBlizzardFrames() end },
 					{ type = "check", label = "Hide Blizzard Target Frame", get = function() return addon.db.profile.blizzardFrames.target ~= false end, set = function(v) addon.db.profile.blizzardFrames.target = v and true or false; addon:UpdateBlizzardFrames() end },

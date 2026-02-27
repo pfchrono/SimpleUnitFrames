@@ -220,6 +220,31 @@ local defaults = {
 			raid = true,
 			boss = true,
 		},
+		blizzardSkin = {
+			enabled = false,
+			intensity = "subtle",
+			labMode = false,
+			aggressiveRecursive = false,
+			aggressiveReassertHooks = false,
+			character = true,
+			spellbook = true,
+			collections = true,
+			questlog = true,
+			lfg = true,
+			map = true,
+			calendar = true,
+			professions = true,
+			dressup = true,
+			gossip = true,
+			merchant = true,
+			mail = true,
+			economy = true,
+			friends = true,
+			guild = true,
+			housing = true,
+			achievement = true,
+			encounter = true,
+		},
 		movers = {},
 		databars = {
 			enabled = true,
@@ -7429,6 +7454,7 @@ function addon:SpawnGroupHeaders()
 end
 
 function addon:OnGroupRosterUpdate()
+	self:UpdateBlizzardFrames()
 	self:TrySpawnGroupHeaders()
 	self:UpdateDataTextPanel()
 end
@@ -7505,10 +7531,33 @@ function addon:SerializeProfile()
 		return nil, "LibSerialize or LibDeflate is missing."
 	end
 
-	local serialized = LibSerialize:Serialize(self.db.profile)
+	local function WrapEncodedForDisplay(encoded, lineLen)
+		local text = tostring(encoded or "")
+		local width = tonumber(lineLen) or 120
+		if text == "" or width < 16 then
+			return text
+		end
+		local out, i = {}, 1
+		local n = #text
+		while i <= n do
+			out[#out + 1] = text:sub(i, math.min(i + width - 1, n))
+			i = i + width
+		end
+		return table.concat(out, "\n")
+	end
+
+	local payload = {
+		__sufExportType = "profile_bundle",
+		__sufExportVersion = 2,
+		profile = CopyTableDeep(self.db.profile or defaults.profile or {}),
+		global = CopyTableDeep((self.db and self.db.global) or {}),
+		customTrackers = CopyTableDeep(((self.db and self.db.profile and self.db.profile.customTrackers) or {})),
+	}
+
+	local serialized = LibSerialize:Serialize(payload)
 	local compressed = LibDeflate:CompressDeflate(serialized)
 	local encoded = LibDeflate:EncodeForPrint(compressed)
-	return encoded
+	return WrapEncodedForDisplay(encoded, 120)
 end
 
 function addon:DeserializeProfile(input)
@@ -7516,7 +7565,8 @@ function addon:DeserializeProfile(input)
 		return nil, "LibSerialize or LibDeflate is missing."
 	end
 
-	local decoded = LibDeflate:DecodeForPrint(input)
+	local compactInput = tostring(input or ""):gsub("%s+", "")
+	local decoded = LibDeflate:DecodeForPrint(compactInput)
 	if not decoded then
 		return nil, "Invalid import string."
 	end
@@ -7534,8 +7584,28 @@ function addon:DeserializeProfile(input)
 	return data
 end
 
-function addon:ValidateImportedProfileData(data)
+local function UnwrapImportedPayload(data)
 	if type(data) ~= "table" then
+		return nil, nil
+	end
+	if data.__sufExportType == "profile_bundle" and type(data.profile) == "table" then
+		local profile = CopyTableDeep(data.profile)
+		if type(data.customTrackers) == "table" then
+			profile.customTrackers = CopyTableDeep(data.customTrackers)
+		end
+		local envelope = {
+			version = tonumber(data.__sufExportVersion) or 1,
+			global = type(data.global) == "table" and CopyTableDeep(data.global) or nil,
+			hasCustomTrackers = type(data.customTrackers) == "table",
+		}
+		return profile, envelope
+	end
+	return data, nil
+end
+
+function addon:ValidateImportedProfileData(data)
+	local profileData, envelope = UnwrapImportedPayload(data)
+	if type(profileData) ~= "table" then
 		return nil, "Imported data is not a table."
 	end
 
@@ -7548,33 +7618,36 @@ function addon:ValidateImportedProfileData(data)
 		tagCount = 0,
 		pluginUnitCount = 0,
 		reloadReasons = {},
+		envelopeVersion = envelope and envelope.version or nil,
+		includesGlobal = envelope and envelope.global ~= nil or false,
+		includesCustomTrackers = envelope and envelope.hasCustomTrackers == true or (type(profileData.customTrackers) == "table"),
 	}
-	for _ in pairs(data) do
+	for _ in pairs(profileData) do
 		report.keyCount = report.keyCount + 1
 	end
-	if type(data.units) ~= "nil" and type(data.units) ~= "table" then
+	if type(profileData.units) ~= "nil" and type(profileData.units) ~= "table" then
 		report.errors[#report.errors + 1] = "units must be a table."
 	end
-	if type(data.tags) ~= "nil" and type(data.tags) ~= "table" then
+	if type(profileData.tags) ~= "nil" and type(profileData.tags) ~= "table" then
 		report.errors[#report.errors + 1] = "tags must be a table."
 	end
-	if type(data.plugins) ~= "nil" and type(data.plugins) ~= "table" then
+	if type(profileData.plugins) ~= "nil" and type(profileData.plugins) ~= "table" then
 		report.errors[#report.errors + 1] = "plugins must be a table."
 	end
-	if type(data.units) == "table" then
-		for _ in pairs(data.units) do
+	if type(profileData.units) == "table" then
+		for _ in pairs(profileData.units) do
 			report.unitCount = report.unitCount + 1
 		end
 		report.reloadReasons[#report.reloadReasons + 1] = ("unit layouts (%d)"):format(report.unitCount)
 	end
-	if type(data.tags) == "table" then
-		for _ in pairs(data.tags) do
+	if type(profileData.tags) == "table" then
+		for _ in pairs(profileData.tags) do
 			report.tagCount = report.tagCount + 1
 		end
 		report.reloadReasons[#report.reloadReasons + 1] = ("tag configs (%d)"):format(report.tagCount)
 	end
-	if type(data.plugins) == "table" then
-		local pluginUnits = data.plugins.units
+	if type(profileData.plugins) == "table" then
+		local pluginUnits = profileData.plugins.units
 		if type(pluginUnits) == "table" then
 			for _ in pairs(pluginUnits) do
 				report.pluginUnitCount = report.pluginUnitCount + 1
@@ -7582,11 +7655,17 @@ function addon:ValidateImportedProfileData(data)
 		end
 		report.reloadReasons[#report.reloadReasons + 1] = "plugin behavior"
 	end
-	if data.media ~= nil then
+	if profileData.media ~= nil then
 		report.reloadReasons[#report.reloadReasons + 1] = "shared media/font bindings"
 	end
-	if data.optionsUI ~= nil then
+	if profileData.optionsUI ~= nil then
 		report.warnings[#report.warnings + 1] = "options UI state is included and will overwrite local panel preferences."
+	end
+	if type(profileData.customTrackers) == "table" then
+		report.reloadReasons[#report.reloadReasons + 1] = "custom tracker bars/settings"
+	end
+	if envelope and envelope.global then
+		report.reloadReasons[#report.reloadReasons + 1] = "global addon settings"
 	end
 	if report.keyCount == 0 then
 		report.warnings[#report.warnings + 1] = "import payload is empty."
@@ -7618,6 +7697,10 @@ function addon:BuildImportedProfilePreview(data, report)
 		validation.unitCount or 0,
 		validation.tagCount or 0,
 		validation.pluginUnitCount or 0
+	)
+	preview.lines[#preview.lines + 1] = ("Includes Global: %s | Includes Custom Trackers: %s"):format(
+		(validation.includesGlobal and "Yes" or "No"),
+		(validation.includesCustomTrackers and "Yes" or "No")
 	)
 	if #(validation.warnings or {}) > 0 then
 		for i = 1, #validation.warnings do
@@ -7735,8 +7818,10 @@ function addon:ApplyImportedProfile(data)
 		return false, validationErr or "Import validation failed."
 	end
 
-	local targetProfile = self:BuildImportedProfileTarget(data)
+	local profileData, envelope = UnwrapImportedPayload(data)
+	local targetProfile = self:BuildImportedProfileTarget(profileData)
 	local previousProfile = CopyTableDeep(self.db.profile or defaults.profile)
+	local previousGlobal = CopyTableDeep((self.db and self.db.global) or {})
 	local adapterUsed = nil
 
 	local adapters = {
@@ -7774,6 +7859,9 @@ function addon:ApplyImportedProfile(data)
 	end
 
 	local postOk, postErr = pcall(function()
+		if envelope and type(envelope.global) == "table" and self.db and type(self.db.global) == "table" then
+			ReplaceTableContents(self.db.global, envelope.global)
+		end
 		self:NormalizePluginConfig()
 		self:UpdateAllFrames()
 		self:ApplyVisibilityRules()
@@ -7784,6 +7872,9 @@ function addon:ApplyImportedProfile(data)
 				ReplaceTableContents(self.db.profile, previousProfile)
 			else
 				self.db.profile = CopyTableDeep(previousProfile)
+			end
+			if self.db and type(self.db.global) == "table" then
+				ReplaceTableContents(self.db.global, previousGlobal)
 			end
 			self:NormalizePluginConfig()
 			self:UpdateAllFrames()
@@ -7853,6 +7944,7 @@ end
 
 function addon:SetFramesVisible(isEditMode)
 	local blizzardCfg = (self.db and self.db.profile and self.db.profile.blizzardFrames) or defaults.profile.blizzardFrames or {}
+	local isGrouped = (IsInGroup and IsInGroup()) or (IsInRaid and IsInRaid())
 	local function ResolveAlpha(key)
 		return blizzardCfg[key] == false and 1 or 0
 	end
@@ -7880,7 +7972,7 @@ function addon:SetFramesVisible(isEditMode)
 
 	local raidAlpha = ResolveAlpha("raid")
 	if _G.CompactRaidFrameContainer then _G.CompactRaidFrameContainer:SetAlpha(raidAlpha) end
-	if _G.CompactRaidFrameManager then _G.CompactRaidFrameManager:SetAlpha(raidAlpha) end
+	if _G.CompactRaidFrameManager then _G.CompactRaidFrameManager:SetAlpha(isGrouped and 1 or raidAlpha) end
 
 	local bossAlpha = ResolveAlpha("boss")
 	if _G.BossTargetFrameContainer then _G.BossTargetFrameContainer:SetAlpha(bossAlpha) end
@@ -7914,6 +8006,20 @@ function addon:SetFramesVisible(isEditMode)
 		self:ApplyVisibilityRules()
 	end
 	self:UpdateAllUnitFrameUnlockHandles()
+	if _G.CompactRaidFrameManager and isGrouped then
+		if _G.CompactRaidFrameManager_SetSetting then
+			pcall(_G.CompactRaidFrameManager_SetSetting, "IsShown", "1")
+		end
+		if _G.CompactRaidFrameManager_UpdateShown then
+			pcall(_G.CompactRaidFrameManager_UpdateShown)
+		end
+		if _G.CompactRaidFrameManager.Show then
+			pcall(_G.CompactRaidFrameManager.Show, _G.CompactRaidFrameManager)
+		end
+		if _G.CompactRaidFrameManagerDisplayFrame and _G.CompactRaidFrameManagerDisplayFrame.Show then
+			pcall(_G.CompactRaidFrameManagerDisplayFrame.Show, _G.CompactRaidFrameManagerDisplayFrame)
+		end
+	end
 end
 
 function addon:SetTestMode(enabled)
@@ -8024,6 +8130,11 @@ function addon:OnInitialize()
 		self.db.profile.blizzardFrames = CopyTableDeep(defaults.profile.blizzardFrames)
 	else
 		MergeDefaults(self.db.profile.blizzardFrames, defaults.profile.blizzardFrames)
+	end
+	if not self.db.profile.blizzardSkin then
+		self.db.profile.blizzardSkin = CopyTableDeep(defaults.profile.blizzardSkin)
+	else
+		MergeDefaults(self.db.profile.blizzardSkin, defaults.profile.blizzardSkin)
 	end
 	if not self.db.profile.movers then
 		self.db.profile.movers = CopyTableDeep(defaults.profile.movers)
@@ -8173,6 +8284,24 @@ function addon:OnInitialize()
 	self:RegisterChatCommand("sufinstall", function() self:StartInstallFlow() end)
 	self:RegisterChatCommand("suftutorial", function() self:ShowTutorialOverview(true) end)
 	self:RegisterChatCommand("sufprotected", "HandleProtectedOpsSlash")
+	self:RegisterChatCommand("sufskinreport", function()
+		if self.PrintBlizzardSkinCoverageReport then
+			self:PrintBlizzardSkinCoverageReport()
+		elseif self.PrintBlizzardSkinReport then
+			self:PrintBlizzardSkinReport()
+		else
+			self:Print(addonName .. ": Blizzard skin report is unavailable.")
+		end
+	end)
+	self:RegisterChatCommand("sufskincoverage", function()
+		if self.PrintBlizzardSkinCoverageReport then
+			self:PrintBlizzardSkinCoverageReport()
+		elseif self.PrintBlizzardSkinReport then
+			self:PrintBlizzardSkinReport()
+		else
+			self:Print(addonName .. ": Blizzard skin report is unavailable.")
+		end
+	end)
 end
 
 function addon:OnEnable()
@@ -8249,6 +8378,12 @@ function addon:OnEnable()
 	-- Initialize Custom Trackers
 	if self.CustomTrackers and self.CustomTrackers.Init then
 		self.CustomTrackers:Init()
+	end
+	if self.SetupBlizzardSkinning then
+		self:SetupBlizzardSkinning()
+	end
+	if self.ApplyBlizzardSkinningNow then
+		self:ApplyBlizzardSkinningNow()
 	end
 
 	C_Timer.After(1.0, function()

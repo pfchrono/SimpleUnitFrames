@@ -288,6 +288,18 @@ function addon:SyncThemeFromOptionsV2()
 	THEME.controls.scrollbar.border = THEME.options.navDefaultBorder
 	THEME.controls.scrollbar.thumb = THEME.options.accentSoft
 	THEME.controls.scrollbar.button = THEME.options.accent
+
+	-- Keep Blizzard skinning in sync with the active OptionsV2 theme preset.
+	if self.GetBlizzardSkinSettings and self.ApplyBlizzardSkinningNow then
+		local skinCfg = self:GetBlizzardSkinSettings()
+		if skinCfg and skinCfg.enabled == true then
+			if self.ReapplyBlizzardSkinBuckets then
+				self:ReapplyBlizzardSkinBuckets(true)
+			else
+				self:ApplyBlizzardSkinningNow(true)
+			end
+		end
+	end
 end
 
 function addon:ApplySUFBackdrop(frame, variant)

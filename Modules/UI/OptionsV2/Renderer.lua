@@ -257,6 +257,13 @@ local function BuildImportExportReportText(addonRef, state)
 			tonumber(report.tagCount or 0) or 0,
 			tonumber(report.pluginUnitCount or 0) or 0
 		)
+		lines[#lines + 1] = ("Includes Global: %s | Includes Custom Trackers: %s"):format(
+			(report.includesGlobal and "Yes" or "No"),
+			(report.includesCustomTrackers and "Yes" or "No")
+		)
+		if report.envelopeVersion then
+			lines[#lines + 1] = ("Bundle format: v%s"):format(tostring(report.envelopeVersion))
+		end
 		if report.reloadReasons and #report.reloadReasons > 0 then
 			lines[#lines + 1] = "Affects: " .. table.concat(report.reloadReasons, ", ")
 		end
@@ -321,15 +328,30 @@ function addon:RenderOptionsV2ImportExport(content, page, style)
 	cardTitle:SetTextColor((style.accent or { 1, 1, 1 })[1], (style.accent or { 1, 1, 1 })[2], (style.accent or { 1, 1, 1 })[3])
 	Track(content, cardTitle)
 
-	local editBox = CreateFrame("EditBox", nil, card, "InputBoxTemplate")
+	local codeScroll = CreateFrame("ScrollFrame", nil, card, "UIPanelScrollFrameTemplate")
+	codeScroll:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -34)
+	codeScroll:SetPoint("TOPRIGHT", card, "TOPRIGHT", -32, -34)
+	codeScroll:SetHeight(240)
+	Track(content, codeScroll)
+
+	local editBox = CreateFrame("EditBox", nil, codeScroll)
 	editBox:SetAutoFocus(false)
 	editBox:SetMultiLine(true)
-	editBox:SetPoint("TOPLEFT", card, "TOPLEFT", 12, -34)
-	editBox:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -34)
+	if editBox.SetFontObject then
+		editBox:SetFontObject(GameFontHighlightSmall)
+	end
+	editBox:SetPoint("TOPLEFT", codeScroll, "TOPLEFT", 6, -6)
+	editBox:SetPoint("TOPRIGHT", codeScroll, "TOPRIGHT", -6, -6)
+	editBox:SetWidth(math.max(220, cardWidth - 56))
 	editBox:SetTextInsets(6, 6, 6, 6)
 	editBox:SetJustifyH("LEFT")
 	editBox:SetJustifyV("TOP")
+	if editBox.SetTextColor then
+		local tc = style.accent or style.textMuted or { 1, 1, 1 }
+		editBox:SetTextColor(tc[1] or 1, tc[2] or 1, tc[3] or 1, 1)
+	end
 	editBox:SetText(state.codeText or "")
+	codeScroll:SetScrollChild(editBox)
 	Track(content, editBox)
 
 	local measure = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
@@ -341,8 +363,8 @@ function addon:RenderOptionsV2ImportExport(content, page, style)
 	Track(content, measure)
 
 	local status = card:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	status:SetPoint("TOPLEFT", editBox, "BOTTOMLEFT", 0, -8)
-	status:SetPoint("TOPRIGHT", editBox, "BOTTOMRIGHT", 0, -8)
+	status:SetPoint("TOPLEFT", codeScroll, "BOTTOMLEFT", 0, -8)
+	status:SetPoint("TOPRIGHT", codeScroll, "BOTTOMRIGHT", 0, -8)
 	status:SetJustifyH("LEFT")
 	status:SetJustifyV("TOP")
 	status:SetTextColor((style.textMuted or { 0.8, 0.8, 0.8 })[1], (style.textMuted or { 0.8, 0.8, 0.8 })[2], (style.textMuted or { 0.8, 0.8, 0.8 })[3])
@@ -410,7 +432,12 @@ function addon:RenderOptionsV2ImportExport(content, page, style)
 		end
 		local baseline = lines * 14
 		local target = math.max(120, math.min(460, math.floor(math.max(measured + 18, baseline + 18))))
-		editBox:SetHeight(target)
+		codeScroll:SetHeight(target)
+		editBox:SetWidth(math.max(220, cardWidth - 56))
+		editBox:SetHeight(math.max(target + 12, baseline + 24))
+		if codeScroll.ScrollBar then
+			codeScroll.ScrollBar:SetValue(0)
+		end
 
 		local statusText = ("Code length: %d chars, %d lines"):format(#state.codeText, lines)
 		status:SetText(statusText)
