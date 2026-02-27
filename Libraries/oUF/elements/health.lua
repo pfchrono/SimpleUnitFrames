@@ -502,39 +502,39 @@ local function Enable(self)
 			element.values:SetIncomingHealOverflowPercent(element.incomingHealOverflow)
 		end
 
-		self:RegisterEvent('UNIT_HEALTH', Path)
-		self:RegisterEvent('UNIT_MAXHEALTH', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_HEALTH', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_MAXHEALTH', self.unit, Path)
 
 		if(element.colorDisconnected) then
-			self:RegisterEvent('UNIT_CONNECTION', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_CONNECTION', self.unit, ColorPath)
 		end
 
 		if(element.colorSelection) then
-			self:RegisterEvent('UNIT_FLAGS', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_FLAGS', self.unit, ColorPath)
 		end
 
 		if(element.colorTapping or element.colorReaction) then
-			self:RegisterEvent('UNIT_FACTION', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_FACTION', self.unit, ColorPath)
 		end
 
 		if(element.colorThreat) then
-			self:RegisterEvent('UNIT_THREAT_LIST_UPDATE', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_LIST_UPDATE', self.unit, ColorPath)
 		end
 
 		if(element.HealingAll or element.HealingPlayer or element.HealingOther or element.OverHealIndicator) then
-			self:RegisterEvent('UNIT_HEAL_PREDICTION', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_HEAL_PREDICTION', self.unit, Path)
 		end
 
 		if(element.DamageAbsorb or element.OverDamageAbsorbIndicator) then
-			self:RegisterEvent('UNIT_ABSORB_AMOUNT_CHANGED', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_ABSORB_AMOUNT_CHANGED', self.unit, Path)
 		end
 
 		if(element.HealAbsorb or element.OverHealAbsorbIndicator) then
-			self:RegisterEvent('UNIT_HEAL_ABSORB_AMOUNT_CHANGED', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_HEAL_ABSORB_AMOUNT_CHANGED', self.unit, Path)
 		end
 
 		if(element.TempLoss) then
-			self:RegisterEvent('UNIT_MAX_HEALTH_MODIFIERS_CHANGED', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_MAX_HEALTH_MODIFIERS_CHANGED', self.unit, Path)
 		end
 
 		if(element:IsObjectType('StatusBar') and not element:GetStatusBarTexture()) then

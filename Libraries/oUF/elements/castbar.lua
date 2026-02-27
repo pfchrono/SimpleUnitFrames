@@ -85,6 +85,7 @@ A default texture will be applied to the StatusBar and Texture widgets if they d
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local FALLBACK_ICON = 136243 -- Interface\ICONS\Trade_Engineering
 local FAILED = _G.FAILED or 'Failed'
@@ -580,7 +581,7 @@ local function Enable(self, unit)
 		end
 
 		for event, method in next, eventMethods do
-			self:RegisterEvent(event, method)
+			Private.SmartRegisterUnitEvent(self, event, unit, method)
 		end
 
 		element.holdTime = 0

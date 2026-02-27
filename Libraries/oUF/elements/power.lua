@@ -513,31 +513,31 @@ local function Enable(self, unit)
 		end
 
 		if(element.colorDisconnected) then
-			self:RegisterEvent('UNIT_CONNECTION', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_CONNECTION', self.unit, ColorPath)
 		end
 
 		if(element.colorSelection) then
-			self:RegisterEvent('UNIT_FLAGS', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_FLAGS', self.unit, ColorPath)
 		end
 
 		if(element.colorTapping or element.colorReaction) then
-			self:RegisterEvent('UNIT_FACTION', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_FACTION', self.unit, ColorPath)
 		end
 
 		if(element.colorThreat) then
-			self:RegisterEvent('UNIT_THREAT_LIST_UPDATE', ColorPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_LIST_UPDATE', self.unit, ColorPath)
 		end
 
 		if(element.frequentUpdates) then
-			self:RegisterEvent('UNIT_POWER_FREQUENT', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_FREQUENT', self.unit, Path)
 		else
-			self:RegisterEvent('UNIT_POWER_UPDATE', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_UPDATE', self.unit, Path)
 		end
 
-		self:RegisterEvent('UNIT_DISPLAYPOWER', Path)
-		self:RegisterEvent('UNIT_MAXPOWER', Path)
-		self:RegisterEvent('UNIT_POWER_BAR_HIDE', Path)
-		self:RegisterEvent('UNIT_POWER_BAR_SHOW', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_DISPLAYPOWER', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_MAXPOWER', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_BAR_HIDE', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_BAR_SHOW', self.unit, Path)
 
 		if(element:IsObjectType('StatusBar') and not element:GetStatusBarTexture()) then
 			element:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])

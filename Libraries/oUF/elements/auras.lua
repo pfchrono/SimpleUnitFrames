@@ -80,6 +80,7 @@ button.isHarmfulAura  - indicates if the button holds a debuff (boolean)
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local function UpdateTooltip(self)
 	if(GameTooltip:IsForbidden()) then return end
@@ -841,7 +842,7 @@ end
 
 local function Enable(self)
 	if(self.Auras or self.Buffs or self.Debuffs) then
-		self:RegisterEvent('UNIT_AURA', UpdateAuras)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_AURA', self.unit, UpdateAuras)
 
 		local auras = self.Auras
 		if(auras) then
