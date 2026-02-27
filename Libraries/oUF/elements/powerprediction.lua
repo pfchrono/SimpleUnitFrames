@@ -44,6 +44,7 @@ A default texture will be applied if the widget is a StatusBar and doesn't have 
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 -- sourced from Blizzard_UnitFrame/AlternatePowerBar.lua
 local ALT_POWER_BAR_PAIR_DISPLAY_INFO = _G.ALT_POWER_BAR_PAIR_DISPLAY_INFO
@@ -203,11 +204,11 @@ local function Enable(self, unit)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_SPELLCAST_START', Path)
-		self:RegisterEvent('UNIT_SPELLCAST_STOP', Path)
-		self:RegisterEvent('UNIT_SPELLCAST_FAILED', Path)
-		self:RegisterEvent('UNIT_SPELLCAST_SUCCEEDED', Path)
-		self:RegisterEvent('UNIT_DISPLAYPOWER', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_START', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_STOP', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_FAILED', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_SUCCEEDED', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_DISPLAYPOWER', self.unit, Path)
 
 		if(element.mainBar) then
 			if(element.mainBar:IsObjectType('StatusBar') and not element.mainBar:GetStatusBarTexture()) then

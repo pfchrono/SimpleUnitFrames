@@ -90,6 +90,7 @@ This example does not contain all widgets or options, just a selection.
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local function UpdateSize(self, event, unit)
 	local element = self.HealthPrediction
@@ -254,12 +255,12 @@ local function Enable(self)
 			element.values:SetIncomingHealOverflowPercent(element.incomingHealOverflow)
 		end
 
-		self:RegisterEvent('UNIT_HEALTH', Path)
-		self:RegisterEvent('UNIT_MAXHEALTH', Path)
-		self:RegisterEvent('UNIT_HEAL_PREDICTION', Path)
-		self:RegisterEvent('UNIT_ABSORB_AMOUNT_CHANGED', Path)
-		self:RegisterEvent('UNIT_HEAL_ABSORB_AMOUNT_CHANGED', Path)
-		self:RegisterEvent('UNIT_MAX_HEALTH_MODIFIERS_CHANGED', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_HEALTH', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_MAXHEALTH', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_HEAL_PREDICTION', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_ABSORB_AMOUNT_CHANGED', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_HEAL_ABSORB_AMOUNT_CHANGED', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_MAX_HEALTH_MODIFIERS_CHANGED', self.unit, Path)
 
 		if(element.healingAll) then
 			if(element.healingAll:IsObjectType('StatusBar') and not element.healingAll:GetStatusBarTexture()) then

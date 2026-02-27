@@ -41,6 +41,7 @@ Supported class powers:
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local playerClass = UnitClassBase('player')
 
@@ -439,13 +440,13 @@ end
 do
 	function ClassPowerEnable(self, registerAuraEvents)
 		if(registerAuraEvents) then
-			self:RegisterEvent('UNIT_AURA', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_AURA', 'player', Path)
 		else
-			self:RegisterEvent('UNIT_MAXPOWER', Path)
-			self:RegisterEvent('UNIT_POWER_UPDATE', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_MAXPOWER', 'player', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_UPDATE', 'player', Path)
 
 			-- according to Blizz any class may receive this event due to specific spell auras
-			self:RegisterEvent('UNIT_POWER_POINT_CHARGE', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_POINT_CHARGE', 'player', Path)
 		end
 
 		self:RegisterEvent('SPELLS_CHANGED', ColorPath, true)
@@ -492,7 +493,7 @@ local function Enable(self, unit)
 		end
 
 		if(requirePower) then
-			self:RegisterEvent('UNIT_DISPLAYPOWER', VisibilityPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_DISPLAYPOWER', 'player', VisibilityPath)
 		end
 
 		element.ClassPowerEnable = ClassPowerEnable

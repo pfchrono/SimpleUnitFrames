@@ -43,6 +43,7 @@ OnEnter and OnLeave script handlers will be set to display a Tooltip if the `Tot
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local TOTEM_PRIORITIES = _G.STANDARD_TOTEM_PRIORITIES
 if(UnitClassBase('player') == 'SHAMAN') then

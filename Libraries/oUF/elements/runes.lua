@@ -36,6 +36,7 @@ A default texture will be applied if the sub-widgets are StatusBars and don't ha
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local runemap = {1, 2, 3, 4, 5, 6}
 local hasSortOrder = false
@@ -212,7 +213,7 @@ local function Enable(self, unit)
 			end
 		end
 
-		self:RegisterEvent('PLAYER_SPECIALIZATION_CHANGED', ColorPath)
+		Private.SmartRegisterUnitEvent(self, 'PLAYER_SPECIALIZATION_CHANGED', 'player', ColorPath)
 		self:RegisterEvent('RUNE_POWER_UPDATE', Path, true)
 
 		return true

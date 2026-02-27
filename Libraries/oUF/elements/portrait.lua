@@ -38,6 +38,7 @@ the unit.
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local function Update(self, event, unit)
 	if(not unit or not UnitIsUnit(self.unit, unit)) then return end
@@ -122,17 +123,17 @@ local function Enable(self, unit)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_MODEL_CHANGED', Path)
-		self:RegisterEvent('UNIT_PORTRAIT_UPDATE', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_MODEL_CHANGED', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_PORTRAIT_UPDATE', self.unit, Path)
 		self:RegisterEvent('PORTRAITS_UPDATED', Path, true)
-		self:RegisterEvent('UNIT_CONNECTION', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_CONNECTION', self.unit, Path)
 
 		-- The quest log uses PARTY_MEMBER_{ENABLE,DISABLE} to handle updating of
 		-- party members overlapping quests. This will probably be enough to handle
 		-- model updating.
 		if(unit == 'party' or unit == 'target') then
-			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path)
-			self:RegisterEvent('PARTY_MEMBER_DISABLE', Path)
+			Private.SmartRegisterUnitEvent(self, 'PARTY_MEMBER_ENABLE', unit, Path)
+			Private.SmartRegisterUnitEvent(self, 'PARTY_MEMBER_DISABLE', unit, Path)
 		end
 
 		element:Show()
