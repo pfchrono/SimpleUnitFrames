@@ -5851,7 +5851,23 @@ function addon:OnPlayerTargetChanged()
 	self:RefreshAllTargetGlowIndicators()
 	if self.frames then
 		for _, frame in ipairs(self.frames) do
-			if frame and frame.sufUnitType == "target" then
+			if frame and (frame.sufUnitType == "target" or frame.sufUnitType == "tot") then
+				self:UpdateFrameFromDirtyEvents(frame, {
+					PLAYER_TARGET_CHANGED = true,
+					UNIT_HEALTH = true,
+					UNIT_MAXHEALTH = true,
+					UNIT_POWER_UPDATE = true,
+					UNIT_MAXPOWER = true,
+					UNIT_NAME_UPDATE = true,
+					UNIT_PORTRAIT_UPDATE = true,
+					UNIT_AURA = true,
+				})
+				if frame.UpdateTags then
+					pcall(frame.UpdateTags, frame)
+				end
+				if frame.HealthValue and frame.HealthValue.UpdateTag then
+					pcall(frame.HealthValue.UpdateTag, frame.HealthValue)
+				end
 				self:RefreshPortraitFrame(frame)
 			end
 		end
@@ -8171,6 +8187,16 @@ function addon:OnPlayerEnteringWorld()
 	self:ScheduleGroupHeaders(0.5)
 	self:UpdateDataBars()
 	self:UpdateDataTextPanel()
+	-- Bootstrap target/tot visuals and text on initial login/reload.
+	C_Timer.After(0, function()
+		self:OnPlayerTargetChanged()
+	end)
+	C_Timer.After(0.25, function()
+		self:OnPlayerTargetChanged()
+	end)
+	C_Timer.After(0.75, function()
+		self:OnPlayerTargetChanged()
+	end)
 end
 
 function addon:OnClassResourceContextChanged()
@@ -8565,6 +8591,48 @@ function addon:OnInitialize()
 	end)
 end
 
+function addon:RegisterUnitScopedDataEvents()
+	if not self._unitScopedDataEventFrame then
+		local frame = CreateFrame("Frame")
+		frame:SetScript("OnEvent", function(_, event, unit)
+			if event == "UNIT_PET_EXPERIENCE" and unit ~= "pet" then
+				return
+			end
+			if event == "UNIT_PET" and unit ~= "player" then
+				return
+			end
+			if event == "UNIT_INVENTORY_CHANGED" then
+				if unit == "player" and addon.ScheduleUpdateDataTextPanel then
+					addon:ScheduleUpdateDataTextPanel()
+				end
+				return
+			end
+			if addon.ScheduleUpdateDataBars then
+				addon:ScheduleUpdateDataBars()
+			end
+		end)
+		self._unitScopedDataEventFrame = frame
+	end
+
+	local frame = self._unitScopedDataEventFrame
+	frame:UnregisterAllEvents()
+	if frame.RegisterUnitEvent then
+		frame:RegisterUnitEvent("UNIT_PET_EXPERIENCE", "pet")
+		frame:RegisterUnitEvent("UNIT_PET", "player")
+		frame:RegisterUnitEvent("UNIT_INVENTORY_CHANGED", "player")
+	else
+		frame:RegisterEvent("UNIT_PET_EXPERIENCE")
+		frame:RegisterEvent("UNIT_PET")
+		frame:RegisterEvent("UNIT_INVENTORY_CHANGED")
+	end
+end
+
+function addon:UnregisterUnitScopedDataEvents()
+	if self._unitScopedDataEventFrame then
+		self._unitScopedDataEventFrame:UnregisterAllEvents()
+	end
+end
+
 function addon:OnEnable()
 	ChatMsg(addonName .. ": OnEnable")
 	self:DebugLog("General", "Addon enabled.", 2)
@@ -8618,9 +8686,7 @@ function addon:OnEnable()
 	self:RegisterEvent("UPDATE_FACTION", "ScheduleUpdateDataBars")
 	self:RegisterEvent("QUEST_LOG_UPDATE", "ScheduleUpdateDataBars")
 	self:RegisterEvent("PET_BAR_UPDATE", "ScheduleUpdateDataBars")
-	self:RegisterEvent("UNIT_PET_EXPERIENCE", "ScheduleUpdateDataBars")
-	self:RegisterEvent("UNIT_PET", "ScheduleUpdateDataBars")
-	self:RegisterEvent("UNIT_INVENTORY_CHANGED", "ScheduleUpdateDataTextPanel")
+	self:RegisterUnitScopedDataEvents()
 	self:RegisterEvent("UPDATE_INVENTORY_DURABILITY", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("PLAYER_MONEY", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("BAG_UPDATE_DELAYED", "ScheduleUpdateDataTextPanel")
@@ -8689,6 +8755,7 @@ function addon:SetTestModeForUnitType(unitType)
 end
 
 function addon:OnDisable()
+	self:UnregisterUnitScopedDataEvents()
 	self:UnregisterMediaCallbacks()
 	if self._pluginUpdateTicker then
 		self._pluginUpdateTicker:Cancel()
