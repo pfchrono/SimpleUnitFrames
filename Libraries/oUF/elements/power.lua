@@ -3,6 +3,12 @@
 
 Handles the updating of a status bar that displays the unit's power.
 
+---@class oUFPowerElement : Frame
+---@field CostPrediction StatusBar|nil Power cost prediction bar
+---@field powerType string Current power type (MANA, RAGE, ENERGY, etc.)
+---@field powerAmount number Current power amount
+---@field powerMax number Maximum power amount
+
 ## Widget
 
 Power - A `StatusBar` used to represent the unit's power.
@@ -433,7 +439,7 @@ local function SetColorTapping(element, state, isForced)
 	if(element.colorTapping ~= state or isForced) then
 		element.colorTapping = state
 		if(state) then
-			element.__owner:RegisterEvent('UNIT_FACTION', ColorPath)
+			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_FACTION', element.__owner.unit, ColorPath)
 		elseif(not element.colorReaction) then
 			element.__owner:UnregisterEvent('UNIT_FACTION', ColorPath)
 		end
@@ -451,7 +457,7 @@ local function SetColorReaction(element, state, isForced)
 	if(element.colorReaction ~= state or isForced) then
 		element.colorReaction = state
 		if(state) then
-			element.__owner:RegisterEvent('UNIT_FACTION', ColorPath)
+			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_FACTION', element.__owner.unit, ColorPath)
 		elseif(not element.colorTapping) then
 			element.__owner:UnregisterEvent('UNIT_FACTION', ColorPath)
 		end
@@ -469,7 +475,7 @@ local function SetColorThreat(element, state, isForced)
 	if(element.colorThreat ~= state or isForced) then
 		element.colorThreat = state
 		if(state) then
-			element.__owner:RegisterEvent('UNIT_THREAT_LIST_UPDATE', ColorPath)
+			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_THREAT_LIST_UPDATE', element.__owner.unit, ColorPath)
 		else
 			element.__owner:UnregisterEvent('UNIT_THREAT_LIST_UPDATE', ColorPath)
 		end

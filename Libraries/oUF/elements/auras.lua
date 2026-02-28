@@ -3,6 +3,18 @@
 
 Handles creation and updating of aura buttons.
 
+---@class oUFAurasElement : Frame
+---@field Buffs Frame|nil Container for buff buttons
+---@field Debuffs Frame|nil Container for debuff buttons
+
+---@class oUFAuraButton : Button
+---@field icon Texture Aura icon
+---@field count FontString|nil Application count
+---@field duration number Aura duration remaining
+---@field expirationTime number Aura expiration timestamp
+---@field filter string Aura filter (HELPFUL/HARMFUL)
+---@field auraIndex number|nil Index in aura list
+
 ## Widget
 
 Auras   - A Frame to hold `Button`s representing both buffs and debuffs.
@@ -295,8 +307,7 @@ local function processData(element, unit, data, filter)
 end
 
 local function UpdateAuras(self, event, unit, updateInfo)
-	if(self.unit ~= unit) then return end
-
+	-- Unit filtering handled by SmartRegisterUnitEvent - no manual check needed
 	local isFullUpdate = not updateInfo or updateInfo.isFullUpdate
 
 	local auras = self.Auras
@@ -812,8 +823,7 @@ local function UpdateAuras(self, event, unit, updateInfo)
 end
 
 local function Update(self, event, unit, updateInfo)
-	if(self.unit ~= unit) then return end
-
+	-- Unit filtering handled by SmartRegisterUnitEvent - no manual check needed
 	UpdateAuras(self, event, unit, updateInfo)
 
 	-- Assume no event means someone wants to re-anchor things. This is usually

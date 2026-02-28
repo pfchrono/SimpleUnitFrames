@@ -3,6 +3,9 @@
 
 Handles the visibility and updating of Death Knight's runes.
 
+---@class oUFRunesElement : Frame
+---@field [integer] StatusBar Death Knight rune status bars (indexed 1-6)
+
 ## Widget
 
 Runes - An `table` holding `StatusBar`s.

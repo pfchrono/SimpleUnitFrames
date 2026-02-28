@@ -1,6 +1,13 @@
+---Party header frames spawner and initialization
+---@class PartyUnitBuilder
+---Unit builder for party group header frame spawning and anchoring
+
 local registry = _G.SimpleUnitFrames_UnitBuilders or {}
 _G.SimpleUnitFrames_UnitBuilders = registry
 
+---Register party header frame builder
+---@param self SimpleUnitFrames Addon instance
+---@return void
 registry.party = function(self)
 	local oUF = self.oUF
 	if not self.allowGroupHeaders then
@@ -32,4 +39,22 @@ registry.party = function(self)
 	)
 	self:HookAnchor(party, "PartyFrame")
 	self.headers.party = party
+
+	-- Phase 3.4: Apply reusable mixins to party header frame
+	if party and self.GetUnitSettings then
+		local unitSettings = self:GetUnitSettings("party")
+		if unitSettings then
+			Mixin(party, FrameFaderMixin, DraggableMixin, ThemeMixin)
+			local db = self.db and self.db.profile and self.db.profile.positions or {}
+			if party.InitFader and unitSettings.fader then
+				party:InitFader(unitSettings.fader)
+			end
+			if party.InitDraggable and unitSettings.draggable then
+				party:InitDraggable(db, "Frame_party", unitSettings.draggable)
+			end
+			if party.InitTheme and unitSettings.theme then
+				party:InitTheme(unitSettings.theme)
+			end
+		end
+	end
 end

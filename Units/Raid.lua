@@ -1,6 +1,13 @@
+---Raid header frames spawner and initialization
+---@class RaidUnitBuilder
+---Unit builder for raid group header frame spawning and anchoring
+
 local registry = _G.SimpleUnitFrames_UnitBuilders or {}
 _G.SimpleUnitFrames_UnitBuilders = registry
 
+---Register raid header frame builder
+---@param self SimpleUnitFrames Addon instance
+---@return void
 registry.raid = function(self)
 	local oUF = self.oUF
 	if not self.allowGroupHeaders then
@@ -33,4 +40,22 @@ registry.raid = function(self)
 	)
 	self:HookAnchor(raid, "CompactRaidFrameContainer")
 	self.headers.raid = raid
+
+	-- Phase 3.4: Apply reusable mixins to raid header frame
+	if raid and self.GetUnitSettings then
+		local unitSettings = self:GetUnitSettings("raid")
+		if unitSettings then
+			Mixin(raid, FrameFaderMixin, DraggableMixin, ThemeMixin)
+			local db = self.db and self.db.profile and self.db.profile.positions or {}
+			if raid.InitFader and unitSettings.fader then
+				raid:InitFader(unitSettings.fader)
+			end
+			if raid.InitDraggable and unitSettings.draggable then
+				raid:InitDraggable(db, "Frame_raid", unitSettings.draggable)
+			end
+			if raid.InitTheme and unitSettings.theme then
+				raid:InitTheme(unitSettings.theme)
+			end
+		end
+	end
 end

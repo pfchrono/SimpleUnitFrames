@@ -3,6 +3,14 @@
 
 Handles the updating of a status bar that displays the unit's health.
 
+---@class oUFHealthElement : Frame
+---@field TempLoss StatusBar|nil Temporary max health reduction bar
+---@field HealingAll StatusBar|nil Incoming heals from all sources
+---@field HealingPlayer StatusBar|nil Incoming heals from player
+---@field HealingOther StatusBar|nil Incoming heals from others
+---@field DamageAbsorb StatusBar|nil Damage absorb bar
+---@field HealAbsorb StatusBar|nil Heal absorb bar
+
 ## Widget
 
 Health - A `StatusBar` used to represent the unit's health.
@@ -207,7 +215,7 @@ local function ColorPath(self, ...)
 end
 
 local function Update(self, event, unit)
-	if(not unit or self.unit ~= unit) then return end
+	-- Unit filtering handled by SmartRegisterUnitEvent - no manual check needed
 	local element = self.Health
 
 	--[[ Callback: Health:PreUpdate(unit)

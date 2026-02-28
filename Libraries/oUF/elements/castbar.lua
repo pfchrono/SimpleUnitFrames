@@ -3,6 +3,19 @@
 
 Handles the visibility and updating of spell castbars.
 
+---@class oUFCastbarElement : Frame
+---@field Icon Texture|nil Spell icon
+---@field SafeZone Texture|nil Latency safe zone
+---@field Shield Texture|nil Interrupt/steal indicator
+---@field Spark Texture|nil Cast progress spark
+---@field Text FontString|nil Spell name text
+---@field Time FontString|nil Duration timer
+---@field casting boolean Currently casting
+---@field channeling boolean Currently channeling
+---@field empowering boolean Currently empowering
+---@field spellID number|nil Current spell ID
+---@field spellName string|nil Current spell name
+
 ## Widget
 
 Castbar - A `StatusBar` to represent spell cast/channel progress.

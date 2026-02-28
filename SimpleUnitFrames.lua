@@ -1,5 +1,15 @@
+---@class SimpleUnitFrames : AceAddon
+---@field db AceDB Database instance (AceDB-3.0)
+---@field frames table<integer, Frame> Array of spawned unit frames
+---@field isBuildingOptions boolean Flag for options window state
+---@field performanceLib table|nil Optional PerformanceLib integration
+---@field sufEventBus table|nil Optional event bus for internal addon events
+
 local addonName = "SUF"
 local addonId = "SimpleUnitFrames"
+
+---Get oUF library reference
+---@return table oUF library instance
 local function GetOuf()
 	local global
 	if C_AddOns and C_AddOns.GetAddOnMetadata then
@@ -28,9 +38,12 @@ local LibTranslit = LibStub("LibTranslit-1.0", true)
 local LibCustomGlow = LibStub("LibCustomGlow-1.0", true)
 local LibRangeCheck = LibStub("LibRangeCheck-3.0", true)
 
+---@type SimpleUnitFrames
 local addon = AceAddon:NewAddon("SimpleUnitFrames", "AceEvent-3.0", "AceConsole-3.0")
 
+---@type string
 local DEFAULT_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
+---@type string
 local DEFAULT_FONT = STANDARD_TEXT_FONT
 local ICON_PATH = "Interface\\AddOns\\SimpleUnitFrames\\Media\\AddonIcon"
 local DATATEXT_SLOT_ORDER = { "left", "center", "right" }
@@ -836,6 +849,9 @@ local function BuildMediaList(values)
 	return list
 end
 
+---Format numeric value as compact notation (e.g., 1.5m for millions, 3.2k for thousands)
+---@param value number|string Numeric value to format
+---@return string Formatted compact value ("1.5m", "3.2k", or raw number)
 local function FormatCompactValue(value)
 	value = tonumber(value) or 0
 	if value >= 1000000 then
@@ -846,6 +862,10 @@ local function FormatCompactValue(value)
 	return tostring(math.floor(value + 0.5))
 end
 
+---Round numeric value to specified decimal places
+---@param value number|string Numeric value to round
+---@param decimals integer Number of decimal places
+---@return number Rounded numeric value
 local function RoundNumber(value, decimals)
 	local n = tonumber(value) or 0
 	local places = tonumber(decimals) or 0
@@ -853,10 +873,17 @@ local function RoundNumber(value, decimals)
 	return math.floor((n * mult) + 0.5) / mult
 end
 
+---Check if a value is marked as secret (WoW 12.0.0+ instance restriction)
+---@param value any Potentially-secret value from WoW API
+---@return boolean True if value is secret, false otherwise
 local function IsSecretValue(value)
 	return type(issecretvalue) == "function" and issecretvalue(value) or false
 end
 
+---Safely extract numeric value from potentially-secret WoW API return
+---@param value any Potentially-secret value from WoW API
+---@param fallback number Default value if input is secret or invalid
+---@return number Safe numeric value (fallback if secret)
 local function SafeNumber(value, fallback)
 	if IsSecretValue(value) then
 		return fallback
@@ -871,6 +898,10 @@ local function SafeNumber(value, fallback)
 	return num
 end
 
+---Safely extract boolean value from potentially-secret WoW API return
+---@param value any Potentially-secret value from WoW API
+---@param fallback boolean Default value if input is secret or invalid
+---@return boolean Safe boolean value (fallback if secret)
 local function SafeBoolean(value, fallback)
 	if IsSecretValue(value) then
 		return fallback
@@ -945,6 +976,10 @@ local function ResolveReadableAbsorbValue(unit, healthValues)
 	return nil, unit
 end
 
+---Safely extract text from potentially-secret WoW API return
+---@param value any Potentially-secret value from WoW API
+---@param fallback string Default value if input is secret or invalid
+---@return string Safe text value (fallback if secret)
 local function SafeText(value, fallback)
 	if value == nil or IsSecretValue(value) then
 		return fallback
@@ -956,6 +991,10 @@ local function SafeText(value, fallback)
 	return text
 end
 
+---Safely call a WoW API function that may return secret values
+---@param fn function Function to call safely
+---@param ... any Arguments to pass to function
+---@return any Result from function call, or nil if secret/error
 local function SafeAPICall(fn, ...)
 	if type(fn) ~= "function" then
 		return nil
@@ -967,6 +1006,9 @@ local function SafeAPICall(fn, ...)
 	return result
 end
 
+---Deep copy a table recursively (includes nested tables)
+---@param source table Source table to copy
+---@return table Deep copy of source table
 local function CopyTableDeep(source)
 	local copy = {}
 	for key, value in pairs(source) do
@@ -979,6 +1021,10 @@ local function CopyTableDeep(source)
 	return copy
 end
 
+---Merge default values into target table (only fills in nil values)
+---@param target table Target table to merge defaults into
+---@param defaultsTable table Table of default values
+---@return void
 local function MergeDefaults(target, defaultsTable)
 	if type(target) ~= "table" or type(defaultsTable) ~= "table" then
 		return
@@ -1053,6 +1099,8 @@ function addon:RegisterUnitBuilder(unitType, builder)
 	_G.SimpleUnitFrames_UnitBuilders[unitType] = builder
 end
 
+---Get media statusbar texture (global setting or fallback)
+---@return string Path to statusbar texture
 function addon:GetStatusbarTexture()
 	if LSM then
 		local texture = LSM:Fetch("statusbar", self.db.profile.media.statusbar)
@@ -1064,6 +1112,8 @@ function addon:GetStatusbarTexture()
 	return DEFAULT_TEXTURE
 end
 
+---Get media font (global setting or fallback)
+---@return string Path to font file
 function addon:GetFont()
 	if LSM then
 		local font = LSM:Fetch("font", self.db.profile.media.font)
@@ -1091,10 +1141,16 @@ function addon:IsGlobalFontOverrideEnabled()
 	return media.globalFontOverride ~= false
 end
 
+---Get unit-specific settings from current profile
+---@param unitType string Unit type identifier ("player", "target", "party1", "raid1", etc.)
+---@return table Configuration table for unit (or empty table if not found)
 function addon:GetUnitSettings(unitType)
 	return self.db.profile.units[unitType] or {}
 end
 
+---Get unit font sizes (unit-specific or global fallback)
+---@param unitType string Unit type identifier
+---@return table Font size configuration {name, level, health, power, cast}
 function addon:GetUnitFontSizes(unitType)
 	local unit = self:GetUnitSettings(unitType)
 	if unit.fontSizes then
@@ -1104,6 +1160,9 @@ function addon:GetUnitFontSizes(unitType)
 	return self.db.profile.fontSizes
 end
 
+---Get unit statusbar texture (unit-specific override or global setting)
+---@param unitType string Unit type identifier
+---@return string Path to statusbar texture
 function addon:GetUnitStatusbarTexture(unitType)
 	if self:IsGlobalStatusbarOverrideEnabled() then
 		return self:GetStatusbarTexture()
@@ -1119,6 +1178,9 @@ function addon:GetUnitStatusbarTexture(unitType)
 	return self:GetStatusbarTexture()
 end
 
+---Get unit font (unit-specific override or global setting)
+---@param unitType string Unit type identifier
+---@return string Path to font file
 function addon:GetUnitFont(unitType)
 	if self:IsGlobalFontOverrideEnabled() then
 		return self:GetFont()
@@ -1177,6 +1239,9 @@ function addon:GetUnitMainBarsBackgroundSettings(unitType)
 	}
 end
 
+---Get unit castbar settings (with defaults applied)
+---@param unitType string Unit type identifier
+---@return table Castbar configuration table
 function addon:GetUnitCastbarSettings(unitType)
 	local unit = self:GetUnitSettings(unitType)
 	if not unit then
@@ -1276,16 +1341,24 @@ function addon:GetUnitHealPredictionSettings(unitType)
 	return unit.healPrediction
 end
 
+---Get plugin settings (with safe initialization)
+---@return table All plugin configurations
 function addon:GetPluginSettings()
 	self.db.profile.plugins = self.db.profile.plugins or CopyTableDeep(defaults.profile.plugins)
 	MergeDefaults(self.db.profile.plugins, defaults.profile.plugins)
 	return self.db.profile.plugins
 end
 
+---Check if unit type is a group unit (party or raid)
+---@param unitType string Unit type identifier
+---@return boolean True if unitType is "party" or "raid"
 function addon:IsGroupUnitType(unitType)
 	return unitType == "party" or unitType == "raid"
 end
 
+---Trim whitespace from start and end of string
+---@param value any Input value (coerced to string)
+---@return string Trimmed string (empty if not a string)
 local function TrimString(value)
 	if type(value) ~= "string" then
 		return ""
@@ -1293,6 +1366,10 @@ local function TrimString(value)
 	return (value:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+---Truncate string to maximum character length with ellipsis
+---@param text string Text to truncate (UTF-8 safe if available)
+---@param maxChars integer Maximum characters to display
+---@return string Truncated text with "..." suffix if over limit
 local function TruncateUTF8(text, maxChars)
 	local s = SafeText(text, "")
 	if s == "" then
@@ -1328,6 +1405,9 @@ local function TruncateUTF8(text, maxChars)
 	return s
 end
 
+---Get unit-specific plugin settings (with global fallback for group units)
+---@param unitType string Unit type identifier ("player", "party1", "raid1", etc.)
+---@return table Merged plugin configuration with unit overrides
 function addon:GetUnitPluginSettings(unitType)
 	local plugins = self:GetPluginSettings()
 	if not self:IsGroupUnitType(unitType) then
@@ -3570,6 +3650,8 @@ function addon:PrintStatusReport()
 		self:Print(addonName .. ": " .. line)
 	end
 end
+---Check if Blizzard Edit Mode is currently active
+---@return boolean True if Edit Mode UI is shown
 function addon:IsEditModeActive()
 	if C_EditMode and C_EditMode.IsEditModeActive then
 		return C_EditMode.IsEditModeActive()
@@ -3585,6 +3667,8 @@ function addon:IsEditModeActive()
 	return false
 end
 
+---Schedule all unit frames for update (safe queueing during combat)
+---@return void
 function addon:ScheduleUpdateAll()
 	if self.isBuildingOptions then
 		return
@@ -3597,6 +3681,8 @@ function addon:ScheduleUpdateAll()
 	end
 end
 
+---Get optimal work delay with ML optimization support
+---@return number Delay in seconds (0.01 to 0.20 range)
 function addon:GetLocalWorkDelay()
 	local delay = 0.05
 	if self:IsPerformanceIntegrationEnabled() then
@@ -3611,6 +3697,10 @@ function addon:GetLocalWorkDelay()
 	return math.max(0.01, math.min(0.20, tonumber(delay) or 0.05))
 end
 
+---Queue frame work for deferred update processing
+---@param workType string Work type identifier ("update_all", "update_unit", "visibility")
+---@param unitType? string Optional unit type for "update_unit" work
+---@return void
 function addon:QueueLocalWork(workType, unitType)
 	if self.isBuildingOptions then
 		return

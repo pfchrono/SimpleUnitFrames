@@ -3,6 +3,11 @@
 
 Handles the updating of the unit's portrait.
 
+---@class oUFPortraitElement : Frame
+---@field portraitModel PlayerModel|nil 3D character model
+---@field portraitTexture Texture|nil 2D portrait texture
+---@field displayPowerType boolean Show unit power type in portrait
+
 ## Widget
 
 Portrait - A `PlayerModel` or a `Texture` used to represent the unit's portrait.

@@ -1,18 +1,26 @@
+---Frame positioning and mover system
+---@class MoverSystem
+---Manages frame positions, save/load, and drag-and-drop positioning
+
 local AceAddon = LibStub("AceAddon-3.0")
 local addon = AceAddon and AceAddon:GetAddon("SimpleUnitFrames", true)
 if not addon then
 	return
 end
 
-local function RoundNumber(value)
-	local core = addon._core
-	if core and core.RoundNumber then
-		return core.RoundNumber(value, 0)
-	end
-	local number = tonumber(value) or 0
-	return (number >= 0) and math.floor(number + 0.5) or math.ceil(number - 0.5)
+---Round numeric value to specified decimal places (local utility)
+---@param value number|string Numeric value to round
+---@param decimals? integer Number of decimal places (default: 0)
+---@return number Rounded numeric value
+local function RoundNumber(value, decimals)
+	local n = tonumber(value) or 0
+	local places = tonumber(decimals) or 0
+	local mult = 10 ^ places
+	return math.floor((n * mult) + 0.5) / mult
 end
 
+---Get mover position storage table
+---@return table<string, table> Stored mover positions
 function addon:GetMoverStore()
 	if not (self.db and self.db.profile) then
 		return {}
@@ -21,6 +29,11 @@ function addon:GetMoverStore()
 	return self.db.profile.movers
 end
 
+---Apply saved mover position to a frame
+---@param frame Frame Frame to position
+---@param moverKey string Key for mover storage
+---@param defaultPoint? table Default position {point, relativeTo, relativePoint, offsetX, offsetY}
+---@return void
 function addon:ApplyStoredMoverPosition(frame, moverKey, defaultPoint)
 	if not (frame and moverKey) then
 		return
@@ -43,6 +56,10 @@ function addon:ApplyStoredMoverPosition(frame, moverKey, defaultPoint)
 	end
 end
 
+---Save current frame position to storage
+---@param frame Frame Frame to save position from
+---@param moverKey string Key for mover storage
+---@return void
 function addon:SaveMoverPosition(frame, moverKey)
 	if not (frame and moverKey) then
 		return

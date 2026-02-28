@@ -1,3 +1,7 @@
+---UI theming system for SimpleUnitFrames
+---@class ThemeSystem
+---Manages colors, backdrops, fonts, and control skinning for UI elements
+
 local AceAddon = LibStub("AceAddon-3.0")
 local addon = AceAddon and AceAddon:GetAddon("SimpleUnitFrames", true)
 if not addon then
@@ -120,6 +124,12 @@ local function EnsureBackdrop(frame)
 end
 
 -- Per Blizzard_SharedXML/Shared/Scroll/ScrollBar.lua lines 10-31, ScrollBar steppers/track/thumb are simple widgets.
+---Apply backdrop and border colors to a frame or texture element
+---@param target Frame|Texture Target frame or texture to color
+---@param bgColor table Background color {r, g, b, a}
+---@param borderColor? table Border color {r, g, b, a}
+---@param ensureBackdrop? boolean Create backdrop if missing
+---@return void
 function addon:ApplySUFBackdropColors(target, bgColor, borderColor, ensureBackdrop)
 	if not target then
 		return
@@ -184,6 +194,10 @@ local function ResolveFontRole(fontString)
 	return "body"
 end
 
+---Apply theme colors to a FontString element
+---@param fontString FontString FontString to skin
+---@param role? "title"|"header"|"body"|"accent"|"muted"|"warn"|"good" Text role/category for color selection
+---@return void
 function addon:ApplySUFFontStringSkin(fontString, role)
 	if not (fontString and fontString.GetObjectType and fontString:GetObjectType() == "FontString") then
 		return
@@ -201,6 +215,9 @@ function addon:ApplySUFFontStringSkin(fontString, role)
 	end
 end
 
+---Apply theme tint to a Texture element (dividers, icons)
+---@param texture Texture Texture to skin
+---@return void
 function addon:ApplySUFTextureSkin(texture)
 	if not (texture and texture.GetObjectType and texture:GetObjectType() == "Texture") then
 		return
@@ -230,14 +247,20 @@ function addon:ApplySUFTextureSkin(texture)
 	end
 end
 
+---Get current theme table with all colors and styles
+---@return table Theme configuration table
 function addon:GetSUFTheme()
 	return THEME
 end
 
+---Get options UI style colors
+---@return table UI style colors {windowBg, windowBorder, panelBg, etc.}
 function addon:GetOptionsUIStyle()
 	return THEME.options
 end
 
+---Sync theme from OptionsV2 if available
+---@return void
 function addon:SyncThemeFromOptionsV2()
 	if not self.GetOptionsV2Style then
 		return

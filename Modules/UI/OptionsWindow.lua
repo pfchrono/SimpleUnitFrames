@@ -1,3 +1,7 @@
+---Options window UI module for SimpleUnitFrames configuration
+---@class OptionsWindow
+---Main configuration UI window with tabs, search, and profile management
+
 local AceAddon = LibStub("AceAddon-3.0")
 local AceGUI = LibStub("AceGUI-3.0")
 local LSM = LibStub("LibSharedMedia-3.0", true)
@@ -74,6 +78,8 @@ if type(MergeDefaults) ~= "function" then
     end
 end
 
+---Show the options window (or options v2 if enabled)
+---@return void
 function addon:ShowOptions()
 	if self.IsOptionsV2Enabled and self:IsOptionsV2Enabled() and self.ShowOptionsV2 then
 		self:ShowOptionsV2()

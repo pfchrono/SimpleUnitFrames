@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/
+..\FrameXML\UI.xsd">
+	<!-- Mixin-Based Component Architecture (Phase 3) -->
+	<!-- Reusable frame behavior mixins extracted from monolithic SimpleUnitFrames.lua -->
+	
+	<!-- FrameFaderMixin: Combat alpha cycling and mouseover fade behavior -->
+	<Script file="Modules/UI/FrameFaderMixin.lua"/>
+	
+	<!-- DraggableMixin: Frame dragging and position persistence -->
+	<Script file="Modules/System/DraggableMixin.lua"/>
+	
+	<!-- ThemeMixin: Color/backdrop/font application with WoW 12.0.0+ safety -->
+	<Script file="Modules/UI/ThemeMixin.lua"/>
+</Ui>
