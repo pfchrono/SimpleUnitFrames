@@ -62,6 +62,38 @@ local function IsProtectedInCombat(frame)
 	return frame and frame.IsProtected and frame:IsProtected() and InCombatLockdown and InCombatLockdown()
 end
 
+local function NormalizeAlpha(alpha, fallback)
+	local default = tonumber(fallback) or 1
+	local isSecret = (type(oUF.IsSecretValue) == 'function' and oUF:IsSecretValue(alpha))
+		or (type(issecretvalue) == 'function' and issecretvalue(alpha))
+	if isSecret then
+		return default
+	end
+	local value = tonumber(alpha)
+	local valueIsSecret = (type(oUF.IsSecretValue) == 'function' and oUF:IsSecretValue(value))
+		or (type(issecretvalue) == 'function' and issecretvalue(value))
+	if not value or valueIsSecret then
+		return default
+	end
+	if value < 0 then
+		return 0
+	elseif value > 1 then
+		return 1
+	end
+	return value
+end
+
+local function GetSafeFrameAlpha(frame, fallback)
+	if not frame or type(frame.GetAlpha) ~= 'function' then
+		return NormalizeAlpha(nil, fallback)
+	end
+	local ok, alpha = pcall(frame.GetAlpha, frame)
+	if not ok then
+		return NormalizeAlpha(nil, fallback)
+	end
+	return NormalizeAlpha(alpha, fallback)
+end
+
 local function SafeSetAlpha(frame, alpha)
 	if not frame then
 		return
@@ -72,7 +104,7 @@ local function SafeSetAlpha(frame, alpha)
 	if IsProtectedInCombat(frame) then
 		return
 	end
-	frame:SetAlpha(alpha)
+	frame:SetAlpha(NormalizeAlpha(alpha, 1))
 end
 
 local function IsSecretValueCompat(value)
@@ -139,10 +171,12 @@ local function GetEngine()
 		if IsProtectedInCombat(frame) then
 			return
 		end
+		local safeFrom = NormalizeAlpha(fromAlpha, GetSafeFrameAlpha(frame, 1))
+		local safeTo = NormalizeAlpha(toAlpha, 0)
 		if _G.UIFrameFadeOut then
-			_G.UIFrameFadeOut(frame, duration or 0, fromAlpha or frame:GetAlpha(), toAlpha or 0)
+			_G.UIFrameFadeOut(frame, duration or 0, safeFrom, safeTo)
 		else
-			SafeSetAlpha(frame, toAlpha or 0)
+			SafeSetAlpha(frame, safeTo)
 		end
 	end
 	return E
@@ -172,7 +206,7 @@ local function ToggleAlpha(self, element, endAlpha)
 		return
 	end
 
-	local currentAlpha = self:GetAlpha() or 1
+	local currentAlpha = GetSafeFrameAlpha(self, 1)
 	if element.__fadingTo and abs(element.__fadingTo - endAlpha) < 0.001 then
 		return
 	end
@@ -183,7 +217,7 @@ local function ToggleAlpha(self, element, endAlpha)
 
 	if element.Smooth then
 		element.__fadingTo = endAlpha
-		engine:UIFrameFadeOut(self, element.Smooth, self:GetAlpha(), endAlpha)
+		engine:UIFrameFadeOut(self, element.Smooth, currentAlpha, endAlpha)
 	else
 		element.__fadingTo = nil
 		SafeSetAlpha(self, endAlpha)

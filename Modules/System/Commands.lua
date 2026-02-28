@@ -42,6 +42,8 @@ function addon:ShowLauncherHelp()
 	self:Print(addonName .. ": /suf debug")
 	self:Print(addonName .. ": /suf status")
 	self:Print(addonName .. ": /suf protected (see also: /SUFprotected help)")
+	self:Print(addonName .. ": /suf absorbdebug on|off|toggle|status")
+	self:Print(addonName .. ": /sufabsorbdebug on|off|toggle|status")
 	self:Print(addonName .. ": /suf skinreport (Blizzard skin coverage report)")
 	self:Print(addonName .. ": /suf install")
 	self:Print(addonName .. ": /suf tutorial")
@@ -139,6 +141,70 @@ function addon:HandleProtectedOpsSlash(msg)
 	end
 end
 
+function addon:HandleAbsorbDebugSlash(msg)
+	local mode = (msg or ""):match("^%s*(.-)%s*$")
+	mode = mode and mode:lower() or ""
+	mode = mode:match("^(%S+)") or mode
+
+	self:EnsureDebugConfig()
+	local dbg = self.db.profile.debug
+	dbg.systems = dbg.systems or {}
+
+	local function PrintStatus()
+		local enabled = dbg.systems.AbsorbEvents == true
+		local tagsEnabled = dbg.absorbTags == true
+		self:Print(addonName .. ": AbsorbEvents debug is " .. (enabled and "ON" or "OFF") .. ".")
+		self:Print(addonName .. ": AbsorbTags debug is " .. (tagsEnabled and "ON" or "OFF") .. ".")
+		
+		-- Print call counts if available
+		if self._absorbTagCallCount and next(self._absorbTagCallCount) then
+			self:Print(addonName .. ": Tag call counts:")
+			for k, v in pairs(self._absorbTagCallCount) do
+				self:Print(("  %s: %d"):format(tostring(k), tonumber(v) or 0))
+			end
+		else
+			self:Print(addonName .. ": No tag calls recorded yet.")
+		end
+	end
+
+	if mode == "" or mode == "status" or mode == "stats" then
+		PrintStatus()
+		return
+	end
+
+	if mode == "on" or mode == "enable" or mode == "1" then
+		dbg.enabled = true
+		dbg.systems.AbsorbEvents = true
+		dbg.absorbTags = true
+		self:Print(addonName .. ": AbsorbEvents and AbsorbTags debug enabled.")
+		return
+	end
+
+	if mode == "off" or mode == "disable" or mode == "0" then
+		dbg.systems.AbsorbEvents = false
+		dbg.absorbTags = false
+		self:Print(addonName .. ": AbsorbEvents and AbsorbTags debug disabled.")
+		return
+	end
+
+	if mode == "toggle" then
+		dbg.enabled = true
+		local newState = not (dbg.systems.AbsorbEvents == true)
+		dbg.systems.AbsorbEvents = newState
+		dbg.absorbTags = newState
+		PrintStatus()
+		return
+	end
+
+	if mode == "help" then
+		self:Print(addonName .. ": /suf absorbdebug on|off|toggle|status")
+		self:Print(addonName .. ": /sufabsorbdebug on|off|toggle|status")
+		return
+	end
+
+	self:Print(addonName .. ": Unknown absorbdebug command. Use /suf absorbdebug help")
+end
+
 function addon:HandleSUFSlash(msg)
 	local input = (msg or ""):match("^%s*(.-)%s*$")
 	if input == "" then
@@ -188,6 +254,11 @@ function addon:HandleSUFSlash(msg)
 
 	if command == "protected" then
 		self:HandleProtectedOpsSlash(rest)
+		return
+	end
+
+	if command == "absorbdebug" or command == "absdebug" then
+		self:HandleAbsorbDebugSlash(rest)
 		return
 	end
 

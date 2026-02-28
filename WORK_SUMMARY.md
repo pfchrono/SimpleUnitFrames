@@ -1,5 +1,68 @@
 # Work Summary
 
+## 2026-02-28 — Absorb Text Secret-Value Placeholder Fix ✅
+
+**Completed Work:**
+- Fixed absorb text update path to use cached HealthPrediction values from the active oUF frame (`Health.values:GetDamageAbsorbs()`) before falling back to direct `UnitGetTotalAbsorbs()` calls.
+- Restored correct absorb tag refresh behavior so absorb text now updates reliably while bars are visible.
+- Implemented secret-value-safe absorb text output by returning placeholder `~` when absorb amounts are secret in restricted contexts (instances/PvP/combat restrictions).
+- Added per-frame absorb tag refresh throttling in `UpdateAbsorbValue()` so manual `UpdateTag()`/`UpdateTags()` calls only run on absorb display state changes (secret/numeric/none) or after a short interval (0.20s), reducing CPU spikes during heavy absorb event bursts.
+- Added absorb tag call-count visibility to `/sufabsorbdebug status|stats` for live diagnostics.
+- Removed temporary forced diagnostics (`or true`) while keeping debug-gated logging intact.
+
+**Files Modified:**
+- [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+  - Updated `GetAbsorbTextForUnit()` to prefer cached oUF absorb values and maintain secret-safe formatting behavior.
+  - Kept tag method counters (`TAG_suf:absorbs*`) available for opt-in debug statistics.
+  - Cleaned temporary absorb-tag instrumentation from `ApplyTags()` to avoid unconditional debug spam.
+- [Modules/System/Commands.lua](Modules/System/Commands.lua)
+  - Extended absorb debug status command to include call-count stats output.
+
+**Status:**
+- Performance impact: Low-positive (removed unconditional absorb-tag debug logging).
+- Risk level: Low (targeted absorb text/tag path changes only).
+- Validation: In-game logs confirm tag calls and cached absorb retrieval; user confirmed `~` placeholder is visible on unit frames.
+
+## 2026-02-27 — Tooltip Hitbox + Party Aura Layout Update ✅
+
+**Completed Work:**
+- Reworked unitframe tooltip hover reliability by adding explicit hover proxy forwarding on high-layer frame children used by Player/Target/Party frames.
+- Added party-specific aura defaults to support a single-row layout of 6 visible buff icons with matching width fit.
+- Added party aura spacing awareness to group header Y-offset calculation so party frames no longer overlap aura rows.
+- Added one-time legacy party aura migration from old 8/8 layout defaults to new 6/0 layout when untouched legacy defaults are detected.
+- **Fixed absorb bar initialization on frame creation** by queueing `UpdateAbsorbValue()` at HIGH priority with deduplication key (lines 8030-8038) to ensure Health element is fully initialized before first absorb update.
+- **Fixed target/tot absorb bar visibility** by adding UNIT_ABSORB_AMOUNT_CHANGED and UNIT_HEAL_ABSORB_AMOUNT_CHANGED to OnPlayerTargetChanged dirty events and immediate UpdateAbsorbValue() call on target change.
+- **Added absorb bar debug logging** to trace UpdateAbsorbValue() calls and actual bar value updates when `/sufabsorbdebug on` is enabled (lines 4245-4248, 4295-4298). Shows frame name, unit token, absorb value, max health, and visibility state.
+
+**Files Modified:**
+- [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+  - Added `DEFAULT_PARTY_AURA_LAYOUT` and party unit defaults (`auraSize = 22`, `auras` block).
+  - Updated `GetUnitAuraLayoutSettings()` to use party-specific aura defaults.
+  - Added `HookTooltipHoverProxy()` and attached it to layered frame regions (Health/Power/TextOverlay/Indicator/Portrait/AdditionalPower/ClassPower anchor).
+  - Updated `GetPartyHeaderYOffset()` to include aura row footprint in vertical spacing.
+  - Updated unit default merge path to apply party aura defaults and migrate legacy untouched 8/8 party aura settings.
+  - **New:** Queued initial absorb bar update in frame registration (lines 8030-8038) with HIGH priority
+  - **New:** Added absorb event dirty flags + immediate UpdateAbsorbValue() in OnPlayerTargetChanged (lines 6085-6103)
+  - **New:** Added comprehensive debug logging in UpdateAbsorbValue() (lines 4245-4248, 4295-4298) to trace calls and actual bar updates
+
+**Status:**
+- Performance impact: Minimal (lightweight hover hook forwarding, spacing math, queued absorb updates, and conditional debug logging).
+- Risk level: Low-Medium (touches frame hover routing, profile defaults/migration, target change event handling, and adds debug-conditional logging).
+- Validation: When `/sufabsorbdebug on` enabled and `/sufdebug` opened, should now show "UpdateAbsorbValue called" and "AbsorbBar set" entries in AbsorbEvents channel. This helps verify if UpdateAbsorbValue is being called and what values are being set.
+
+**Follow-up Hotfixes (same session):**
+- Fixed party aura creation gate to use resolved `sufUnitType` so header-spawned party frames reliably create aura containers.
+- Moved threat indicator anchor from top-left to bottom-left to avoid overlapping unit names.
+- Restricted threat icon visibility to highest threat status only (`status == 3`) and applied `feedbackUnit = "target"` for party/raid contexts.
+- Fixed WoW 12.0.0 secret-value fade crash by hardening `oUF_Fader` alpha handling (`GetAlpha`/`SetAlpha`/`UIFrameFadeOut` now sanitize secret alpha values before math/fade calls).
+- Fixed absorb bar dependency on Frame Fader state by forcing absorb refresh when fader is disabled and by allowing absorb-related dirty events to process for `player`/`target`/`tot`.
+- Fixed target and target-of-target absorb updates by no longer bypassing `UNIT_ABSORB_AMOUNT_CHANGED`/`UNIT_HEAL_ABSORB_AMOUNT_CHANGED`/related non-health events in the performance bypass gate.
+- Added opt-in absorb routing debug channel (`AbsorbEvents`) that logs coalesced `UNIT_ABSORB_AMOUNT_CHANGED`/`UNIT_HEAL_ABSORB_AMOUNT_CHANGED` hits for `target`/`tot` to aid live verification.
+- Added slash helper controls for absorb tracing: `/suf absorbdebug on|off|toggle|status` and direct alias `/sufabsorbdebug on|off|toggle|status`.
+
+**Additional Files Modified:**
+- [Libraries/oUF_Plugins/oUF_Fader.lua](Libraries/oUF_Plugins/oUF_Fader.lua)
+
 ## 2026-02-27 — Phase 3: Mixin-Based Component Architecture Complete ✅
 
 **Completed Work:**

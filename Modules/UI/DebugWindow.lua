@@ -134,14 +134,37 @@ function addon:RefreshDebugPanel()
 	if not self.debugPanel or not self.debugPanel.messagesText then
 		return
 	end
-	local text = table.concat(self.debugMessages or {}, "\n")
+	
+	-- Sanitize messages to handle any secret values that slipped through
+	local safeMessages = {}
+	for i, msg in ipairs(self.debugMessages or {}) do
+		-- Check if value is secret (WoW 12.0.0+ API)
+		if type(issecretvalue) == "function" and issecretvalue(msg) then
+			safeMessages[i] = "<secret value>"
+		else
+			safeMessages[i] = msg
+		end
+	end
+	
+	local text = table.concat(safeMessages, "\n")
 	self.debugPanel.messagesText:SetText(text)
 	local height = self.debugPanel.messagesText:GetStringHeight()
 	self.debugPanel.textFrame:SetHeight(math.max(height + 10, 1))
 end
 
 function addon:ShowDebugExportDialog()
-	local exportText = table.concat(self.debugMessages or {}, "\n")
+	-- Sanitize messages to handle any secret values
+	local safeMessages = {}
+	for i, msg in ipairs(self.debugMessages or {}) do
+		-- Check if value is secret (WoW 12.0.0+ API)
+		if type(issecretvalue) == "function" and issecretvalue(msg) then
+			safeMessages[i] = "<secret value>"
+		else
+			safeMessages[i] = msg
+		end
+	end
+	
+	local exportText = table.concat(safeMessages, "\n")
 	if exportText == "" then
 		self:Print(addonName .. ": No debug messages to export.")
 		return

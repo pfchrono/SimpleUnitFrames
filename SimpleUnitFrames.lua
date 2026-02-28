@@ -120,6 +120,22 @@ local defaults = {
 				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
 				showResting = false,
 				showPvp = true,
+				auraSize = 22,
+				auras = {
+					enabled = true,
+					numBuffs = 6,
+					numDebuffs = 0,
+					spacingX = 4,
+					spacingY = 4,
+					maxCols = 6,
+					initialAnchor = "BOTTOMLEFT",
+					growthX = "RIGHT",
+					growthY = "UP",
+					sortMethod = "DEFAULT",
+					sortDirection = "ASC",
+					onlyShowPlayer = false,
+					showStealableBuffs = true,
+				},
 				portrait = { mode = "none", size = 26, showClass = false, motion = false, position = "LEFT" },
 			},
 			raid = {
@@ -416,6 +432,7 @@ local defaults = {
 				Performance = true,
 				Events = false,
 				Frames = false,
+				AbsorbEvents = false,
 				IncomingText = false,
 			},
 		},
@@ -493,6 +510,22 @@ local DEFAULT_UNIT_AURA_LAYOUT = {
 	spacingX = 4,
 	spacingY = 4,
 	maxCols = 8,
+	initialAnchor = "BOTTOMLEFT",
+	growthX = "RIGHT",
+	growthY = "UP",
+	sortMethod = "DEFAULT",
+	sortDirection = "ASC",
+	onlyShowPlayer = false,
+	showStealableBuffs = true,
+}
+
+local DEFAULT_PARTY_AURA_LAYOUT = {
+	enabled = true,
+	numBuffs = 6,
+	numDebuffs = 0,
+	spacingX = 4,
+	spacingY = 4,
+	maxCols = 6,
 	initialAnchor = "BOTTOMLEFT",
 	growthX = "RIGHT",
 	growthY = "UP",
@@ -936,25 +969,47 @@ local function ResolveReadableAbsorbValue(unit, healthValues)
 		return result, true
 	end
 
+	local debugAbsorb = addon.db and addon.db.profile and addon.db.profile.debug and addon.db.profile.debug.systems and addon.db.profile.debug.systems.AbsorbEvents
+	
+	-- PRIORITY 1: Try healthValues.GetDamageAbsorbs() first (WoW 12.0.0+ secret-safe method)
+	if healthValues and healthValues.GetDamageAbsorbs then
+		local damageAbsorbAmount, damageAbsorbClamped = Call(healthValues.GetDamageAbsorbs, healthValues)
+		local value = SafeNumber(damageAbsorbAmount, nil)
+		if debugAbsorb then
+			addon:DebugLog("AbsorbEvents", ("HealthPrediction.values:GetDamageAbsorbs(%s): damageAbsorbAmount=%s clamped=%s value=%s"):format(
+				tostring(unit),
+				tostring(damageAbsorbAmount),
+				tostring(damageAbsorbClamped),
+				tostring(value)
+			), 2)
+		end
+		if value ~= nil then
+			return value, unit
+		end
+	end
+
+	-- PRIORITY 2: Fallback to UnitGetTotalAbsorbs (may return secret values in instances/PvP)
 	local function GetAbsorbFromUnit(token)
 		if type(UnitGetTotalAbsorbs) ~= "function" then
 			return nil
 		end
-		local result = Call(UnitGetTotalAbsorbs, token)
+		local result, success = Call(UnitGetTotalAbsorbs, token)
+		
+		if debugAbsorb then
+			addon:DebugLog("AbsorbEvents", ("UnitGetTotalAbsorbs(%s): rawResult=%s success=%s isSecret=%s"):format(
+				tostring(token), 
+				tostring(result), 
+				tostring(success),
+				tostring(IsSecretValue(result))
+			), 2)
+		end
+		
 		return SafeNumber(result, nil)
 	end
 
 	local value = GetAbsorbFromUnit(unit)
 	if value ~= nil then
 		return value, unit
-	end
-
-	if healthValues and healthValues.GetDamageAbsorbs then
-		local result = Call(healthValues.GetDamageAbsorbs, healthValues)
-		value = SafeNumber(result, nil)
-		if value ~= nil then
-			return value, unit
-		end
 	end
 
 	if type(UnitIsUnit) == "function" and type(UnitExists) == "function" then
@@ -2022,15 +2077,99 @@ function addon:ValidateAuraWatchSpellList(customValue)
 end
 
 function addon:GetAbsorbTextForUnit(unit, useAbbrev)
+	local debugTags = self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.absorbTags
+	
+	if debugTags then
+		if not self._absorbTagCallCount then
+			self._absorbTagCallCount = {}
+		end
+		self._absorbTagCallCount[unit or "nil"] = (self._absorbTagCallCount[unit or "nil"] or 0) + 1
+		
+		self:DebugLog("AbsorbTags", ("GetAbsorbTextForUnit CALLED: unit=%s useAbbrev=%s (call#%d)"):format(
+			tostring(unit),
+			tostring(useAbbrev),
+			self._absorbTagCallCount[unit or "nil"]
+		), 2)
+	end
+	
 	if not unit or not UnitExists or not UnitExists(unit) then
+		if debugTags then
+			self:DebugLog("AbsorbTags", ("Early return: unit=%s exists=%s"):format(
+				tostring(unit),
+				UnitExists and tostring(UnitExists(unit)) or "no_api"
+			), 2)
+		end
 		return ""
 	end
 	if type(UnitGetTotalAbsorbs) ~= "function" then
+		if debugTags then
+			self:DebugLog("AbsorbTags", "Early return: UnitGetTotalAbsorbs not available", 2)
+		end
 		return ""
 	end
 
-	local absorbValue = SafeNumber(SafeAPICall(UnitGetTotalAbsorbs, unit), 0)
-	if absorbValue <= 0 then
+	-- Try to get cached absorb value from frame's Health element first (more reliable timing)
+	local rawAbsorbValue = nil
+	
+	-- Find the frame for this unit by checking oUF global registry
+	local ouf = oUF or (self.oUF)
+	if ouf then
+		for _, f in pairs(ouf.objects or {}) do
+			if f.unit == unit and f.Health and f.Health.values then
+				-- Get absorb from Health element's cached values (same source as Health Override uses)
+				local absorbAmount = f.Health.values:GetDamageAbsorbs()
+				rawAbsorbValue = absorbAmount
+				if debugTags then
+					self:DebugLog("AbsorbTags", ("Using cached absorb from frame %s: rawValue=%s"):format(
+						f:GetName() or "Unknown",
+						rawAbsorbValue and "exists" or "nil"
+					), 2)
+				end
+				break
+			end
+		end
+	end
+	
+	-- Fallback to direct API call if frame not found
+	if not rawAbsorbValue then
+		rawAbsorbValue = SafeAPICall(UnitGetTotalAbsorbs, unit)
+		if debugTags then
+			self:DebugLog("AbsorbTags", ("Using direct API call: rawValue=%s"):format(
+				rawAbsorbValue and "exists" or "nil"
+			), 2)
+		end
+	end
+	
+	local isSecret = rawAbsorbValue and IsSecretValue(rawAbsorbValue)
+	
+	if debugTags then
+		self:DebugLog("AbsorbTags", ("GetAbsorbTextForUnit: unit=%s useAbbrev=%s rawValue=%s isSecret=%s"):format(
+			tostring(unit),
+			tostring(useAbbrev),
+			rawAbsorbValue and "exists" or "nil",
+			tostring(isSecret)
+		), 2)
+	end
+	
+	-- If value is secret, show placeholder (absorb bar would still be visible)
+	if isSecret then
+		if debugTags then
+			self:DebugLog("AbsorbTags", ("Returning placeholder '~' for unit %s"):format(tostring(unit)), 2)
+		end
+		return "~"
+	end
+	
+	-- Try to convert to number
+	local absorbValue = SafeNumber(rawAbsorbValue, nil)
+	
+	if debugTags then
+		self:DebugLog("AbsorbTags", ("Converted value for unit %s: absorbValue=%s"):format(
+			tostring(unit),
+			tostring(absorbValue)
+		), 2)
+	end
+	
+	if not absorbValue or absorbValue <= 0 then
 		return ""
 	end
 
@@ -2343,9 +2482,15 @@ function addon:RegisterCustomTags()
 	end
 
 	ouf.Tags.Methods["suf:absorbs"] = function(unit)
+		if addon._absorbTagCallCount then
+			addon._absorbTagCallCount["TAG_suf:absorbs"] = (addon._absorbTagCallCount["TAG_suf:absorbs"] or 0) + 1
+		end
 		return addon:GetAbsorbTextForUnit(unit, false)
 	end
 	ouf.Tags.Methods["suf:absorbs:abbr"] = function(unit)
+		if addon._absorbTagCallCount then
+			addon._absorbTagCallCount["TAG_suf:absorbs:abbr"] = (addon._absorbTagCallCount["TAG_suf:absorbs:abbr"] or 0) + 1
+		end
 		return addon:GetAbsorbTextForUnit(unit, true)
 	end
 	ouf.Tags.Methods["suf:incoming"] = function(unit)
@@ -2457,13 +2602,14 @@ end
 
 function addon:GetUnitAuraLayoutSettings(unitType)
 	local unit = self:GetUnitSettings(unitType)
+	local auraDefaults = unitType == "party" and DEFAULT_PARTY_AURA_LAYOUT or DEFAULT_UNIT_AURA_LAYOUT
 	if not unit then
-		return DEFAULT_UNIT_AURA_LAYOUT
+		return auraDefaults
 	end
 	if unit.auras == nil then
-		unit.auras = CopyTableDeep(DEFAULT_UNIT_AURA_LAYOUT)
+		unit.auras = CopyTableDeep(auraDefaults)
 	else
-		MergeDefaults(unit.auras, DEFAULT_UNIT_AURA_LAYOUT)
+		MergeDefaults(unit.auras, auraDefaults)
 	end
 	return unit.auras
 end
@@ -2740,6 +2886,11 @@ function addon:OpenUnitContextMenu(frame)
 	end
 
 	local unit = frame.unit
+	-- For header-spawned frames (party/raid), try secure attribute if frame.unit is not set
+	if not unit and frame.GetAttribute then
+		unit = frame:GetAttribute('unit') or frame:GetAttribute('oUF-guessUnit')
+	end
+	
 	if type(unit) ~= "string" or unit == "" then
 		return false
 	end
@@ -2931,7 +3082,11 @@ function addon:ShouldBypassPerformanceDirty(frame, eventName)
 	end
 	local unitType = frame.sufUnitType
 	if unitType == "player" or unitType == "target" or unitType == "tot" then
-		return true
+		if eventName == "UNIT_HEALTH" or eventName == "UNIT_MAXHEALTH"
+			or eventName == "UNIT_POWER_UPDATE" or eventName == "UNIT_MAXPOWER"
+			or eventName == "UNIT_DISPLAYPOWER" then
+			return true
+		end
 	end
 	return false
 end
@@ -2989,6 +3144,10 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 		return
 	end
 
+	local traceAbsorb = (eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED")
+		and (unit == "target" or unit == "tot" or unit == "targettarget")
+	local tracedHits = 0
+
 	local index = self:EnsureFrameEventIndex()
 	local seen = {}
 	local hasDirectMatch = false
@@ -3000,6 +3159,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 			if frame and not seen[frame] then
 				seen[frame] = true
 				hasDirectMatch = true
+				tracedHits = tracedHits + 1
 				self:MarkFrameDirty(frame, eventName)
 			end
 		end
@@ -3013,6 +3173,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				local frame = typed[i]
 				if frame and not seen[frame] then
 					seen[frame] = true
+					tracedHits = tracedHits + 1
 					self:MarkFrameDirty(frame, eventName)
 				end
 			end
@@ -3028,6 +3189,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				local isSameUnit = frame and frame.unit and SafeAPICall(UnitIsUnit, unit, frame.unit)
 				if frame and not seen[frame] and isSameUnit then
 					seen[frame] = true
+					tracedHits = tracedHits + 1
 					self:MarkFrameDirty(frame, eventName)
 				end
 			end
@@ -3041,8 +3203,23 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				local frame = tot[i]
 				if frame and not seen[frame] then
 					seen[frame] = true
+					tracedHits = tracedHits + 1
 					self:MarkFrameDirty(frame, eventName)
 				end
+			end
+		end
+	end
+
+	if traceAbsorb and self:IsAbsorbEventsDebugEnabled() then
+		self:DebugLog("AbsorbEvents", ("Coalesced %s unit=%s dirtyHits=%d directMatch=%s"):format(tostring(eventName), tostring(unit), tracedHits, tostring(hasDirectMatch)), 2)
+	end
+
+	-- For absorb events, immediately update the absorb bar on affected frames
+	-- (don't wait for batch dirty processing which may be throttled)
+	if (eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED") then
+		for frame in pairs(seen) do
+			if frame and frame.AbsorbValue then
+				self:UpdateAbsorbValue(frame, nil)
 			end
 		end
 	end
@@ -3400,6 +3577,11 @@ function addon:IsIncomingTextDebugEnabled()
 	return self:IsDebugEnabled() and self.db.profile.debug and self.db.profile.debug.systems and self.db.profile.debug.systems.IncomingText
 end
 
+function addon:IsAbsorbEventsDebugEnabled()
+	self:EnsureDebugConfig()
+	return self:IsDebugEnabled() and self.db.profile.debug and self.db.profile.debug.systems and self.db.profile.debug.systems.AbsorbEvents
+end
+
 function addon:DebugLog(system, message, tier)
 	self:EnsureDebugConfig()
 	self.debugMessages = self.debugMessages or {}
@@ -3415,7 +3597,13 @@ function addon:DebugLog(system, message, tier)
 
 	local timestamp = dbg.timestamp and date("%H:%M:%S") or ""
 	local prefix = timestamp ~= "" and ("[" .. timestamp .. "] ") or ""
-	local line = prefix .. system .. ": " .. tostring(message)
+	
+	-- Sanitize message to prevent secret value errors in debug panel
+	local safeMessage = tostring(message)
+	if IsSecretValue(safeMessage) then
+		safeMessage = "<secret value>"
+	end
+	local line = prefix .. system .. ": " .. safeMessage
 
 	table.insert(self.debugMessages, line)
 	if #self.debugMessages > dbg.maxMessages then
@@ -3993,19 +4181,41 @@ function addon:ApplyTags(frame)
 	end
 
 	if frame.AbsorbValue then
+		local debugTags = self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.absorbTags
+		
 		frame:Untag(frame.AbsorbValue)
 		local absorbTag = self.db and self.db.profile and self.db.profile.absorbValueTag or "[suf:absorbs:abbr]"
+		
+		local frameName = frame:GetName() or "Unknown"
+		local unit = frame.unit or "nil"
+		if debugTags then
+			self:DebugLog("AbsorbTags", ("Applying tag to frame %s (unit=%s): tag='%s'"):format(
+				frameName,
+				tostring(unit),
+				tostring(absorbTag)
+			), 2)
+		end
+		
 		if absorbTag and absorbTag ~= "" then
-			local ok = pcall(frame.Tag, frame, frame.AbsorbValue, absorbTag)
+			local ok, err = pcall(frame.Tag, frame, frame.AbsorbValue, absorbTag)
 			if ok then
 				frame.AbsorbValue.__isSUFTaggedAbsorb = true
+				if debugTags then
+					self:DebugLog("AbsorbTags", ("Tag applied successfully to %s"):format(frame:GetName() or "Unknown"), 2)
+				end
 			else
 				frame.AbsorbValue:SetText("")
 				frame.AbsorbValue.__isSUFTaggedAbsorb = false
+				if debugTags then
+					self:DebugLog("AbsorbTags", ("Tag application FAILED for %s: %s"):format(frame:GetName() or "Unknown", tostring(err)), 2)
+				end
 			end
 		else
 			frame.AbsorbValue:SetText("")
 			frame.AbsorbValue.__isSUFTaggedAbsorb = false
+			if debugTags then
+				self:DebugLog("AbsorbTags", ("No tag configured for %s"):format(frame:GetName() or "Unknown"), 2)
+			end
 		end
 	end
 
@@ -4185,8 +4395,24 @@ function addon:UpdateAbsorbValue(frame, unitToken)
 		return
 	end
 
+	-- Throttle debug logging to prevent spam (max once per second per frame)
+	local debugAbsorb = self.db and self.db.profile and self.db.profile.debug and self.db.profile.debug.systems and self.db.profile.debug.systems.AbsorbEvents
+	local now = GetTime and GetTime() or 0
+	local lastLog = frame.__sufAbsorbLastDebugLog or 0
+	local shouldLog = debugAbsorb and (now - lastLog) >= 1.0
+	
+	if shouldLog then
+		frame.__sufAbsorbLastDebugLog = now
+		local unit = unitToken or frame.unit or "unknown"
+		local unitType = (frame and frame.sufUnitType) or "unknown"
+		self:DebugLog("AbsorbEvents", ("UpdateAbsorbValue called: frame=%s unit=%s unitType=%s"):format(frame:GetName() or "unnamed", unit, unitType), 2)
+	end
+
 	local hpCfg = self:GetUnitHealPredictionSettings(frame.sufUnitType)
 	if not (hpCfg and hpCfg.enabled and hpCfg.absorbs and hpCfg.absorbs.enabled) then
+		if shouldLog then
+			self:DebugLog("AbsorbEvents", ("Early return: absorbs disabled or config missing. hpCfg=%s enabled=%s absorbs=%s"):format(hpCfg and "yes" or "nil", hpCfg and hpCfg.enabled or "N/A", hpCfg and hpCfg.absorbs and hpCfg.absorbs.enabled or "N/A"), 2)
+		end
 		frame.AbsorbValue:SetText("")
 		local hpWidgetsDisabled = GetHealthPredictionWidgets(frame)
 		if hpWidgetsDisabled and hpWidgetsDisabled.damageAbsorb then
@@ -4200,7 +4426,15 @@ function addon:UpdateAbsorbValue(frame, unitToken)
 	end
 
 	local unit = unitToken or frame.unit
-	if not unit or not UnitExists or not UnitExists(unit) then
+	-- For header-spawned frames (party/raid), try secure attribute if frame.unit is not set
+	if not unit and frame.GetAttribute then
+		unit = frame:GetAttribute('unit') or frame:GetAttribute('oUF-guessUnit')
+	end
+	
+	if not unit then
+		if shouldLog then
+			self:DebugLog("AbsorbEvents", ("Early return: no unit token. unit=%s"):format(tostring(unit)), 2)
+		end
 		frame.AbsorbValue:SetText("")
 		local hpWidgetsNoUnit = GetHealthPredictionWidgets(frame)
 		if hpWidgetsNoUnit and hpWidgetsNoUnit.damageAbsorb then
@@ -4212,8 +4446,14 @@ function addon:UpdateAbsorbValue(frame, unitToken)
 		end
 		return
 	end
+	
+	-- Note: Don't use UnitExists() check here - it can be unreliable for target/tot tokens
+	-- Just proceed with the API calls which will handle missing units gracefully
 
 	if type(UnitGetTotalAbsorbs) ~= "function" then
+		if shouldLog then
+			self:DebugLog("AbsorbEvents", "Early return: UnitGetTotalAbsorbs not available", 2)
+		end
 		frame.AbsorbValue:SetText("")
 		local hpWidgetsNoApi = GetHealthPredictionWidgets(frame)
 		if hpWidgetsNoApi and hpWidgetsNoApi.damageAbsorb then
@@ -4226,51 +4466,143 @@ function addon:UpdateAbsorbValue(frame, unitToken)
 		return
 	end
 
-	local absorbValue, absorbValueUnit = ResolveReadableAbsorbValue(unit, frame.Health and frame.Health.values)
-	local maxHealth = SafeNumber(SafeAPICall(UnitHealthMax, absorbValueUnit or unit), nil)
-	if not maxHealth then
-		maxHealth = SafeNumber(SafeAPICall(UnitHealthMax, unit), nil)
-	end
 	local hpWidgets = GetHealthPredictionWidgets(frame)
-	if hpWidgets and hpWidgets.damageAbsorb then
-		local absorbBar = hpWidgets.damageAbsorb
-		if absorbValue ~= nil and maxHealth and maxHealth > 0 then
-			local clamped = math.max(0, math.min(absorbValue, maxHealth))
-			absorbBar:SetMinMaxValues(0, maxHealth)
-			absorbBar:SetValue(clamped)
-			absorbBar:SetShown(clamped > 0)
-			if frame.Health and frame.Health.AbsorbCap then
-				local cap = frame.Health.AbsorbCap
-				if clamped > 0 then
-					local dtex = absorbBar.GetStatusBarTexture and absorbBar:GetStatusBarTexture()
-					cap:ClearAllPoints()
-					if dtex then
-						cap:SetPoint("TOP", dtex, "TOP", 0, 0)
-						cap:SetPoint("BOTTOM", dtex, "BOTTOM", 0, 0)
-						cap:SetPoint("LEFT", dtex, "LEFT", 0, 0)
-					else
-						cap:SetPoint("TOP", frame.Health, "TOP", 0, 0)
-						cap:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, 0)
-						cap:SetPoint("RIGHT", frame.Health, "RIGHT", 0, 0)
-					end
-					cap:SetShown(true)
-				else
-					cap:Hide()
-				end
-			end
-		elseif absorbValue ~= nil then
-			absorbBar:SetValue(0)
-			absorbBar:Hide()
-			if frame.Health and frame.Health.AbsorbCap then
-				frame.Health.AbsorbCap:Hide()
-			end
+	if not hpWidgets or not hpWidgets.damageAbsorb then
+		if shouldLog then
+			self:DebugLog("AbsorbEvents", ("GetHealthPredictionWidgets returned nil or no damageAbsorb. widgets=%s damageAbsorb=%s"):format(hpWidgets and "yes" or "nil", hpWidgets and hpWidgets.damageAbsorb and "yes" or "nil"), 2)
 		end
-	end
-
-	if frame.AbsorbValue.__isSUFTaggedAbsorb then
+		frame.AbsorbValue:SetText("")
 		return
 	end
 
+	-- Health Override already sets the bar correctly via normal oUF events
+	-- No need to force update here (causes lag spikes)
+	
+	local absorbBar = hpWidgets.damageAbsorb
+	
+	-- Health Override already sets the bar correctly (handles secret values).
+	-- We only need to update the text display.
+	-- Try to read the bar's current value for text display
+	local absorbValue = nil
+	local absorbBarValue = absorbBar.GetValue and absorbBar:GetValue()
+	
+	-- Check if bar is showing (Health Override set it) but value is secret
+	local barIsShown = absorbBar.IsShown and absorbBar:IsShown()
+	local valueIsSecret = absorbBarValue and IsSecretValue(absorbBarValue)
+	
+	if shouldLog then
+		self:DebugLog("AbsorbEvents", ("Absorb bar state: shown=%s barValue=%s isSecret=%s"):format(
+			tostring(barIsShown),
+			absorbBarValue and "exists" or "nil",
+			tostring(valueIsSecret)
+		), 2)
+	end
+	
+	-- Try to convert to number for text display
+	if absorbBarValue and not valueIsSecret then
+		absorbValue = SafeNumber(absorbBarValue, nil)
+	end
+	
+	local maxHealth = SafeNumber(SafeAPICall(UnitHealthMax, unit), nil)
+
+	if shouldLog then
+		self:DebugLog("AbsorbEvents", ("State: maxHealth=%s absorbValue=%s barShown=%s"):format(
+			tostring(maxHealth), 
+			tostring(absorbValue),
+			tostring(barIsShown)
+		), 2)
+	end
+
+	-- Health Override already set the bar correctly - we only update auxiliary elements here
+	
+	-- Update AbsorbCap indicator position (white line at absorb edge)
+	if frame.Health and frame.Health.AbsorbCap and barIsShown then
+		local cap = frame.Health.AbsorbCap
+		local dtex = absorbBar.GetStatusBarTexture and absorbBar:GetStatusBarTexture()
+		cap:ClearAllPoints()
+		if dtex then
+			cap:SetPoint("TOP", dtex, "TOP", 0, 0)
+			cap:SetPoint("BOTTOM", dtex, "BOTTOM", 0, 0)
+			cap:SetPoint("LEFT", dtex, "LEFT", 0, 0)
+		else
+			cap:SetPoint("TOP", frame.Health, "TOP", 0, 0)
+			cap:SetPoint("BOTTOM", frame.Health, "BOTTOM", 0, 0)
+			cap:SetPoint("RIGHT", frame.Health, "RIGHT", 0, 0)
+		end
+		cap:SetWidth(2)
+		cap:SetShown(true)
+	elseif frame.Health and frame.Health.AbsorbCap then
+		frame.Health.AbsorbCap:Hide()
+	end
+
+	-- Update text display
+	if frame.AbsorbValue.__isSUFTaggedAbsorb then
+		local now = (GetTime and GetTime()) or 0
+		local isSecretDisplay = barIsShown and valueIsSecret
+		local valueBucket = isSecretDisplay and "secret" or (absorbValue and tostring(math.floor(absorbValue + 0.5)) or "none")
+		local shouldForceTagUpdate = false
+
+		if frame.__sufLastAbsorbTagBucket ~= valueBucket then
+			shouldForceTagUpdate = true
+		else
+			local lastTagUpdate = tonumber(frame.__sufLastAbsorbTagUpdateAt) or 0
+			if now - lastTagUpdate >= 0.20 then
+				shouldForceTagUpdate = true
+			end
+		end
+
+		if shouldLog then
+			local hasUpdateTag = frame.AbsorbValue and frame.AbsorbValue.UpdateTag ~= nil
+			local hasUpdateTags = frame.UpdateTags ~= nil
+			self:DebugLog("AbsorbEvents", ("Text managed by oUF tag system (frame=%s), update=%s bucket=%s HasUpdateTag=%s HasUpdateTags=%s"):format(
+				frame:GetName() or "Unknown",
+				tostring(shouldForceTagUpdate),
+				tostring(valueBucket),
+				tostring(hasUpdateTag),
+				tostring(hasUpdateTags)
+			), 2)
+		end
+
+		if not shouldForceTagUpdate then
+			return
+		end
+
+		-- Force oUF to update the absorb tag specifically
+		if frame.AbsorbValue and frame.AbsorbValue.UpdateTag then
+			local ok, err = pcall(frame.AbsorbValue.UpdateTag, frame.AbsorbValue)
+			if shouldLog and not ok then
+				self:DebugLog("AbsorbEvents", ("UpdateTag failed: %s"):format(tostring(err)), 2)
+			end
+			if ok then
+				frame.__sufLastAbsorbTagUpdateAt = now
+				frame.__sufLastAbsorbTagBucket = valueBucket
+			end
+		elseif frame.UpdateTags then
+			local ok, err = pcall(frame.UpdateTags, frame)
+			if shouldLog and not ok then
+				self:DebugLog("AbsorbEvents", ("UpdateTags failed: %s"):format(tostring(err)), 2)
+			end
+			if ok then
+				frame.__sufLastAbsorbTagUpdateAt = now
+				frame.__sufLastAbsorbTagBucket = valueBucket
+			end
+		end
+		return
+	end
+	
+	if shouldLog then
+		self:DebugLog("AbsorbEvents", ("Text NOT managed by tag, __isSUFTaggedAbsorb=%s"):format(
+			tostring(frame.AbsorbValue.__isSUFTaggedAbsorb)
+		), 2)
+	end
+
+	-- If bar is shown but value is secret, show placeholder
+	if barIsShown and valueIsSecret then
+		frame.AbsorbValue:SetText("~")
+		return
+	end
+
+	-- If no readable value, clear text
 	if absorbValue == nil or absorbValue <= 0 then
 		frame.AbsorbValue:SetText("")
 		return
@@ -5110,6 +5442,9 @@ function addon:ApplyPluginElements(frame)
 			frame.Fader.__fadingTo = nil
 			frame.Fader.__lastTargetAlpha = nil
 			frame:SetAlpha(1)
+			if self.UpdateAbsorbValue then
+				self:UpdateAbsorbValue(frame, frame.unit)
+			end
 		end
 	end
 end
@@ -5754,7 +6089,7 @@ function addon:ApplyIndicators(frame)
 		local threatSize = math.max(12, math.floor(size * 0.6))
 		frame.ThreatIndicator:SetSize(threatSize, threatSize)
 		frame.ThreatIndicator:ClearAllPoints()
-		frame.ThreatIndicator:SetPoint("TOPLEFT", frame, "TOPLEFT", 2, -2)
+		frame.ThreatIndicator:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 2)
 	end
 
 	if frame.QuestIndicator then
@@ -5821,6 +6156,7 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		if frame.RoleIndicator then frame.RoleIndicator:Hide() end
 		if frame.RaidMarkerIndicator then frame.RaidMarkerIndicator:Hide() end
 		if frame.LeaderIndicator then frame.LeaderIndicator:Hide() end
+		if frame.ThreatIndicator then frame.ThreatIndicator:Hide() end
 		if frame.TargetIndicator then frame.TargetIndicator:Hide() end
 		if frame.StatusIndicator then frame.StatusIndicator:SetText("") end
 		return
@@ -5829,6 +6165,7 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		if frame.RoleIndicator then frame.RoleIndicator:Hide() end
 		if frame.RaidMarkerIndicator then frame.RaidMarkerIndicator:Hide() end
 		if frame.LeaderIndicator then frame.LeaderIndicator:Hide() end
+		if frame.ThreatIndicator then frame.ThreatIndicator:Hide() end
 		if frame.TargetIndicator then frame.TargetIndicator:Hide() end
 		if frame.StatusIndicator then frame.StatusIndicator:SetText("") end
 		return
@@ -6022,6 +6359,8 @@ function addon:OnPlayerTargetChanged()
 					UNIT_THREAT_LIST_UPDATE = true,
 					UNIT_CLASSIFICATION_CHANGED = true,
 					UNIT_RANGE = true,
+					UNIT_ABSORB_AMOUNT_CHANGED = true,
+					UNIT_HEAL_ABSORB_AMOUNT_CHANGED = true,
 				})
 				if frame.UpdateTags then
 					pcall(frame.UpdateTags, frame)
@@ -6038,6 +6377,10 @@ function addon:OnPlayerTargetChanged()
 				end
 				if frame.Range and frame.Range.ForceUpdate then
 					pcall(frame.Range.ForceUpdate, frame.Range)
+				end
+				-- Force update absorb bar on target change
+				if frame.AbsorbValue then
+					self:UpdateAbsorbValue(frame)
 				end
 				self:RefreshPortraitFrame(frame)
 			end
@@ -6683,6 +7026,35 @@ local function CreateHealthPrediction(self)
 	self.Health.incomingHealOverflow = 1.05
 end
 
+local function AttachAuraTooltipScripts(button)
+	button.UpdateTooltip = function(widget)
+		if GameTooltip and widget.auraInstanceID and widget:GetParent() and widget:GetParent().__owner and widget:GetParent().__owner.unit then
+			if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
+				return
+			end
+			GameTooltip:SetUnitAuraByAuraInstanceID(widget:GetParent().__owner.unit, widget.auraInstanceID)
+		end
+	end
+	button:SetScript("OnEnter", function(widget)
+		if GameTooltip and widget:IsVisible() then
+			if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
+				return
+			end
+			local parent = widget:GetParent()
+			local anchorType = (parent and parent.tooltipAnchor) or "ANCHOR_BOTTOMRIGHT"
+			local offsetX = (parent and parent.tooltipOffsetX) or 0
+			local offsetY = (parent and parent.tooltipOffsetY) or 0
+			GameTooltip:SetOwner(widget, anchorType, offsetX, offsetY)
+			widget:UpdateTooltip()
+		end
+	end)
+	button:SetScript("OnLeave", function()
+		if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
+			GameTooltip:Hide()
+		end
+	end)
+end
+
 local function CreateAuras(self)
 	local owner = addon
 	local Auras = owner:AcquireRuntimeFrame("Frame", self, "SUF_AuraContainer")
@@ -6761,32 +7133,7 @@ local function CreateAuras(self)
 			button.Stealable = stealable
 		end
 
-		button.UpdateTooltip = function(widget)
-			if GameTooltip and widget.auraInstanceID and widget:GetParent() and widget:GetParent().__owner and widget:GetParent().__owner.unit then
-				if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
-					return
-				end
-				GameTooltip:SetUnitAuraByAuraInstanceID(widget:GetParent().__owner.unit, widget.auraInstanceID)
-			end
-		end
-		button:SetScript("OnEnter", function(widget)
-			if GameTooltip and widget:IsVisible() then
-				if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
-					return
-				end
-				local parent = widget:GetParent()
-				local anchorType = (parent and parent.tooltipAnchor) or "ANCHOR_BOTTOMRIGHT"
-				local offsetX = (parent and parent.tooltipOffsetX) or 0
-				local offsetY = (parent and parent.tooltipOffsetY) or 0
-				GameTooltip:SetOwner(widget, anchorType, offsetX, offsetY)
-				widget:UpdateTooltip()
-			end
-		end)
-		button:SetScript("OnLeave", function()
-			if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
-				GameTooltip:Hide()
-			end
-		end)
+		AttachAuraTooltipScripts(button)
 
 		element.createdButtons = (element.createdButtons or 0) + 1
 		return button
@@ -7410,6 +7757,36 @@ local function SUF_OnLeave(frame)
 	GameTooltip:FadeOut()
 end
 
+local function HookTooltipHoverProxy(widget, ownerFrame)
+	if not widget or not ownerFrame or widget.__sufTooltipHoverProxy then
+		return
+	end
+	if widget.EnableMouse then
+		widget:EnableMouse(true)
+	end
+	if widget.SetMouseClickEnabled then
+		widget:SetMouseClickEnabled(false)
+	end
+	if widget.SetMouseMotionEnabled then
+		widget:SetMouseMotionEnabled(true)
+	end
+	if widget.SetPropagateMouseClicks then
+		widget:SetPropagateMouseClicks(true)
+	end
+	if widget.SetPropagateMouseMotion then
+		widget:SetPropagateMouseMotion(true)
+	end
+	if widget.HookScript then
+		widget:HookScript("OnEnter", function()
+			SUF_OnEnter(ownerFrame)
+		end)
+		widget:HookScript("OnLeave", function()
+			SUF_OnLeave(ownerFrame)
+		end)
+		widget.__sufTooltipHoverProxy = true
+	end
+end
+
 function addon:Style(frame, unit)
 	-- Ensure frame.unit is set for tooltip handlers (especially important for header-spawned frames like solo party)
 	if not frame.unit then
@@ -7454,6 +7831,7 @@ function addon:Style(frame, unit)
 	SetMousePassthrough(Health)
 	frame.Health = Health
 	HookRightClickProxy(Health, frame)
+	HookTooltipHoverProxy(Health, frame)
 	CreateHealthPrediction(frame)
 	self:ConfigureHealthElementOverrides(frame)
 	if frame.Health then
@@ -7479,6 +7857,7 @@ function addon:Style(frame, unit)
 	SetMousePassthrough(Power)
 	frame.Power = Power
 	HookRightClickProxy(Power, frame)
+	HookTooltipHoverProxy(Power, frame)
 
 	local PowerBG = Power:CreateTexture(nil, "BACKGROUND")
 	PowerBG:SetAllPoints(Power)
@@ -7512,6 +7891,7 @@ function addon:Style(frame, unit)
 	SetMousePassthrough(TextOverlay)
 	frame.TextOverlay = TextOverlay
 	HookRightClickProxy(TextOverlay, frame)
+	HookTooltipHoverProxy(TextOverlay, frame)
 
 	local NameText = CreateFontString(TextOverlay, 12, "OUTLINE")
 	NameText:SetPoint("TOPLEFT", Health, "TOPLEFT", 4, -2)
@@ -7555,6 +7935,7 @@ function addon:Style(frame, unit)
 	IndicatorFrame:SetFrameLevel(frame:GetFrameLevel() + 10)
 	SetMousePassthrough(IndicatorFrame)
 	frame.IndicatorFrame = IndicatorFrame
+	HookTooltipHoverProxy(IndicatorFrame, frame)
 
 	local RestingIndicator = self:AcquireRuntimeIndicator("SUF_RestingIndicator", IndicatorFrame)
 	RestingIndicator:SetSize(48, 48)
@@ -7572,6 +7953,16 @@ function addon:Style(frame, unit)
 	if frame.sufUnitType ~= "player" and frame.sufUnitType ~= "pet" then
 		local ThreatIndicator = IndicatorFrame.__sufThreatIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
 		ThreatIndicator:SetDrawLayer("OVERLAY", 6)
+		if frame.sufUnitType == "party" or frame.sufUnitType == "raid" then
+			ThreatIndicator.feedbackUnit = "target"
+		else
+			ThreatIndicator.feedbackUnit = nil
+		end
+		ThreatIndicator.PostUpdate = function(element, _, status)
+			if status ~= 3 then
+				element:Hide()
+			end
+		end
 		IndicatorFrame.__sufThreatIndicator = ThreatIndicator
 		frame.ThreatIndicator = ThreatIndicator
 	else
@@ -7714,6 +8105,7 @@ function addon:Style(frame, unit)
 	SetMousePassthrough(Portrait2D)
 	frame.Portrait2D = Portrait2D
 	HookRightClickProxy(Portrait2D, frame)
+		HookTooltipHoverProxy(Portrait2D, frame)
 
 	local Portrait3D = CreateFrame("PlayerModel", nil, frame)
 	Portrait3D:SetSize(32, 32)
@@ -7721,6 +8113,7 @@ function addon:Style(frame, unit)
 	SetMousePassthrough(Portrait3D)
 	frame.Portrait3D = Portrait3D
 	HookRightClickProxy(Portrait3D, frame)
+		HookTooltipHoverProxy(Portrait3D, frame)
 
 	if unit == "player" then
 		CreateClassPower(frame, self.db.profile.classPowerHeight)
@@ -7735,6 +8128,7 @@ function addon:Style(frame, unit)
 		SetMousePassthrough(AdditionalPower)
 		frame.AdditionalPower = AdditionalPower
 		HookRightClickProxy(AdditionalPower, frame)
+		HookTooltipHoverProxy(AdditionalPower, frame)
 
 		local AdditionalPowerBG = AdditionalPower:CreateTexture(nil, "BACKGROUND")
 		AdditionalPowerBG:SetAllPoints(AdditionalPower)
@@ -7754,6 +8148,7 @@ function addon:Style(frame, unit)
 			frame.ClassPowerAnchor:SetPoint("BOTTOMRIGHT", AdditionalPower, "TOPRIGHT", 0, classGap)
 			SetMousePassthrough(frame.ClassPowerAnchor)
 			HookRightClickProxy(frame.ClassPowerAnchor, frame)
+			HookTooltipHoverProxy(frame.ClassPowerAnchor, frame)
 		end
 
 		local playerClass = UnitClassBase and UnitClassBase("player") or select(2, UnitClass("player"))
@@ -7788,7 +8183,7 @@ function addon:Style(frame, unit)
 		CreateCastbar(frame, self.db.profile.castbarHeight, anchor)
 	end
 
-	if unit == "player" or unit == "target" then
+	if frame.sufUnitType == "player" or frame.sufUnitType == "target" or frame.sufUnitType == "focus" or frame.sufUnitType == "pet" or frame.sufUnitType == "tot" or frame.sufUnitType == "party" or frame.sufUnitType == "raid" or frame.sufUnitType == "boss" then
 		if not frame.Auras then
 			CreateAuras(frame)
 		end
@@ -7903,6 +8298,16 @@ function addon:Style(frame, unit)
 	if frame.sufUnitType == "player" then
 		self:UpdateUnitFrameStatusIndicators(frame)
 	end
+	-- Schedule ApplyMedia immediately after frame creation for all frames
+	-- This ensures absorb bar and all media elements are initialized on login/creation
+	-- Must run before the throttled UpdateSingleFrame to show all UI elements immediately
+	self:QueueOrRun(function()
+		self:ApplyMedia(frame)
+	end, {
+		key = "InitMedia_" .. tostring(frame:GetName() or frame.sufUnitType or "unknown"),
+		type = "FRAME_MEDIA_INIT",
+		priority = "HIGH",
+	})
 end
 
 function addon:HookAnchor(frame, anchorName)
@@ -8075,7 +8480,22 @@ function addon:GetPartyHeaderYOffset()
 	local frameHeight = tonumber(size and size.height) or 26
 	-- Party header initial config starts at 26px; account for extra frame height plus the lower power row.
 	local extraHeight = math.max(0, frameHeight - 26)
-	local effectiveSpacing = spacing + extraHeight + powerHeight + 3
+	local auraExtraHeight = 0
+	local partyUnitCfg = self:GetUnitSettings("party")
+	local auraCfg = partyUnitCfg and partyUnitCfg.auras
+	if auraCfg and auraCfg.enabled ~= false then
+		local maxCols = math.max(1, tonumber(auraCfg.maxCols) or 1)
+		local numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 0)
+		local numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 0)
+		local maxVisibleAuras = math.max(numBuffs, numDebuffs)
+		if maxVisibleAuras > 0 then
+			local auraRows = math.max(1, math.ceil(maxVisibleAuras / maxCols))
+			local auraSize = tonumber(partyUnitCfg and partyUnitCfg.auraSize) or self:GetUnitAuraSize("party") or 18
+			local spacingY = math.max(0, tonumber(auraCfg.spacingY) or 4)
+			auraExtraHeight = 8 + (auraRows * auraSize) + ((auraRows - 1) * spacingY)
+		end
+	end
+	local effectiveSpacing = spacing + extraHeight + powerHeight + 3 + auraExtraHeight
 	return -effectiveSpacing
 end
 
@@ -8831,7 +9251,8 @@ function addon:OnInitialize()
 	for unitType, unitDefaults in pairs(defaults.profile.units) do
 		if not self.db.profile.units[unitType] then
 			self.db.profile.units[unitType] = CopyTableDeep(unitDefaults)
-			self.db.profile.units[unitType].auras = CopyTableDeep(DEFAULT_UNIT_AURA_LAYOUT)
+			local auraDefaults = (unitType == "party") and DEFAULT_PARTY_AURA_LAYOUT or DEFAULT_UNIT_AURA_LAYOUT
+			self.db.profile.units[unitType].auras = CopyTableDeep(auraDefaults)
 		else
 			if not self.db.profile.units[unitType].fontSizes then
 				self.db.profile.units[unitType].fontSizes = CopyTableDeep(unitDefaults.fontSizes)
@@ -8889,10 +9310,29 @@ function addon:OnInitialize()
 			else
 				MergeDefaults(self.db.profile.units[unitType].powerPrediction, DEFAULT_UNIT_POWER_PREDICTION)
 			end
+			local auraDefaults = (unitType == "party") and DEFAULT_PARTY_AURA_LAYOUT or DEFAULT_UNIT_AURA_LAYOUT
 			if not self.db.profile.units[unitType].auras then
-				self.db.profile.units[unitType].auras = CopyTableDeep(DEFAULT_UNIT_AURA_LAYOUT)
+				self.db.profile.units[unitType].auras = CopyTableDeep(auraDefaults)
 			else
-				MergeDefaults(self.db.profile.units[unitType].auras, DEFAULT_UNIT_AURA_LAYOUT)
+				MergeDefaults(self.db.profile.units[unitType].auras, auraDefaults)
+			end
+			if unitType == "party" then
+				local partyAuras = self.db.profile.units[unitType].auras
+				local usesLegacyDefaults = (tonumber(partyAuras.numBuffs) or 8) == 8
+					and (tonumber(partyAuras.numDebuffs) or 8) == 8
+					and (tonumber(partyAuras.maxCols) or 8) == 8
+					and tostring(partyAuras.initialAnchor or "BOTTOMLEFT") == "BOTTOMLEFT"
+					and tostring(partyAuras.growthX or "RIGHT") == "RIGHT"
+					and tostring(partyAuras.growthY or "UP") == "UP"
+				if usesLegacyDefaults then
+					partyAuras.enabled = true
+					partyAuras.numBuffs = DEFAULT_PARTY_AURA_LAYOUT.numBuffs
+					partyAuras.numDebuffs = DEFAULT_PARTY_AURA_LAYOUT.numDebuffs
+					partyAuras.maxCols = DEFAULT_PARTY_AURA_LAYOUT.maxCols
+				end
+				if self.db.profile.units[unitType].auraSize == nil then
+					self.db.profile.units[unitType].auraSize = 22
+				end
 			end
 			if self.db.profile.units[unitType].auraSize == nil and unitDefaults.auraSize ~= nil then
 				self.db.profile.units[unitType].auraSize = unitDefaults.auraSize
@@ -8906,6 +9346,7 @@ function addon:OnInitialize()
 
 	self:RegisterChatCommand("suf", "HandleSUFSlash")
 	self:RegisterChatCommand("sufdebug", "HandleDebugSlash")
+	self:RegisterChatCommand("sufabsorbdebug", "HandleAbsorbDebugSlash")
 	self:RegisterChatCommand("sufperf", function()
 		self:TogglePerformanceDashboard()
 	end)
