@@ -27,6 +27,7 @@ A default texture will be applied if the widget is a StatusBar and doesn't have 
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 -- sourced from Blizzard_FrameXMLBase/Constants.lua
 local SPEC_MONK_BREWMASTER = _G.SPEC_MONK_BREWMASTER or 1
@@ -151,7 +152,7 @@ local function Visibility(self, event, unit)
 	else
 		if(not element:IsShown()) then
 			element:Show()
-			self:RegisterEvent('UNIT_AURA', Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_AURA', 'player', Path)
 
 			if(element.PostVisibility) then
 				element:PostVisibility(true)
@@ -210,7 +211,7 @@ local function Enable(self, unit)
 			element.smoothing = Enum.StatusBarInterpolation.Immediate
 		end
 
-		self:RegisterEvent('UNIT_DISPLAYPOWER', VisibilityPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_DISPLAYPOWER', unit, VisibilityPath)
 		self:RegisterEvent('PLAYER_TALENT_UPDATE', VisibilityPath, true)
 
 		if(element:IsObjectType('StatusBar') and not element:GetStatusBarTexture()) then

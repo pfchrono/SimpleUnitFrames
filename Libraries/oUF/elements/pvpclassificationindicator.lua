@@ -28,6 +28,7 @@ This element updates by changing the texture.
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 -- sourced from Blizzard_UnitFrame/Mainline/CompactUnitFrame.lua
 local ICONS = {
@@ -59,11 +60,16 @@ local function Update(self, event, unit)
 		element:PreUpdate(unit)
 	end
 
-	local class = UnitPvpClassification(unit)
-	local icon = ICONS[class]
-	if(icon) then
-		element:SetAtlas(icon, element.useAtlasSize)
-		element:Show()
+	-- BUG: it throws errors instead of failing silently, remove pcall when Blizz fix the issue
+	local isOK, class = pcall(UnitPvpClassification, unit)
+	if(isOK) then
+		local icon = ICONS[class]
+		if(icon) then
+			element:SetAtlas(icon, element.useAtlasSize)
+			element:Show()
+		else
+			element:Hide()
+		end
 	else
 		element:Hide()
 	end
@@ -101,7 +107,7 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_CLASSIFICATION_CHANGED', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_CLASSIFICATION_CHANGED', self.unit, Path)
 
 		return true
 	end

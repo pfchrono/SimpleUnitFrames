@@ -9354,6 +9354,18 @@ function addon:OnInitialize()
 	self:RegisterChatCommand("sufperf", function()
 		self:TogglePerformanceDashboard()
 	end)
+	self:RegisterChatCommand("sufprofile", function(msg)
+		if SlashCmdList and SlashCmdList["PERFLIB"] then
+			local profileArgs = (msg or ""):match("^%s*(.-)%s*$")
+			if profileArgs == "" then
+				SlashCmdList["PERFLIB"]("profile")
+			else
+				SlashCmdList["PERFLIB"]("profile " .. profileArgs)
+			end
+			return
+		end
+		self:Print(addonName .. ": /sufprofile requires PerformanceLib (/perflib).")
+	end)
 	self:RegisterChatCommand("libperf", function()
 		self:Print(addonName .. ": /libperf is aliased to /sufperf.")
 		self:TogglePerformanceDashboard()

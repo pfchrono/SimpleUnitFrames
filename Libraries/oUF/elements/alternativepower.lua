@@ -39,6 +39,7 @@ The following options are listed by priority. The first check that returns true 
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 -- sourced from Blizzard_UnitFrame/UnitPowerBarAlt.lua
 local ALTERNATE_POWER_INDEX = Enum.PowerType.Alternate or 10
@@ -171,8 +172,8 @@ local function Visibility(self, event, unit)
 		or not barInfo.hideFromOthers
 		or UnitIsUnit(unit, 'player')))
 	then
-		self:RegisterEvent('UNIT_POWER_UPDATE', Path)
-		self:RegisterEvent('UNIT_MAXPOWER', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_UPDATE', unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_MAXPOWER', unit, Path)
 
 		element:Show()
 		Path(self, event, unit, ALTERNATE_POWER_NAME)
@@ -210,8 +211,8 @@ local function Enable(self, unit)
 			element.smoothing = Enum.StatusBarInterpolation.Immediate
 		end
 
-		self:RegisterEvent('UNIT_POWER_BAR_SHOW', VisibilityPath)
-		self:RegisterEvent('UNIT_POWER_BAR_HIDE', VisibilityPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_BAR_SHOW', unit, VisibilityPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_BAR_HIDE', unit, VisibilityPath)
 
 		if(element:IsObjectType('StatusBar') and not element:GetStatusBarTexture()) then
 			element:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])

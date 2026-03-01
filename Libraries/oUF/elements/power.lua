@@ -565,10 +565,10 @@ local function Enable(self, unit)
 					element.CostPrediction:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
 				end
 
-				self:RegisterEvent('UNIT_SPELLCAST_START', PredictionPath)
-				self:RegisterEvent('UNIT_SPELLCAST_STOP', PredictionPath)
-				self:RegisterEvent('UNIT_SPELLCAST_FAILED', PredictionPath)
-				self:RegisterEvent('UNIT_SPELLCAST_SUCCEEDED', PredictionPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_START', unit, PredictionPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_STOP', unit, PredictionPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_FAILED', unit, PredictionPath)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_SUCCEEDED', unit, PredictionPath)
 			end
 		end
 

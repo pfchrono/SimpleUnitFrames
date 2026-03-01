@@ -24,6 +24,7 @@ A default texture will be applied if the widget is a Texture and doesn't have a 
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local function Update(self, event, unit)
 	if(not unit or self.unit ~= unit) then return end
@@ -76,7 +77,7 @@ local function Enable(self, unit)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_FLAGS', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_FLAGS', self.unit, Path)
 
 		if(element:IsObjectType('Texture') and not element:GetTexture()) then
 			element:SetAtlas('UI-HUD-UnitFrame-Player-CombatIcon')

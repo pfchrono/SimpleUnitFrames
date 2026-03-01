@@ -35,6 +35,7 @@ OnEnter and/or OnLeave handlers.
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 --[[ Override: PhaseIndicator:UpdateTooltip()
 Used to populate the tooltip when the widget is hovered.
@@ -122,7 +123,7 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_PHASE', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_PHASE', self.unit, Path)
 
 		local icon = (element.Icon or element)
 		if(icon:IsObjectType('Texture') and not icon:GetTexture()) then

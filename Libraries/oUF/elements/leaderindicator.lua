@@ -28,6 +28,7 @@ This element updates by changing the texture.
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local function Update(self, event)
 	local element = self.LeaderIndicator
@@ -116,7 +117,7 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_FLAGS', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_FLAGS', self.unit, Path)
 		self:RegisterEvent('PARTY_LEADER_CHANGED', Path, true)
 		self:RegisterEvent('GROUP_ROSTER_UPDATE', Path, true)
 

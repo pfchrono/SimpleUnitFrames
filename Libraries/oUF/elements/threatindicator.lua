@@ -136,8 +136,8 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_THREAT_SITUATION_UPDATE', Path)
-		self:RegisterEvent('UNIT_THREAT_LIST_UPDATE', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_SITUATION_UPDATE', self.unit, Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_LIST_UPDATE', self.unit, Path)
 
 		if(element:IsObjectType('Texture') and not element:GetTexture()) then
 			element:SetTexture([[Interface\RAIDFRAME\UI-RaidFrame-Threat]])

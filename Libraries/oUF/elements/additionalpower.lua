@@ -52,6 +52,7 @@ The following options are listed by priority. The first check that returns true 
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local playerClass = UnitClassBase('player')
 
@@ -255,20 +256,20 @@ local function ElementEnable(self)
 	local element = self.AdditionalPower
 
 	if(element.frequentUpdates) then
-		self:RegisterEvent('UNIT_POWER_FREQUENT', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_FREQUENT', 'player', Path)
 	else
-		self:RegisterEvent('UNIT_POWER_UPDATE', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_UPDATE', 'player', Path)
 	end
 
-	self:RegisterEvent('UNIT_MAXPOWER', Path)
+	Private.SmartRegisterUnitEvent(self, 'UNIT_MAXPOWER', 'player', Path)
 
 	element:Show()
 
 	if(element.CostPrediction) then
-		self:RegisterEvent('UNIT_SPELLCAST_START', PredictionPath)
-		self:RegisterEvent('UNIT_SPELLCAST_STOP', PredictionPath)
-		self:RegisterEvent('UNIT_SPELLCAST_FAILED', PredictionPath)
-		self:RegisterEvent('UNIT_SPELLCAST_SUCCEEDED', PredictionPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_START', 'player', PredictionPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_STOP', 'player', PredictionPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_FAILED', 'player', PredictionPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_SUCCEEDED', 'player', PredictionPath)
 	end
 
 	element.__isEnabled = true
@@ -366,10 +367,10 @@ local function SetFrequentUpdates(element, state, isForced)
 		element.frequentUpdates = state
 		if(state) then
 			element.__owner:UnregisterEvent('UNIT_POWER_UPDATE', Path)
-			element.__owner:RegisterEvent('UNIT_POWER_FREQUENT', Path)
+			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_POWER_FREQUENT', element.__owner.unit, Path)
 		else
 			element.__owner:UnregisterEvent('UNIT_POWER_FREQUENT', Path)
-			element.__owner:RegisterEvent('UNIT_POWER_UPDATE', Path)
+			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_POWER_UPDATE', element.__owner.unit, Path)
 		end
 	end
 end
@@ -385,7 +386,7 @@ local function Enable(self, unit)
 			element.smoothing = Enum.StatusBarInterpolation.Immediate
 		end
 
-		self:RegisterEvent('UNIT_DISPLAYPOWER', VisibilityPath)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_DISPLAYPOWER', unit, VisibilityPath)
 
 		if(not element.displayPairs) then
 			element.displayPairs = CopyTable(ALT_POWER_BAR_PAIR_DISPLAY_INFO)

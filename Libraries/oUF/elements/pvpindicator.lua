@@ -34,6 +34,7 @@ The `Badge` sub-widget has to be on a lower sub-layer than the `PvP` texture.
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local function Update(self, event, unit)
 	if(unit and unit ~= self.unit) then return end
@@ -127,7 +128,7 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		self:RegisterEvent('UNIT_FACTION', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_FACTION', self.unit, Path)
 		self:RegisterEvent('HONOR_LEVEL_UPDATE', Path, true)
 
 		return true

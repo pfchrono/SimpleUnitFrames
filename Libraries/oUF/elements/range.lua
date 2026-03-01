@@ -27,6 +27,7 @@ Offline units are handled as if they are in range.
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
 
 local function Update(self, event)
 	local element = self.Range
@@ -80,7 +81,7 @@ local function Enable(self)
 		element.insideAlpha = element.insideAlpha or 1
 		element.outsideAlpha = element.outsideAlpha or 0.55
 
-		self:RegisterEvent('UNIT_IN_RANGE_UPDATE', Path)
+		Private.SmartRegisterUnitEvent(self, 'UNIT_IN_RANGE_UPDATE', self.unit, Path)
 
 		return true
 	end
