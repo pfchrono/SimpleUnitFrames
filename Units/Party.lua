@@ -39,6 +39,22 @@ registry.party = function(self)
 	)
 	self:HookAnchor(party, "PartyFrame")
 	self.headers.party = party
+	
+	-- Register GROUP_ROSTER_UPDATE to force tag updates on roster changes
+	-- This ensures health/name tags update immediately when party composition changes
+	-- instead of waiting for combat events to trigger updates
+	party:RegisterEvent("GROUP_ROSTER_UPDATE")
+	party:SetScript("OnEvent", function(self, event)
+		if event == "GROUP_ROSTER_UPDATE" then
+			-- Force update all elements (including tags) on all child frames
+			for i = 1, self:GetNumChildren() do
+				local child = select(i, self:GetChildren())
+				if child and child.UpdateAllElements then
+					child:UpdateAllElements("GroupRosterUpdate")
+				end
+			end
+		end
+	end)
 
 	-- Phase 3.4: Apply reusable mixins to party header frame
 	if party and self.GetUnitSettings then
