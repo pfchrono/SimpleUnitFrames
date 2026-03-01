@@ -262,6 +262,26 @@ function addon:HandleSUFSlash(msg)
 		return
 	end
 
+	if command == "poolstats" or command == "indicatorpool" or command == "pool" then
+		if self.IndicatorPoolManager then
+			local subcommand = (rest:match("^(%S+)") or ""):lower()
+			if subcommand == "reset" then
+				-- In-game command to verify pooling functionality
+				self:Print(addonName .. ": Indicator pool reset command (for testing)")
+				self.IndicatorPoolManager:ReleaseAll("threat_glow")
+				self.IndicatorPoolManager:ReleaseAll("highlight_overlay")
+				self.IndicatorPoolManager:ReleaseAll("dispel_border")
+				self.IndicatorPoolManager:ReleaseAll("range_fade")
+				self.IndicatorPoolManager:ReleaseAll("custom_glow")
+				return
+			end
+			self.IndicatorPoolManager:PrintStats()
+		else
+			self:Print(addonName .. ": IndicatorPoolManager unavailable.")
+		end
+		return
+	end
+
 	if command == "skinreport" or command == "skincoverage" or command == "blizzskin" then
 		if self.PrintBlizzardSkinCoverageReport then
 			self:PrintBlizzardSkinCoverageReport()

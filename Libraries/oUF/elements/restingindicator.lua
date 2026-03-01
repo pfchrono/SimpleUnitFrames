@@ -40,8 +40,20 @@ local function Update(self, event)
 	local isResting = IsResting()
 	if(isResting) then
 		element:Show()
+		
+		-- Apply visual resting highlight effect using ObjectPool
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:ApplyHighlight(self, {0.3, 0.7, 1, 0.2})  -- Light blue highlight
+		end
 	else
 		element:Hide()
+		
+		-- Release resting highlight when not resting
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:Release(self, "highlight_overlay")
+		end
 	end
 
 	--[[ Callback: RestingIndicator:PostUpdate(isResting)

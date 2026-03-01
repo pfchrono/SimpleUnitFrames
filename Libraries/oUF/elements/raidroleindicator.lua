@@ -56,6 +56,18 @@ local function Update(self, event)
 	end
 
 	element:SetShown(isShown)
+	
+	-- Apply visual raid role glow effect using ObjectPool
+	local addon = _G.SimpleUnitFrames
+	if addon and addon.IndicatorPoolManager then
+		if role == 'MAINTANK' then
+			addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 0.3, 0.3, 0.6)  -- Red glow for tank
+		elseif role == 'MAINASSIST' then
+			addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 0.9, 0.3, 0.6)  -- Orange glow for assist
+		else
+			addon.IndicatorPoolManager:Release(self, "custom_glow")
+		end
+	end
 
 	--[[ Callback: RaidRoleIndicator:PostUpdate(role)
 	Called after the element has been updated.

@@ -44,8 +44,20 @@ local function Update(self, event, unit)
 	local isQuestBoss = not isPlayer and UnitIsQuestBoss(unit)
 	if(isQuestBoss) then
 		element:Show()
+		
+		-- Apply visual highlight effect using ObjectPool for quest bosses
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:ApplyHighlight(self, {1, 0.8, 0.2, 0.25})  -- Golden highlight
+		end
 	else
 		element:Hide()
+		
+		-- Release highlight when unit is no longer a quest boss
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:Release(self, "highlight_overlay")
+		end
 	end
 
 	--[[ Callback: QuestIndicator:PostUpdate(isQuestBoss)

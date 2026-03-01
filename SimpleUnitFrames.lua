@@ -6196,7 +6196,8 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 
 	if frame.RaidMarkerIndicator then
 		local markerIndex = GetRaidTargetIndex and GetRaidTargetIndex(unit) or nil
-		if markerIndex and markerIndex > 0 and type(SetRaidTargetIconTexture) == "function" then
+		markerIndex = SafeNumber(markerIndex, 0)  -- Guard against secret values in WoW 12.0.0+
+		if markerIndex > 0 and type(SetRaidTargetIconTexture) == "function" then
 			SetRaidTargetIconTexture(frame.RaidMarkerIndicator, markerIndex)
 			frame.RaidMarkerIndicator:Show()
 		else
@@ -8396,6 +8397,9 @@ function addon:SpawnFrames()
 	else
 		ChatMsg(addonName .. ": Spawned " .. frameCount .. " unit frames.")
 		self.spawned = true
+		-- Expose addon globally AFTER spawning completes (safe from oUF lookup)
+		_G.SimpleUnitFrames = self
+		print("SpawnFrames: Exposed _G.SimpleUnitFrames, IndicatorPoolManager exists: " .. tostring(self.IndicatorPoolManager ~= nil))
 	end
 
 	self:ApplyVisibilityRules()
@@ -9437,6 +9441,13 @@ function addon:OnEnable()
 		self.ProtectedOperations:Init()
 		self.ProtectedOperations:RegisterAddonAliases()
 	end
+	
+	--- Initialize indicator pool manager (GC reduction for visual effects) ---
+	if self.IndicatorPoolManager then
+		self.IndicatorPoolManager:Initialize(self)  -- Pass addon reference for debug logging
+		self:DebugLog("IndicatorPoolManager", "Initialized successfully", 2)
+	end
+	
 	if self.db and self.db.profile and self.db.profile.performance then
 		local enabled = self.db.profile.performance.enabled
 		local ok = self:SetPerformanceIntegrationEnabled(enabled, true)

@@ -62,6 +62,14 @@ local function Update(self, event, unit)
 		end
 	end
 
+	-- Debug: Log all threat checks to understand what's happening
+	local addon = _G.SimpleUnitFrames
+	if addon and addon.DebugLog then
+		addon:DebugLog("ThreatIndicator", 
+			string.format("Threat update: frame=%s, unit=%s, isPlayer=%s, feedbackUnit=%s, status=%s", 
+				self:GetName() or "unnamed", unit, tostring(isPlayer), tostring(feedbackUnit), tostring(status)), 3)
+	end
+
 	local color
 	if(status and status > 0) then
 		color = self.colors.threat[status]
@@ -71,8 +79,27 @@ local function Update(self, event, unit)
 		end
 
 		element:Show()
+		
+		-- Apply visual threat glow effect using ObjectPool
+		-- Note: Pass self (the parent frame), not element (the texture)
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:ApplyThreatGlow(self, status)
+			if addon.DebugLog then
+				addon:DebugLog("ThreatIndicator", string.format("Applied threat glow for %s (unit=%s, status=%d, frame=%s)", 
+					self:GetName() or "unnamed", unit, status, tostring(self)), 3)
+			end
+		end
 	else
 		element:Hide()
+		
+		-- Release threat glow when threat drops (returns frame to pool)
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:Release(self, "threat_glow")
+			if addon.DebugLog then
+				addon:DebugLog("ThreatIndicator", string.format("Released threat glow for %s (unit=%s)", 
+					self:GetName() or "unnamed", unit), 3)
+			end
+		end
 	end
 
 	--[[ Callback: ThreatIndicator:PostUpdate(unit, status, color)

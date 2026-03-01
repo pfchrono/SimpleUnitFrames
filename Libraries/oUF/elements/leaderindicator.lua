@@ -67,8 +67,20 @@ local function Update(self, event)
 		end
 
 		element:Show()
+		
+		-- Apply visual leader highlight effect using ObjectPool
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 1, 0.5, 0.6)  -- Golden glow for leader
+		end
 	else
 		element:Hide()
+		
+		-- Release leader highlight when not a leader
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:Release(self, "custom_glow")
+		end
 	end
 
 	--[[ Callback: LeaderIndicator:PostUpdate(isLeader)

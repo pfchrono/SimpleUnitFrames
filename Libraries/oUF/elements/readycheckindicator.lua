@@ -91,9 +91,27 @@ local function Update(self, event)
 
 		element.status = status
 		element:Show()
+		
+		-- Apply visual ready check glow effect using ObjectPool
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			if status == 'ready' then
+				addon.IndicatorPoolManager:ApplyCustomGlow(self, 0.2, 1, 0.2, 0.7)  -- Green glow for ready
+			elseif status == 'notready' then
+				addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 0.2, 0.2, 0.7)  -- Red glow for not ready
+			else
+				addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 1, 0.2, 0.7)  -- Yellow glow for waiting
+			end
+		end
 	elseif(event ~= 'READY_CHECK_FINISHED') then
 		element.status = nil
 		element:Hide()
+		
+		-- Release ready check glow when not checking
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:Release(self, "custom_glow")
+		end
 	end
 
 	if(event == 'READY_CHECK_FINISHED') then

@@ -44,8 +44,20 @@ local function Update(self, event)
 	if(index) then
 		SetRaidTargetIconTexture(element, index)
 		element:Show()
+		
+		-- Apply visual raid target highlight effect using ObjectPool
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:ApplyHighlight(self, {0.2, 0.6, 1, 0.2})  -- Blue highlight
+		end
 	else
 		element:Hide()
+		
+		-- Release raid target highlight when target unmarked
+		local addon = _G.SimpleUnitFrames
+		if addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:Release(self, "highlight_overlay")
+		end
 	end
 
 	--[[ Callback: RaidTargetIndicator:PostUpdate(index)

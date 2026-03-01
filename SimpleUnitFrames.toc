@@ -1,6 +1,6 @@
 ## Title: SimpleUnitFrames
 ## Interface: 120001
-## Version: 1.21.2.22826
+## Version: 1.22.0.22826
 ## Author: |cFF8080FFGrevin|r
 ## Notes: Simple Unitframe replacement with WIP features.
 ## IconTexture: Interface\AddOns\SimpleUnitFrames\Media\AddonIcon
@@ -17,6 +17,7 @@ Mixins/Init.xml
 # Addon Core
 SimpleUnitFrames.lua
 Core/ProtectedOperations.lua
+Core/IndicatorPoolManager.lua
 Modules/System/FrameIndex.lua
 Modules/System/MixinIntegration.lua
 Modules/System/Movers.lua
