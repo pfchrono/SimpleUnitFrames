@@ -1,5 +1,52 @@
 # Work Summary
 
+## 2026-02-28 — Party Frame Tag Text Not Updating Until Combat ✅
+
+**Issue:**
+Party frame health/name tags remained blank after login or joining dungeon, only updating once combat started. Tags displayed correctly after any UNIT_HEALTH or UNIT_POWER event fired (triggered by combat), but not on GROUP_ROSTER_UPDATE (triggered by roster changes).
+
+**Root Cause:**
+oUF:SpawnHeader creates party frames but doesn't register a GROUP_ROSTER_UPDATE handler to force tag updates when roster changes. oUF tags are lazy-evaluated based on their registered events — without combat events triggering UNIT_* fires, tags never update their display text.
+
+**Fix:**
+Added GROUP_ROSTER_UPDATE event handler on party header frame that calls UpdateAllElements() on all child frames when roster changes occur. This forces all elements (including tags) to refresh immediately.
+
+**Files Modified:**
+- [Units/Party.lua](Units/Party.lua#L41-L54) — Added GROUP_ROSTER_UPDATE handler
+
+**Code Changes:**
+```lua
+-- Register GROUP_ROSTER_UPDATE to force tag updates on roster changes
+party:RegisterEvent("GROUP_ROSTER_UPDATE")
+party:SetScript("OnEvent", function(self, event)
+    if event == "GROUP_ROSTER_UPDATE" then
+        -- Force update all elements (including tags) on all child frames
+        for i = 1, self:GetNumChildren() do
+            local child = select(i, self:GetChildren())
+            if child and child.UpdateAllElements then
+                child:UpdateAllElements("GroupRosterUpdate")
+            end
+        end
+    end
+end)
+```
+
+**Impact:**
+- Party frame tags now update immediately on login/roster change
+- No longer requires entering combat to see health/name text
+- Applies to solo player frame, party members in dungeons/world
+
+**Validation Approach:**
+- Test solo player frame on login (should show health/name immediately)
+- Join follower dungeon (party frames should populate immediately)
+- Group roster changes (tags update without requiring combat)
+
+**Risk Level:** Very Low (isolated event handler, no changes to existing frame spawning logic)
+
+**Status:** All errors resolved ✅
+
+---
+
 ## 2026-02-28 — ObjectPool for Temporary Indicators: Full Integration ✅
 
 **Completed Work:**
