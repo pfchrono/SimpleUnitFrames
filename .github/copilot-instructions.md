@@ -1,5 +1,9 @@
 # Project Guidelines
 
+**Current Status (2026-03-01):** Phase 3 (ColorCurve Integration) Complete - In-Game Testing Phase  
+**Active Branch:** `claude/bold-bell`  
+**Next Steps:** See [TODO.md](../TODO.md) for comprehensive task tracking and testing checklist
+
 ## API Verification Workflow
 **CRITICAL: Always verify WoW APIs against the local wow-ui-source repository before planning or implementing any code changes.**
 
@@ -76,6 +80,13 @@
   - Core debug: `addon:DebugLog(system, message, tier)` method in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua)
   - Debug panel: [Modules/UI/DebugWindow.lua](../Modules/UI/DebugWindow.lua) accessible via `/suf debug`
   - PerformanceLib debug: Uses PerformanceLib.DebugOutput if available (lines ~2295-2310 in SimpleUnitFrames.lua)
+- **Variable Shadowing Prevention (Critical Pattern):**
+  - ⚠️ **NEVER shadow function parameters** with local variables of the same name
+  - **Bad Pattern:** `local unit = self:GetUnitSettings(unitType)` when `unit` is already a string parameter
+  - **Good Pattern:** `local unitConfig = self:GetUnitSettings(unitType)` (different name)
+  - **Why:** Shadowing causes runtime errors when code expects the original parameter type (e.g., `unit:match()` fails if `unit` is now a table)
+  - **Example Fix:** Phase 3 fixed variable shadowing in `Style()` function (line 7860) - renamed `unit` → `unitConfig` to preserve the string parameter for boss frame pattern matching
+  - **Validation:** Search for `local <paramName>` inside functions that already have `<paramName>` as a parameter
 
 ## Architecture
 - **SimpleUnitFrames Core Structure:**
@@ -148,6 +159,22 @@
   - LibSharedMedia (LSM) integration for textures and fonts
   - Accessors: `addon:GetStatusbarTexture()`, `addon:GetFont()`, `addon:GetUnitStatusbarTexture(unitType)`
   - Profile settings: `db.profile.media.statusbar`, `db.profile.media.font`
+- **ColorCurve Integration (Phase 3 - WoW 12.0.0+ Secret Value Safety):**
+  - **Smooth Health Gradients:** Config-driven smooth color transitions (red→yellow→green) via oUF's ColorMixin
+  - **Configuration:** `profile.units.*.health.smooth` (default: false), `health.curvePoints` table defines gradient stops
+  - **Implementation:** [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines 594-610 (defaults), 614-637 (ApplyHealthCurve method), 7860-7866 (frame creation)
+  - **UI Control:** "Smooth Health Gradient" checkbox in [Modules/UI/OptionsV2/Registry.lua](../Modules/UI/OptionsV2/Registry.lua) lines 863-895
+  - **Secret Safety:** ColorCurve evaluates secret health % in WoW C++ engine, returns safe RGB values to Lua (zero arithmetic on secret values)
+  - **Usage Pattern:**
+    ```lua
+    local unitConfig = self:GetUnitSettings(frame.sufUnitType)
+    if unitConfig and unitConfig.health and unitConfig.health.smooth then
+        Health.colorSmooth = true
+        self:ApplyHealthCurve(frame, unitConfig.health)
+    end
+    ```
+  - **Performance:** Neutral to slight improvement (C++ curve evaluation vs Lua interpolation)
+  - **Status:** ✅ Implemented (Phase 3 complete), ⏳ In-game testing pending
 - **PerformanceLib Integration Patterns (when PerformanceLib addon is present):**
   - **Event Coalescing:** Use EventCoalescer for high-frequency events with priorities (CRITICAL/HIGH/MEDIUM/LOW)
     - CRITICAL (1): UNIT_HEALTH, UNIT_POWER_UPDATE, PLAYER_REGEN_ENABLED/DISABLED (immediate flush)
@@ -181,8 +208,15 @@
   - Stop: `/SUFprofile stop` (ends recording)
   - Analyze: `/SUFprofile analyze` (shows FPS metrics, frame time percentiles, coalesced event breakdown, bottlenecks)
   - Export: `/SUFprofile export` (copies timeline data to clipboard)
-  - Expected results: P50=16.7ms (60 FPS), P99<25ms, zero HIGH severity spikes (>33ms)
+  - **Expected baseline (validated March 2026):** P50=16.68ms (60 FPS locked), P99<20ms, zero dropped frames, 60.9% coalescing efficiency in active combat
   - Bottleneck interpretation: HIGH severity = frames >33ms (below 30 FPS), event_coalesced is false positive (optimization working)
+- **Task Tracking System:**
+  - **[TODO.md](../TODO.md):** Comprehensive task tracker for current objectives, testing checklists, and release planning
+  - **Structure:** Immediate priorities (HIGH), completion tasks (MEDIUM), optional enhancements (LOW), release prep, future phases
+  - **Testing Checklists:** Detailed validation steps for functionality, secret values, edge cases, and performance
+  - **Release Planning:** Version bump workflow, changelog templates, commit message templates
+  - **Cross-References:** Links to relevant sections in PHASE3_COLORCURVE_PLAN.md, WORK_SUMMARY.md, API_VALIDATION_REPORT.md
+  - **Update Pattern:** After completing implementation work, update TODO.md with next steps and validation requirements
 
 ## Integration Points
 - oUF for frame spawning and colors (see [Libraries/oUF](../Libraries/oUF) and Units/ directory).
@@ -260,11 +294,12 @@
 - Use `addon.PerformanceProfiler:MarkEvent(eventName)` to annotate timeline (if PerformanceLib available)
 - Avoid blocking operations — defer non-critical work with DirtyFlagManager batching
 
-**Expected Performance Baselines:**
+**Expected Performance Baselines (Validated March 2026):**
 - **Idle (no combat):** P50<5ms, P95<10ms (cosmetic updates deferred aggressively)
-- **Light Combat (1v1):** P50≤16.7ms, P99<25ms (event coalescing active, frame pooling reduces GC)
-- **Heavy Combat (raid/alt+tab):** P95<33ms target (deferral queue active, budget throttling engaged)
+- **Light Combat (1v1):** P50≤16.68ms, P99<20ms (event coalescing active, frame pooling reduces GC)
+- **Heavy Combat (raid/active combat):** P50=16.68ms, P99<20ms, 0 dropped frames, 60.9% coalescing efficiency (Phase 2 SmartRegisterUnitEvent validated)
 - **GC Impact:** 60-75% GC reduction with frame pooling + event deferral (vs. naive implementation)
+- **Phase 2+3 Status:** SmartRegisterUnitEvent migration (32+ events, 14 elements) + ColorCurve integration complete, performance validated across 3+ hours profiling
 
 ## Security
 
@@ -377,6 +412,17 @@ After completing any bug fix, feature work, or development change, update projec
 - Summarize overall status of the session (e.g., "All errors resolved ✅")
 - For feature additions, include a brief user-facing description of the new functionality unless the feature needs detailed explanation (in which case, add a new section describing the feature in detail)
 - Do not include updates if the user supplys a bug report Containing [ERROR] in the message, as those should be reserved for actual bug fixes. Instead, focus on documenting new features, architectural changes, or other development work that does not directly relate to fixing a reported error.
+- **Link to TODO.md:** After implementation work, reference [TODO.md](../TODO.md) for next steps and validation requirements
+
+### TODO.md Updates ([TODO.md](../TODO.md))
+When completing implementation phases or major features, update TODO.md with:
+- **Immediate Next Steps:** Testing checklists, validation requirements, critical path items (HIGH priority)
+- **Completion Tasks:** Documentation updates, commit preparation, branch tagging (MEDIUM priority)
+- **Optional Enhancements:** Deferred features with rationale and effort estimates (LOW priority)
+- **Release Planning:** Version bump workflow, changelog templates, release branch steps
+- **Cross-References:** Link to relevant documentation (planning docs, work summaries, validation reports)
+- **Status Tracking:** Mark items as CRITICAL (🔴), PENDING (⏳), COMPLETE (✅), or BLOCKED
+- **Example Structure:** See [TODO.md](../TODO.md) for Phase 3 testing checklist and release prep workflow
 
 ### Self-Updating Documentation Guidelines
 When introducing new features, systems, libraries, or architectural changes, **automatically update this copilot-instructions.md file** to reflect the changes:
@@ -393,10 +439,11 @@ When introducing new features, systems, libraries, or architectural changes, **a
 - New performance metrics achieved (update improvement percentages, benchmarks)
 
 **Update Project Conventions section if:**
-- New workflow patterns established (e.g., frame validation before processing, conditional frame handling)
+- New workflow patterns established (e.g., frame validation before processing, conditional frame handling, task tracking via TODO.md)
 - New commands or slash commands added (e.g., /SUFprofile, /SUFpreset)
 - New monitoring/diagnostic approaches (e.g., performance profiling workflow)
-- New integration patterns (e.g., event priority assignment, adaptive batching)
+- New integration patterns (e.g., event priority assignment, adaptive batching, ColorCurve configuration)
+- New configuration options (e.g., smooth health gradient toggle, curve customization)
 
 **Update Security section if:**
 - New safety mechanisms added (e.g., processing locks, overflow protection, frame validation)

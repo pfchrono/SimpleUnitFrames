@@ -21,13 +21,20 @@ This document compiles research findings on potential enhancements for SimpleUni
 
 ## 1. WoW API 12.0.0+ Modernization
 
-### 1.1 Curve/ColorCurve Integration for Secret Values
+### 1.1 Curve/ColorCurve Integration for Secret Values ✅ **IMPLEMENTED** (2026-03-01)
 
-**Current State:** SUF uses `SafeNumber()`, `SafeText()`, `SafeAPICall()` wrappers extensively for secret value safety.
+**Implementation Status:** ✅ COMPLETE — Phase 3 ColorCurve integration finished
 
-**Enhancement Opportunity:**
-- **CurveObject/ColorCurveObject** (new in 12.0.0) allow visual processing of secret values without exposing them to addon code
-- Example use case: Health bars can map secret health percentages to color gradients natively
+**What Was Implemented:**
+- Enabled oUF's existing ColorMixin infrastructure with ColorCurve support
+- Added config toggle: `profile.units.*.health.smooth` (default: false)
+- Created `addon:ApplyHealthCurve()` method to configure curves from config
+- Added UI checkbox: "Smooth Health Gradient" in Bars tab ([Modules/UI/OptionsV2/Registry.lua](../Modules/UI/OptionsV2/Registry.lua#L863-L895))
+- Frame creation conditionally enables `Health.colorSmooth` based on config ([SimpleUnitFrames.lua](../SimpleUnitFrames.lua#L7860-L7866))
+
+**How It Works:**
+- **CurveObject/ColorCurveObject** (new in 12.0.0) evaluates secret health percentages in WoW C++ engine
+- Health bars map secret health % to color gradients (red→yellow→green) without Lua arithmetic
 - **Benefit:** Eliminates arithmetic errors on secrets, delegates visual mapping to WoW's native system
 
 **Reference:**

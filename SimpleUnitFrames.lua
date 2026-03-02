@@ -611,6 +611,57 @@ local DEFAULT_HEAL_PREDICTION = {
 	},
 }
 
+-- Apply health color curve configuration
+-- Made a module function for UI access
+function addon:ApplyHealthCurve(frame, config)
+	if not frame or not frame.Health then 
+		self:DebugLog("ColorCurve", "ApplyHealthCurve: frame or Health missing", 2)
+		return 
+	end
+	if not self or not self.oUF or not self.oUF.colors or not self.oUF.colors.health then 
+		self:DebugLog("ColorCurve", ("ApplyHealthCurve: oUF check failed (self=%s oUF=%s colors=%s health=%s)"):format(
+			self and "yes" or "nil",
+			self and self.oUF and "yes" or "nil",
+			self and self.oUF and self.oUF.colors and "yes" or "nil",
+			self and self.oUF and self.oUF.colors and self.oUF.colors.health and "yes" or "nil"
+		), 1)
+		return 
+	end
+	
+	local healthConfig = config or DEFAULT_HEALTH_PREDICTION or {}
+	self:DebugLog("ColorCurve", ("ApplyHealthCurve called: frame=%s config.smooth=%s"):format(
+		frame:GetName() or "unknown",
+		tostring(healthConfig.smooth)
+	), 2)
+	
+	if healthConfig.smooth and healthConfig.gradientColors then
+		-- Convert custom gradient colors to ColorMixin curve
+		local curveData = {}
+		-- Critical (0% HP) - defaults to red
+		local color0 = healthConfig.gradientColors[0] or { 1, 0, 0 }
+		curveData[0.0] = CreateColor(color0[1] or 1, color0[2] or 0, color0[3] or 0, color0[4] or 1)
+		-- Warning (50% HP) - defaults to yellow
+		local color50 = healthConfig.gradientColors[0.5] or { 1, 1, 0 }
+		curveData[0.5] = CreateColor(color50[1] or 1, color50[2] or 1, color50[3] or 0, color50[4] or 1)
+		-- Healthy (100% HP) - defaults to green
+		local color100 = healthConfig.gradientColors[1] or { 0, 1, 0 }
+		curveData[1.0] = CreateColor(color100[1] or 0, color100[2] or 1, color100[3] or 0, color100[4] or 1)
+		local ok = pcall(self.oUF.colors.health.SetCurve, self.oUF.colors.health, curveData)
+		self:DebugLog("ColorCurve", ("Custom gradient curve set: ok=%s"):format(tostring(ok)), 2)
+	else
+		-- Reset to default curve (red → yellow → green)
+		local ok = pcall(self.oUF.colors.health.SetCurve, self.oUF.colors.health, {
+			[0.0] = CreateColor(1, 0, 0),
+			[0.5] = CreateColor(1, 1, 0),
+			[1.0] = CreateColor(0, 1, 0),
+		})
+		self:DebugLog("ColorCurve", ("Default curve set: ok=%s hasCurve=%s"):format(
+			tostring(ok),
+			self.oUF.colors.health:GetCurve() and "yes" or "nil"
+		), 2)
+	end
+end
+
 local CASTBAR_COLOR_PROFILES = {
 	Blizzard = {
 		casting = { 1.00, 0.70, 0.00 },
@@ -3838,6 +3889,108 @@ function addon:PrintStatusReport()
 		self:Print(addonName .. ": " .. line)
 	end
 end
+
+---Print complete ColorCurve diagnostic information
+---@return void
+function addon:PrintColorCurveDebugInfo()
+	self:Print("════════════════════════════════════════════════════════════")
+	self:Print("SimpleUnitFrames ColorCurve Debug Status:")
+	self:Print("════════════════════════════════════════════════════════════")
+	
+	-- Check oUF initialization
+	self:Print("oUF Setup:")
+	if not self.oUF then
+		self:Print("  ❌ self.oUF is NIL (not initialized)")
+		return
+	end
+	self:Print("  ✓ self.oUF exists")
+	
+	if not self.oUF.colors then
+		self:Print("  ❌ oUF.colors is NIL")
+		return
+	end
+	self:Print("  ✓ oUF.colors exists")
+	
+	if not self.oUF.colors.health then
+		self:Print("  ❌ oUF.colors.health is NIL")
+		return
+	end
+	self:Print("  ✓ oUF.colors.health exists")
+	
+	-- Check if health is a ColorMixin
+	local healthColorObj = self.oUF.colors.health
+	if not healthColorObj.SetCurve or not healthColorObj.GetCurve then
+		self:Print("  ⚠ oUF.colors.health missing SetCurve/GetCurve methods (not ColorMixin?)")
+	else
+		self:Print("  ✓ oUF.colors.health has SetCurve/GetCurve methods")
+	end
+	
+	-- Get and display current curve
+	self:Print("")
+	self:Print("Curve State:")
+	if healthColorObj.GetCurve then
+		local curve = healthColorObj:GetCurve()
+		if curve then
+			self:Print("  ✓ Current curve exists: " .. tostring(curve))
+			-- Try to extract curve point info if available
+			if type(curve) == "table" then
+				local numPoints = 0
+				for _ in pairs(curve) do numPoints = numPoints + 1 end
+				self:Print("    Curve has " .. numPoints .. " points/values")
+			end
+		else
+			self:Print("  ❌ No curve set (GetCurve returns nil)")
+		end
+	end
+	
+	-- List all frames and their colorSmooth states
+	self:Print("")
+	self:Print("Active Frames:")
+	if self.frames and #self.frames > 0 then
+		for i, frame in ipairs(self.frames) do
+			if frame and frame.Health then
+				local frameUnitType = frame.sufUnitType or "unknown"
+				local colorSmooth = frame.Health.colorSmooth and "✓ true" or "❌ false"
+				self:Print("  [" .. i .. "] " .. (frame:GetName() or "unnamed") .. " (" .. frameUnitType .. "): colorSmooth=" .. colorSmooth)
+			end
+		end
+	else
+		self:Print("  ⚠ No frames found in addon.frames array")
+	end
+	
+	-- Display database configuration values
+	self:Print("")
+	self:Print("Database Configuration (profile.units.*.health.smooth):")
+	if self.db and self.db.profile and self.db.profile.units then
+		local hasAny = false
+		for unitType, unitConfig in pairs(self.db.profile.units) do
+			if unitConfig and unitConfig.health and unitConfig.health.smooth ~= nil then
+				hasAny = true
+				local smoothVal = unitConfig.health.smooth and "✓ true" or "❌ false"
+				self:Print("  " .. unitType .. ": " .. smoothVal)
+			end
+		end
+		if not hasAny then
+			self:Print("  ⚠ No smooth health gradient settings found in database")
+		end
+	else
+		self:Print("  ❌ Database not accessible (self.db missing)")
+	end
+	
+	-- Check if debug logging is enabled
+	self:Print("")
+	self:Print("Debug Logging:")
+	if self.debugLog then
+		self:Print("  ✓ Debug logging available")
+	else
+		self:Print("  ⚠ Debug logging not initialized")
+	end
+	
+	self:Print("════════════════════════════════════════════════════════════")
+	self:Print("Run /reload to trigger frame recreation and observe logs.")
+	self:Print("════════════════════════════════════════════════════════════")
+end
+
 ---Check if Blizzard Edit Mode is currently active
 ---@return boolean True if Edit Mode UI is shown
 function addon:IsEditModeActive()
@@ -5498,6 +5651,13 @@ function addon:ApplyMedia(frame)
 		frame.Auras.tooltipOffsetX = 0
 		frame.Auras.tooltipOffsetY = 0
 		frame.Auras.reanchorIfVisibleChanged = false
+		
+		-- Hook PostCreateButton to attach custom tooltip scripts to ALL aura buttons
+		if not frame.Auras.PostCreateButton then
+			frame.Auras.PostCreateButton = function(element, button)
+				AttachAuraTooltipScripts(button)
+			end
+		end
 
 		if frame.__sufAuraLayoutSig ~= layoutSig then
 			frame.Auras.spacingX = spacingX
@@ -7028,32 +7188,35 @@ local function CreateHealthPrediction(self)
 end
 
 local function AttachAuraTooltipScripts(button)
+	-- Prevent duplicate attachment
+	if button.__sufTooltipScriptsAttached then
+		return
+	end
+	
+	-- Ensure button is mouse-enabled
+	if not button:IsMouseEnabled() then
+		button:EnableMouse(true)
+	end
+	
 	button.UpdateTooltip = function(widget)
-		if GameTooltip and widget.auraInstanceID and widget:GetParent() and widget:GetParent().__owner and widget:GetParent().__owner.unit then
-			if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
-				return
-			end
-			GameTooltip:SetUnitAuraByAuraInstanceID(widget:GetParent().__owner.unit, widget.auraInstanceID)
-		end
+		-- Tooltip handled by AuraTooltipManager (called in OnEnter)
 	end
 	button:SetScript("OnEnter", function(widget)
-		if GameTooltip and widget:IsVisible() then
-			if GameTooltip.IsForbidden and GameTooltip:IsForbidden() then
-				return
-			end
+		if widget:IsVisible() and addon.AuraTooltipManager then
 			local parent = widget:GetParent()
 			local anchorType = (parent and parent.tooltipAnchor) or "ANCHOR_BOTTOMRIGHT"
 			local offsetX = (parent and parent.tooltipOffsetX) or 0
 			local offsetY = (parent and parent.tooltipOffsetY) or 0
-			GameTooltip:SetOwner(widget, anchorType, offsetX, offsetY)
-			widget:UpdateTooltip()
+			addon.AuraTooltipManager:ShowAuraTooltip(widget, anchorType, offsetX, offsetY)
 		end
 	end)
 	button:SetScript("OnLeave", function()
-		if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
-			GameTooltip:Hide()
+		if addon.AuraTooltipManager then
+			addon.AuraTooltipManager:HideAuraTooltip()
 		end
 	end)
+	
+	button.__sufTooltipScriptsAttached = true
 end
 
 local function CreateAuras(self)
@@ -7061,6 +7224,12 @@ local function CreateAuras(self)
 	local Auras = owner:AcquireRuntimeFrame("Frame", self, "SUF_AuraContainer")
 	local auraSize = owner:GetUnitAuraSize(self.sufUnitType)
 	local auraCfg = owner:GetUnitAuraLayoutSettings(self.sufUnitType)
+	
+	-- Raise frame strata and level to be above Blizzard frames
+	-- Blizzard frames are in MEDIUM strata, so we use HIGH to receive mouse events
+	Auras:SetFrameStrata("HIGH")
+	Auras:SetFrameLevel(600)
+	
 	Auras:Show()
 	Auras:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 0, 4)
 	Auras:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 4)
@@ -7525,9 +7694,12 @@ function addon:ConfigureHealthElementOverrides(frame)
 			return nil, nil, nil
 		end
 		local r, g, b
+		
 		if color.GetRGB then
 			local ok, rr, gg, bb = pcall(color.GetRGB, color)
 			if ok then
+				-- FOR COLORCURVE: GetRGB returns floats directly, NOT SafeNumbers
+				-- Do NOT pass through SafeNumber initially - use them directly
 				r, g, b = rr, gg, bb
 			end
 		elseif type(color) == "table" then
@@ -7540,12 +7712,6 @@ function addon:ConfigureHealthElementOverrides(frame)
 			return nil, nil, nil
 		end
 
-		r = SafeNumber(r, nil)
-		g = SafeNumber(g, nil)
-		b = SafeNumber(b, nil)
-		if r == nil or g == nil or b == nil then
-			return nil, nil, nil
-		end
 		return r, g, b
 	end
 
@@ -7555,7 +7721,14 @@ function addon:ConfigureHealthElementOverrides(frame)
 		end
 
 		local color
-		if element.colorDisconnected and UnitIsPlayer(unit) and not UnitIsConnected(unit) then
+		-- PRIORITY: Check colorSmooth FIRST - use smooth gradient throughout entire 0-100% range
+		if element.colorSmooth and owner.colors and owner.colors.health and owner.colors.health.GetCurve and element.values and element.values.EvaluateCurrentHealthPercent then
+			-- Smooth gradient: ColorCurve handles secret values safely in C++ engine
+			local curve = owner.colors.health:GetCurve()
+			if curve then
+				color = element.values:EvaluateCurrentHealthPercent(curve)
+			end
+		elseif element.colorDisconnected and UnitIsPlayer(unit) and not UnitIsConnected(unit) then
 			color = owner.colors.disconnected
 		elseif element.colorTapping and not UnitPlayerControlled(unit) and UnitIsTapDenied(unit) then
 			color = owner.colors.tapped
@@ -7587,11 +7760,6 @@ function addon:ConfigureHealthElementOverrides(frame)
 			if reaction and owner.colors and owner.colors.reaction then
 				color = owner.colors.reaction[reaction]
 			end
-		elseif element.colorSmooth and owner.colors and owner.colors.health and owner.colors.health.GetCurve and element.values and element.values.EvaluateCurrentHealthPercent then
-			local curve = owner.colors.health:GetCurve()
-			if curve then
-				color = element.values:EvaluateCurrentHealthPercent(curve)
-			end
 		elseif element.colorHealth then
 			color = owner.colors.health
 		end
@@ -7599,7 +7767,7 @@ function addon:ConfigureHealthElementOverrides(frame)
 		if color then
 			local r, g, b = ResolveColorRGB(color)
 			if r ~= nil and g ~= nil and b ~= nil then
-				element:SetStatusBarColor(r, g, b)
+				pcall(function() element:SetStatusBarColor(r, g, b) end)
 			end
 		end
 		if element.PostUpdateColor then
@@ -7827,13 +7995,63 @@ function addon:Style(frame, unit)
 
 	local Health = CreateStatusBar(frame, size.height)
 	Health:SetAllPoints(frame)
-	Health.colorClass = true
-	Health.colorReaction = true
+	
+	-- Enable ColorCurve-based smooth health coloring from config
+	local unitConfig = self:GetUnitSettings(frame.sufUnitType)
+	
+	self:DebugLog("ColorCurve", ("CreateHealth for %s (unitType=%s): unitConfig=%s"):format(
+		frame:GetName() or "unnamed",
+		frame.sufUnitType,
+		unitConfig and "yes" or "nil"
+	), 2)
+	
+	if unitConfig and unitConfig.health then
+		self:DebugLog("ColorCurve", ("  health config: smooth=%s"):format(
+			tostring(unitConfig.health.smooth)
+		), 2)
+	end
+	
+	-- CRITICAL: Smooth gradient has LOWER priority than colorClass/colorReaction in oUF
+	-- We must disable class/reaction coloring when smooth is enabled to avoid override
+	if unitConfig and unitConfig.health and unitConfig.health.smooth then
+		Health.colorSmooth = true
+		Health.colorClass = false  -- Disable class coloring (higher priority than smooth)
+		Health.colorReaction = false  -- Disable reaction coloring (higher priority than smooth)
+		-- CRITICAL: For smooth gradients, Health.values must exist for EvaluateCurrentHealthPercent()
+		-- oUF's Enable function creates this, but we need it immediately for smooth gradient evaluation
+		if not Health.values then
+			Health.values = CreateUnitHealPredictionCalculator()
+		end
+		self:DebugLog("ColorCurve", ("  Setting colorSmooth=true, colorClass=false, colorReaction=false for %s"):format(frame:GetName() or "unknown"), 2)
+		-- NOTE: ApplyHealthCurve called AFTER frame.Health assignment below
+	else
+		Health.colorSmooth = false
+		Health.colorClass = true
+		Health.colorReaction = true
+		self:DebugLog("ColorCurve", ("  Setting colorSmooth=false, colorClass=true, colorReaction=true for %s"):format(frame:GetName() or "unknown"), 2)
+	end
 	SetMousePassthrough(Health)
 	frame.Health = Health
 	HookRightClickProxy(Health, frame)
 	HookTooltipHoverProxy(Health, frame)
 	CreateHealthPrediction(frame)
+	
+	-- Apply ColorCurve AFTER frame.Health is assigned (otherwise ApplyHealthCurve returns early)
+	if unitConfig and unitConfig.health and unitConfig.health.smooth then
+		self:ApplyHealthCurve(frame, unitConfig.health)
+		-- CRITICAL: Defer ForceUpdate until after oUF Enable() completes
+		-- Enable() assigns the ForceUpdate method, which happens after Style() finishes
+		-- Use 0-delay timer to trigger on next frame when all elements are initialized
+		C_Timer.After(0, function()
+			if frame.Health and frame.Health.ForceUpdate then
+				frame.Health:ForceUpdate()
+				self:DebugLog("ColorCurve", ("  Called ForceUpdate for %s"):format(frame:GetName() or "unknown"), 2)
+			else
+				self:DebugLog("ColorCurve", ("  FAILED to call ForceUpdate for %s (method missing)"):format(frame:GetName() or "unknown"), 1)
+			end
+		end)
+	end
+	
 	self:ConfigureHealthElementOverrides(frame)
 	if frame.Health then
 		local originalPostUpdate = frame.Health.PostUpdate
@@ -8187,6 +8405,24 @@ function addon:Style(frame, unit)
 	if frame.sufUnitType == "player" or frame.sufUnitType == "target" or frame.sufUnitType == "focus" or frame.sufUnitType == "pet" or frame.sufUnitType == "tot" or frame.sufUnitType == "party" or frame.sufUnitType == "raid" or frame.sufUnitType == "boss" then
 		if not frame.Auras then
 			CreateAuras(frame)
+		end
+		
+		-- Ensure PostCreateButton hook is set for ALL aura elements (including oUF-created ones)
+		if frame.Auras and not frame.Auras.PostCreateButton then
+			frame.Auras.PostCreateButton = function(element, button)
+				AttachAuraTooltipScripts(button)
+			end
+		end
+		
+		-- Retrofit existing buttons that were created before the hook was set
+		-- oUF stores buttons in the element array (element[1], element[2], etc.)
+		if frame.Auras then
+			for i = 1, #frame.Auras do
+				local button = frame.Auras[i]
+				if button and not button.__sufTooltipScriptsAttached then
+					AttachAuraTooltipScripts(button)
+				end
+			end
 		end
 	end
 
@@ -9374,6 +9610,9 @@ function addon:OnInitialize()
 	self:RegisterChatCommand("sufinstall", function() self:StartInstallFlow() end)
 	self:RegisterChatCommand("suftutorial", function() self:ShowTutorialOverview(true) end)
 	self:RegisterChatCommand("sufprotected", "HandleProtectedOpsSlash")
+	self:RegisterChatCommand("sufcolorcurve", function()
+		self:PrintColorCurveDebugInfo()
+	end)
 	self:RegisterChatCommand("sufskinreport", function()
 		if self.PrintBlizzardSkinCoverageReport then
 			self:PrintBlizzardSkinCoverageReport()

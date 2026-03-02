@@ -506,6 +506,153 @@ local function BuildUnitCoreSpec(unitKey)
 							addon:ScheduleUpdateAll()
 						end,
 					},
+					-- Health Bar Color Gradient Section
+					{
+						type = "check",
+						label = "Smooth Health Gradient",
+						tooltip = "Use smooth color transition from red (0% HP) → yellow (50% HP) → green (100% HP). Customize the colors below.",
+						get = function()
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							return unit.health.smooth == true
+						end,
+						set = function(v)
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							unit.health.smooth = v and true or false
+							-- Update colorSmooth on all frames for this unit type
+							if addon and addon.frames then
+								for _, frame in ipairs(addon.frames) do
+									if frame and frame.sufUnitType == unitKey and frame.Health then
+										frame.Health.colorSmooth = v and true or false
+										if v and unit.health then
+											-- Apply curve when enabling
+											local success, err = pcall(function()
+												if addon.ApplyHealthCurve then
+													addon:ApplyHealthCurve(frame, unit.health)
+												end
+											end)
+										end
+									end
+								end
+							end
+							addon:ScheduleUpdateAll()
+						end,
+					},
+					{
+						type = "color",
+						label = "Gradient Color (0% HP - Critical)",
+						tooltip = "Color at 0% health (critical/dead).",
+						get = function()
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							unit.health.gradientColors = unit.health.gradientColors or {}
+							unit.health.gradientColors[0] = unit.health.gradientColors[0] or { 1, 0, 0, 1 }
+							return unit.health.gradientColors[0]
+						end,
+						set = function(r, g, b)
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							unit.health.gradientColors = unit.health.gradientColors or {}
+							unit.health.gradientColors[0] = { r, g, b, 1 }
+							-- Reapply curve with new colors
+							if addon and addon.frames then
+								for _, frame in ipairs(addon.frames) do
+									if frame and frame.sufUnitType == unitKey and unit.health.smooth then
+										local success = pcall(function()
+											if addon.ApplyHealthCurve then
+												addon:ApplyHealthCurve(frame, unit.health)
+											end
+										end)
+										if success then
+											frame.Health:ForceUpdate()
+										end
+									end
+								end
+							end
+							addon:ScheduleUpdateAll()
+						end,
+						disabled = function()
+							local unit = GetUnit()
+							return not (unit and unit.health and unit.health.smooth)
+						end,
+					},
+					{
+						type = "color",
+						label = "Gradient Color (50% HP - Warning)",
+						tooltip = "Color at 50% health (moderate damage).",
+						get = function()
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							unit.health.gradientColors = unit.health.gradientColors or {}
+							unit.health.gradientColors[0.5] = unit.health.gradientColors[0.5] or { 1, 1, 0, 1 }
+							return unit.health.gradientColors[0.5]
+						end,
+						set = function(r, g, b)
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							unit.health.gradientColors = unit.health.gradientColors or {}
+							unit.health.gradientColors[0.5] = { r, g, b, 1 }
+							-- Reapply curve with new colors
+							if addon and addon.frames then
+								for _, frame in ipairs(addon.frames) do
+									if frame and frame.sufUnitType == unitKey and unit.health.smooth then
+										local success = pcall(function()
+											if addon.ApplyHealthCurve then
+												addon:ApplyHealthCurve(frame, unit.health)
+											end
+										end)
+										if success then
+											frame.Health:ForceUpdate()
+										end
+									end
+								end
+							end
+							addon:ScheduleUpdateAll()
+						end,
+						disabled = function()
+							local unit = GetUnit()
+							return not (unit and unit.health and unit.health.smooth)
+						end,
+					},
+					{
+						type = "color",
+						label = "Gradient Color (100% HP - Healthy)",
+						tooltip = "Color at 100% health (full health).",
+						get = function()
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							unit.health.gradientColors = unit.health.gradientColors or {}
+							unit.health.gradientColors[1] = unit.health.gradientColors[1] or { 0, 1, 0, 1 }
+							return unit.health.gradientColors[1]
+						end,
+						set = function(r, g, b)
+							local unit = GetUnit()
+							unit.health = unit.health or {}
+							unit.health.gradientColors = unit.health.gradientColors or {}
+							unit.health.gradientColors[1] = { r, g, b, 1 }
+							-- Reapply curve with new colors
+							if addon and addon.frames then
+								for _, frame in ipairs(addon.frames) do
+									if frame and frame.sufUnitType == unitKey and unit.health.smooth then
+										local success = pcall(function()
+											if addon.ApplyHealthCurve then
+												addon:ApplyHealthCurve(frame, unit.health)
+											end
+										end)
+										if success then
+											frame.Health:ForceUpdate()
+										end
+									end
+								end
+							end
+							addon:ScheduleUpdateAll()
+						end,
+						disabled = function()
+							local unit = GetUnit()
+							return not (unit and unit.health and unit.health.smooth)
+						end,
+					},
 				},
 			},
 			{

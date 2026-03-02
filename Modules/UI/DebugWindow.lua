@@ -7,6 +7,9 @@ end
 local core = addon._core or {}
 local addonName = core.addonName or "SimpleUnitFrames"
 
+-- LibQTipHelper is loaded before this file and attached to addon
+-- It will be available as addon.LibQTipHelper
+
 local function TintTexture(texture, color)
 	if not (texture and texture.SetVertexColor and color) then
 		return
@@ -335,7 +338,7 @@ function addon:ShowDebugPanel()
 	self:EnsureDebugConfig()
 	if not self.debugPanel then
 		local frame = CreateFrame("Frame", "SUFDebugPanel", UIParent, "BasicFrameTemplateWithInset")
-		frame:SetSize(620, 420)
+		frame:SetSize(800, 420)
 		frame:SetPoint("CENTER", UIParent, "CENTER", 260, 0)
 		self:EnableMovableFrame(frame, true, "debug_console", { "CENTER", "UIParent", "CENTER", 260, 0 })
 
@@ -428,6 +431,58 @@ function addon:ShowDebugPanel()
 			self:AnalyzePerformanceProfileFromUI()
 		end)
 		frame.profileAnalyzeBtn = profileAnalyzeBtn
+
+		-- Frame Stats button: Show unit frame performance metrics in LibQTip tooltip
+		local frameStatsBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
+		frameStatsBtn:SetSize(60, 24)
+		frameStatsBtn:SetPoint("LEFT", profileAnalyzeBtn, "RIGHT", 8, 0)
+		frameStatsBtn:SetText("Stats")
+		frameStatsBtn:SetScript("OnEnter", function(self)
+			if addon.LibQTipHelper and addon.LibQTipHelper.CreateFrameStatsTooltip then
+				local tooltip = addon.LibQTipHelper:CreateFrameStatsTooltip(addon.frames)
+				if tooltip then
+					tooltip:SmartAnchorTo(self)
+					tooltip:Show()
+					self.__frameStatsTooltip = tooltip
+				end
+			end
+		end)
+		frameStatsBtn:SetScript("OnLeave", function(self)
+			if self.__frameStatsTooltip then
+				local QTip = LibStub:GetLibrary("LibQTip-2.0")
+				if QTip then
+					QTip:ReleaseTooltip(self.__frameStatsTooltip)
+				end
+				self.__frameStatsTooltip = nil
+			end
+		end)
+		frame.frameStatsBtn = frameStatsBtn
+
+		-- Performance Stats button: Show EventCoalescer metrics in LibQTip tooltip
+		local perfStatsBtn = CreateFrame("Button", nil, frame, "GameMenuButtonTemplate")
+		perfStatsBtn:SetSize(60, 24)
+		perfStatsBtn:SetPoint("LEFT", frameStatsBtn, "RIGHT", 8, 0)
+		perfStatsBtn:SetText("Perf")
+		perfStatsBtn:SetScript("OnEnter", function(self)
+			if addon.PerformanceMetricsHelper and addon.PerformanceMetricsHelper.CreatePerformanceStatsTooltip then
+				local tooltip = addon.PerformanceMetricsHelper:CreatePerformanceStatsTooltip(addon.performanceLib)
+				if tooltip then
+					tooltip:SmartAnchorTo(self)
+					tooltip:Show()
+					self.__perfStatsTooltip = tooltip
+				end
+			end
+		end)
+		perfStatsBtn:SetScript("OnLeave", function(self)
+			if self.__perfStatsTooltip then
+				local QTip = LibStub:GetLibrary("LibQTip-2.0")
+				if QTip then
+					QTip:ReleaseTooltip(self.__perfStatsTooltip)
+				end
+				self.__perfStatsTooltip = nil
+			end
+		end)
+		frame.perfStatsBtn = perfStatsBtn
 
 		function frame:UpdateProfileButtons()
 			local recording = addon:IsPerformanceProfiling()

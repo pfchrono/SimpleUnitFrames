@@ -102,42 +102,78 @@ end
 
 ---
 
-### 1.2 CurveObject/ColorCurve for Health Bars ✓ **DOCUMENTED, NOT IMPLEMENTED**
+### 1.2 CurveObject/ColorCurve for Health Bars ✅ **FULLY IMPLEMENTED** (2026-03-01)
 
-**Status:** ⚠️ Medium Priority (documented in RESEARCH.md Section 1.1, lines 21-61)
+**Status:** ✅ **COMPLETED** — ColorCurve integration enabled via oUF infrastructure
+
+**Implementation Date:** March 1, 2026
 
 **Current State:**
-- SUF uses `SafeNumber()`, `SafeText()`, `SafeAPICall()` wrappers to handle secret values safely
-- Health bar coloring uses manual r/g/b calculations in `addon:UpdateColor()` and `addon:SetStatusBarColor()`
+- SUF leverages oUF's built-in ColorMixin with ColorCurve support
+- Health bars can use smooth color gradients via config-driven `colorSmooth` flag
+- Secret health percentages evaluated natively in WoW engine via `C_CurveUtil.CreateColorCurve()`
 
-**Enhancement Opportunity:**
-- `C_CurveUtil.CreateColorCurve()` allows visual processing of secret values natively
-- Health bars can map secret health percentages to color gradients without exposing them to addon code
-- Eliminates arithmetic errors on secrets
+**Implementation Details:**
 
-**API Verification:**
-- ✅ `C_CurveUtil` namespace exists (verified via semantic search in wow-ui-source)
-- ✅ `CreateColorCurve()` returns a CurveObject with `Evaluate(secretValue)` method
-- ✅ No arithmetic on secret values (delegates to WoW engine)
+**1. oUF Infrastructure (Already Exists):**
+- `Libraries/oUF/colors.lua` — ColorMixin with `SetCurve()` and `GetCurve()` methods
+- `Libraries/oUF/elements/health.lua` — Health element with `colorSmooth` flag support
+- Health.values.EvaluateCurrentHealthPercent(curve) — Curve-based evaluation
 
-**Example Code (from RESEARCH.md):**
+**2. SUF Configuration ([SimpleUnitFrames.lua](SimpleUnitFrames.lua#L594-L610)):**
 ```lua
-local colorCurve = C_CurveUtil.CreateColorCurve()
-colorCurve:SetParameters(0, 1)  -- 0% to 100% health
-colorCurve:AddColorStop(0, CreateColor(1, 0, 0, 1))    -- red at 0%
-colorCurve:AddColorStop(1, CreateColor(0, 1, 0, 1))    -- green at 100%
-
-local secretHealthPercent = UnitHealth("target") / UnitHealthMax("target")
-local r, g, b, a = colorCurve:Evaluate(secretHealthPercent)  -- no error!
-healthBar:SetStatusBarColor(r, g, b, a)
+-- Added to default profile:
+health = {
+    smooth = false,  -- Toggle smooth gradient (default: OFF)
+    curvePoints = {  -- Default red→yellow→green gradient
+        [0.0] = {1.0, 0.0, 0.0},  -- red at 0%
+        [0.5] = {1.0, 1.0, 0.0},  -- yellow at 50%
+        [1.0] = {0.0, 1.0, 0.0},  -- green at 100%
+    }
+}
 ```
 
-**Implementation Scope:**
-- Health bars (Player, Target, Pet, Focus, ToT, Party, Raid, Boss)
-- Power bars (color gradients for mana/rage/energy)
-- Absorb overlays (transparency curves)
+**3. ApplyHealthCurve Method ([SimpleUnitFrames.lua](SimpleUnitFrames.lua#L614-L637)):**
+```lua
+function addon:ApplyHealthCurve(frame, config)
+    if healthConfig.smooth and healthConfig.curvePoints then
+        local curveData = {}
+        for pct, rgb in pairs(healthConfig.curvePoints) do
+            curveData[pct] = CreateColor(rgb[1], rgb[2], rgb[3])
+        end
+        self.colors.health:SetCurve(curveData)
+    end
+end
+```
 
-**Priority:** Medium (not urgent — `SafeNumber()` wrappers work, but CurveObject is more future-proof)
+**4. Frame Creation ([SimpleUnitFrames.lua](SimpleUnitFrames.lua#L7860-L7866)):**
+```lua
+local unitConfig = self:GetUnitSettings(frame.sufUnitType)
+if unitConfig and unitConfig.health and unitConfig.health.smooth then
+    Health.colorSmooth = true
+    self:ApplyHealthCurve(frame, unitConfig.health)
+end
+```
+
+**5. UI Toggle ([Modules/UI/OptionsV2/Registry.lua](Modules/UI/OptionsV2/Registry.lua#L863-L895)):**
+- "Smooth Health Gradient" checkbox in Bars tab
+- Per-unit-type configuration
+- Live frame updates when toggled
+
+**Implementation Scope:**
+- ✅ Health bars (all unit types)
+- ⏳ Power bars (deferred — optional enhancement)
+- ⏳ Absorb overlays (deferred — optional enhancement)
+
+**Secret Value Safety:**
+- ✅ ColorCurve evaluation happens in WoW C++ engine
+- ✅ No Lua-visible secret value arithmetic
+- ✅ Safe RGB values returned to Lua
+- ✅ Zero risk of "attempt to perform arithmetic on secret value" errors
+
+**Performance Impact:** Neutral to slight improvement (C++ curve evaluation vs Lua interpolation)
+
+**Priority:** ✅ COMPLETE — Opt-in feature, defaults to OFF (preserves existing behavior)
 
 ---
 

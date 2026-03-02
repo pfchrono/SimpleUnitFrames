@@ -162,29 +162,40 @@ local Private = oUF.Private
 local unitSelectionType = Private.unitSelectionType
 
 local function UpdateColor(self, event, unit)
-	if(not unit or self.unit ~= unit) then return end
+	if(not unit or self.unit ~= unit) then 
+		return 
+	end
 	local element = self.Health
 
 	local color
+	local colorPath = "unknown"
 	if(element.colorDisconnected and not UnitIsConnected(unit)) then
 		color = self.colors.disconnected
+		colorPath = "disconnected"
 	elseif(element.colorTapping and not UnitPlayerControlled(unit) and UnitIsTapDenied(unit)) then
 		color = self.colors.tapped
+		colorPath = "tapped"
 	elseif(element.colorThreat and not UnitPlayerControlled(unit) and UnitThreatSituation('player', unit)) then
 		color =  self.colors.threat[UnitThreatSituation('player', unit)]
+		colorPath = "threat"
 	elseif(element.colorClass and (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
 		or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
 		or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
 		local _, class = UnitClass(unit)
 		color = self.colors.class[class]
+		colorPath = "class"
 	elseif(element.colorSelection and unitSelectionType(unit, element.considerSelectionInCombatHostile)) then
 		color = self.colors.selection[unitSelectionType(unit, element.considerSelectionInCombatHostile)]
+		colorPath = "selection"
 	elseif(element.colorReaction and UnitReaction(unit, 'player')) then
 		color = self.colors.reaction[UnitReaction(unit, 'player')]
+		colorPath = "reaction"
 	elseif(element.colorSmooth and self.colors.health:GetCurve()) then
 		color = element.values:EvaluateCurrentHealthPercent(self.colors.health:GetCurve())
+		colorPath = "smooth"
 	elseif(element.colorHealth) then
 		color = self.colors.health
+		colorPath = "health"
 	end
 
 	if(color) then
