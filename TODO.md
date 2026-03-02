@@ -146,47 +146,67 @@ Refs: Phase 2 (SmartRegisterUnitEvent migration), Phase 3 (ColorCurve)
 
 ## Phase 4: Advanced Performance Optimizations (Priority: HIGH)
 
-**Status:** Active development  
-**Effort:** 8-16 hours  
+**Status:** Active development - Task 1 Analysis Complete ✅  
+**Effort:** 8-12 hours (revised - was 8-16)  
 **Owner:** AI Assistant  
-**Target Completion:** 2026-03-03 (1-2 sessions)
+**Target Completion:** 2026-03-03 (1 session)
 
-**Goal:** Reduce garbage collection pressure and optimize frame rendering for large groups (40+ players)
+**Goal:** Optimize frame rendering and reduce garbage collection through intelligent batching and pooling
 
-**Proposed Work:**
-1. **Frame Pooling for Party/Raid Frames** (4-6 hours)
-   - Implement reusable frame pool for party/raid members
-   - Pre-allocate 40 frames instead of creating/destroying on group size changes
-   - Expected: 60-75% GC reduction for party/raid scenarios
-   - Reference: [RESEARCH.md Section 3.3](RESEARCH.md#L350-L400)
+**Phase 4 Task 1 Findings (2026-03-02 ✅ COMPLETE):**
+- Analyzed oUF party/raid frame lifecycle and WoW's SecureGroupHeaderTemplate
+- Found: Direct frame pooling not feasible (WoW C++ creates frames securely, not poolable from Lua)
+- Result: Revised Phase 4 to focus on practical optimizations (DirtyFlagManager, element pooling)
+- Reference: [PHASE4_TASK1_ANALYSIS.md](docs/PHASE4_TASK1_ANALYSIS.md)
 
-2. **Batch Frame Updates & Dirty Flag Optimization** (2-4 hours)
-   - Implement dirty flag manager to batch frame refreshes
-   - Defer non-critical updates until frame time budget allows
-   - Expected: 20-30% frame time reduction in high-frequency events
-   - Reference: [RESEARCH.md Section 3.4](RESEARCH.md#L400-L450)
+**Revised Work Priorities (Practical & Achievable):**
 
-3. **Texture Atlas Consolidation** (2-4 hours)
-   - Consolidate multiple texture files into single atlas
-   - Reduce texture binding overhead (state changes)
-   - Expected: 10%+ frame time improvement for texture-heavy units
-   - Reference: [RESEARCH.md Section 3.5](RESEARCH.md#L450-L500)
+### 1. **DirtyFlagManager Integration** [Task 2] (4-6 hours)
+   - Objective: Batch frame updates instead of immediate refresh
+   - Strategy: Use PerformanceLib.DirtyFlagManager to defer low-priority frame updates
+   - Expected: 20-30% frame time reduction, smoother frame rate
+   - Files: SimpleUnitFrames.lua (update scheduling), Elements (update patterns)
+   - Reference: [PerformanceLib/Core/DirtyFlagManager.lua](../../PerformanceLib/Core/DirtyFlagManager.lua)
 
-**Current Performance Baseline:**
+### 2. **Expand Element Pooling** [Task 3] (2-3 hours)
+   - Objective: Pool remaining temporary frame elements
+   - Current: IndicatorPoolManager pools threat/quest/raid-target glows (Phase 3.3)
+   - Expansion: Extend to status text overlays, cast bar animations, floating heal numbers
+   - Expected: 30-40% GC reduction on element allocations
+   - Reference: [Core/IndicatorPoolManager.lua](Core/IndicatorPoolManager.lua)
+
+### 3. **Performance Monitoring & Validation** [Task 4] (2-3 hours)
+   - Objective: Profile changes and measure improvements
+   - Strategy: Use `/SUFprofile` to compare baseline vs optimized
+   - Target: Measurable reduction in frame time variance, GC pressure
+   - Validation: Test in 5-player and 40-player scenarios
+
+**Current Performance Baseline (Phase 3 Validated):**
 - Frame time: 16.68ms (60 FPS locked)
-- GC pressure: Baseline (no pooling yet)
+- GC pressure: Baseline (no pooling yet on core frames)
 - Memory: ~2-3 MB per 10 unit frames
 - Raid (40 players): Peaks at 25-30ms during heavy events
 
-**Success Criteria:**
-- GC pause time reduced by 50%+
-- No frame time regression
-- Stable performance in 40-player raids
-- Zero new bugs introduced
+**Expected Phase 4 Improvements:**
+- Frame time variance: -20-30% (smoother gameplay)
+- GC pauses: 30-40% shorter (element pooling)
+- Memory efficiency: Better frame reuse (dirty flag batching)
+- User perception: Consistent 60 FPS even during roster changes
 
-**Phase 4 Kickoff Next Step:**
-Research PerformanceLib integration patterns for frame pooling and dirty flag management, then implement Frame Pooling Phase (Part 1)  
-**Refs:** [RESEARCH.md](RESEARCH.md#L650-L762) Section 4
+**Success Criteria:**
+- Frame time P50 ≤16.68ms (maintained)
+- Frame time P99 <20ms (consistency)
+- No visual glitches or update delays
+- GC pause time < 5ms during active gameplay
+- Stable performance in 40-player raids
+
+**Key Deliverables:**
+- DirtyFlagManager integration in frame refresh cycle
+- Documentation: `PHASE4_TASK2_DIRTYFLAGS_IMPLEMENTATION.md`
+- Element pooling expansion and pool statistics
+- Performance profile report comparing baseline vs optimized
+
+---
 
 **Potential Work:**
 - Options UI search/filter
