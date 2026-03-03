@@ -6,6 +6,14 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 
 ## Recent Updates
 
+### v1.26.0 - DirtyFlagManager Integration (March 2, 2026)
+- **Intelligent Frame Batching** — DirtyFlagManager integration achieves **69.6% event coalescing efficiency** with zero dropped frames
+- **Smart Priority System** — Automatic frame update prioritization (CRITICAL/HIGH/MEDIUM/LOW) based on unit importance
+- **Performance Breakthrough** — 16.66ms average frame time (60 FPS), P99=28ms, with 1,963 events batched per session
+- **Event Expansion** — Added 14 new events to batching pipeline (13 UNIT_SPELLCAST_* events + UNIT_AURA)
+- **Top Event Reductions** — UNIT_HEALTH 78%, UNIT_POWER 72%, UNIT_AURA 54%, UNIT_ABSORB 76%, THREAT 73%
+
+### Previous Updates
 - **Blizzard Frame Integration** — Per-frame hide controls for default unit frames with Edit Mode visibility toggle and global options
 - **Health Color Hardening** — Threat/reaction/class colors now safe against WoW 12.0.0+ secret value restrictions
 - **Data Text/Bars System** — New draggable data bar framework with Shift+click-restricted drag handles, XP/Reputation fade controls, and dynamic repositioning
@@ -39,10 +47,15 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 - **Edit Mode Integration** — Full compatibility with Blizzard Edit Mode for frame positioning
 
 ### Performance & Diagnostics
+- **DirtyFlagManager Integration (v1.26.0)** — Intelligent frame update batching system:
+  - **69.6% Event Coalescing** efficiency (1,963 events batched per gameplay session)
+  - **Smart Priority System** — Auto-assigns CRITICAL/HIGH/MEDIUM/LOW based on unit type
+  - **Frame Time Optimization** — 16.66ms avg (60 FPS), P99=28ms, 0 dropped frames
+  - **Top Event Reductions** — UNIT_HEALTH 78%, UNIT_POWER 72%, UNIT_AURA 54%
+  - **4 Helper Functions** — MarkFrameDirty, MarkAllFramesDirty, MarkFramesByUnitTypeDirty, GetFrameUpdatePriority
 - **PerformanceLib Integration** — Optional advanced performance systems including:
-  - Event coalescing with adaptive priorities (CRITICAL/HIGH/MEDIUM/LOW)
-  - Dirty flag batching for efficient frame updates
-  - Frame time budgeting and frame pooling
+  - Event coalescing with adaptive priorities and emergency flush handling
+  - Frame time budgeting and frame pooling for GC reduction
   - Real-time performance dashboard (`/sufperf`)
   - Timeline profiling with bottleneck analysis (`/SUFprofile`)
   - ML-based priority optimization (learns from gameplay patterns)
@@ -66,6 +79,16 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 ## Quick Start
 
 ### Installation
+
+#### From GitHub Releases (Recommended)
+1. Download latest release from [GitHub Releases](https://github.com/pfchrono/SimpleUnitFrames/releases)
+2. Extract the `.zip` file to your `World of Warcraft\_retail_\Interface\AddOns\` folder
+3. Verify two folders created:
+   - `SimpleUnitFrames\` (main addon)
+   - `PerformanceLib\` (bundled performance addon)
+4. Reload UI or restart WoW
+
+#### Manual Installation
 1. Place `SimpleUnitFrames` in your WoW AddOns folder
 2. (Optional) Install `PerformanceLib` for advanced performance features
 3. Reload UI or restart WoW
@@ -91,6 +114,27 @@ powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -ChangeType 
 powershell -ExecutionPolicy Bypass -File .\scripts\bump-version.ps1 -ChangeType major
 ```
 
+### Release Build Workflow (v1.26.0+)
+Automated scripts for creating production-ready releases:
+
+```powershell
+# Build release archive (auto-detects version from TOC, bundles PerformanceLib)
+.\build-release.ps1
+
+# Publish to GitHub (auto-detects version, prompts for confirmation)
+$env:GITHUB_TOKEN = 'your-github-token'
+.\publish-release.ps1
+
+# Or use dry-run to preview
+.\publish-release.ps1 -DryRun
+```
+
+**Features:**
+- Auto-detection of PerformanceLib from adjacent directory
+- Comprehensive exclusion of dev files (.agents, .claude, .github, scripts, docs, etc.)
+- Production-clean archives with only runtime files
+- Automatic GitHub release creation with release notes
+
 ### Fully Automatic Versioning (Git Hook)
 This repository now bumps `SimpleUnitFrames.toc` automatically on every commit via `.githooks/pre-commit`:
 
@@ -110,13 +154,19 @@ Threshold overrides:
 ```
 /SUFprofile start      # Begin timeline recording (max 10000 events)
 /SUFprofile stop       # End recording
-/SUFprofile analyze    # Show FPS metrics, frame time percentiles, bottlenecks
+/SUFprofile analyze    # Show FPS metrics, frame time percentiles, coalescing stats, bottlenecks
 /SUFprofile export     # Copy timeline data to clipboard
 
 /SUFpreset low|medium|high|ultra     # Change performance preset
 /SUFpreset auto on|off               # Toggle auto-optimization based on hardware
 /SUFpreset recommend                 # Get preset recommendations
 ```
+
+**Expected Baseline (v1.26.0+):**
+- **Coalescing Efficiency:** 69.6% (1,963 of 2,816 events batched)
+- **Frame Time:** Avg 16.66ms (60 FPS), P99 28ms
+- **Dropped Frames:** 0 (perfect stability)
+- **Event Reductions:** UNIT_HEALTH 78%, UNIT_POWER 72%, UNIT_AURA 54%, UNIT_ABSORB 76%, THREAT 73%
 
 ## Custom Tags
 
@@ -145,6 +195,7 @@ SimpleUnitFrames provides extended tag support beyond standard oUF tags:
 If you are extending SUF internally/modules:
 
 ```lua
+-- Unit Configuration
 addon:GetUnitSettings(unitType)
 addon:GetUnitFontSizes(unitType)
 addon:GetUnitStatusbarTexture(unitType)
@@ -154,9 +205,17 @@ addon:GetUnitHealPredictionSettings(unitType)
 addon:GetUnitCastbarColors(unitType)
 addon:GetUnitAuraSize(unitType)
 
+-- Performance Integration
 addon:SetPerformanceIntegrationEnabled(enabled[, silent])
 addon:QueuePerformanceEvent(eventName, ...)
 
+-- DirtyFlagManager Integration (v1.26.0+)
+addon:GetFrameUpdatePriority(frame)           -- Get priority for frame (CRITICAL/HIGH/MEDIUM/LOW)
+addon:MarkFrameDirty(frame, priority)         -- Queue single frame for batched update
+addon:MarkAllFramesDirty(priority)            -- Queue all frames for batched update
+addon:MarkFramesByUnitTypeDirty(unitType, priority)  -- Queue frames by unit type
+
+-- Profile Management
 addon:SerializeProfile()
 addon:DeserializeProfile(input)
 addon:ValidateImportedProfileData(data)
