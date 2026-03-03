@@ -398,7 +398,7 @@ If issues arise:
 
 2. **Tag Release:** Create release tag
    ```bash
-   git tag -a v1.24.0 -m "LibQTip integration complete"
+   git tag -a v1.26.0 -m "DirtyFlagManager integration complete (Phase 4 Task 2)"
    ```
 
 3. **Optional Phase 4:** Frame Info Tooltips (deferred, not required)

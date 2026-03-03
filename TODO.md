@@ -444,3 +444,44 @@ Frame Pooling Phase (8-16 hrs, target: 2026-03-03)
 - Reduce GC pressure by 60-75%
 - Goal: Stable 60 FPS in 40-player raids
 - See [TODO.md Phase 4 section](#phase-4-advanced-performance-optimizations-in-progress) for details
+---
+
+## Release Infrastructure - v1.26.0 (2026-03-02 ✅ COMPLETE)
+
+**Status:** ✅ COMPLETE - Release ready for distribution
+
+**Release Package Created:**
+- **File:** SimpleUnitFrames-1.26.0.zip
+- **Size:** 10.61 MB
+- **Location:** ./releases/SimpleUnitFrames-1.26.0.zip
+- **Contents:**
+  - SimpleUnitFrames/ addon (613 files)
+  - PerformanceLib/ addon (bundled, 25 files)
+  - BUILD_INFO.txt (installation instructions)
+
+**Release Documentation:**
+- ✅ CHANGELOG.md (created - comprehensive v1.0.0→v1.26.0 history)
+  - [1.26.0] Primary: 69.6% coalescing efficiency, DirtyFlagManager integration
+  - Performance metrics: 16.66ms frame time, P99=28ms, 0 dropped frames
+
+**Build Automation:**
+- ✅ build-release.ps1 (203 lines, parameterized build script)
+  - Excludes: .git*, docs, workspaces
+  - Includes: README.md, PerformanceLib bundling
+  - ZIP creation with optimal compression
+  - BUILD_INFO.txt generation
+
+**Git Tag Created:**
+- ✅ v1.26.0 (Phase 4 Task 2 Release)
+- ✅ Commit: 7f21061
+
+**Distribution:**
+Extract to Interface\AddOns\ - Both addons auto-load
+
+---
+
+## Next Steps (Priority Order)
+
+1. **Phase 4 Task 3:** Element pooling (2-3 hours, 30-40% GC reduction)
+2. **Phase 4 Task 4:** Performance extended validation  
+3. **RegisterUnitEvent:** Migration (8-12 hours, 30-50% event overhead reduction)

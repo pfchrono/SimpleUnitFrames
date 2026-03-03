@@ -198,7 +198,7 @@ If all tests pass ✅:
    ```bash
    git add -A
    git commit -m "LibQTip Phases 1-3: Complete integration (Frame Stats, Performance Metrics, Aura Tooltips)"
-   git tag -a v1.24.0 -m "LibQTip integration complete"
+   git tag -a v1.26.0 -m "DirtyFlagManager integration complete (Phase 4 Task 2)"
    ```
 
 2. **Optional Phase 4:** Frame Info Tooltips (deferred, not required)

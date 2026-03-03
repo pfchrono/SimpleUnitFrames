@@ -30,12 +30,19 @@
     # Uses GITHUB_TOKEN environment variable
 
 .EXAMPLE
+    .\publish-release.ps1 -Version '1.26.0'
+    # Override TOC version detection (useful if TOC already bumped to next version)
+
+.EXAMPLE
     $env:GITHUB_TOKEN = 'ghp_xxxxx'
     .\publish-release.ps1 -DryRun
 #>
 
 [CmdletBinding()]
 param(
+    [Parameter()]
+    [string]$Version,
+
     [Parameter()]
     [string]$TocFile = "./SimpleUnitFrames.toc",
 
@@ -96,11 +103,15 @@ try {
     $uploadScriptPath = Test-Prerequisites
     Write-Host "  ✓ upload-github-release.ps1 found" -ForegroundColor Green
     
-    # Extract version from TOC
+    # Extract version from TOC or use override
     Write-Host ""
-    Write-Host "→ Reading version from TOC file..." -ForegroundColor Yellow
-    $version = Get-VersionFromToc -TocPath $TocFile
-    Write-Host "  ✓ Version detected: $version" -ForegroundColor Green
+    if ($Version) {
+        Write-Host "→ Using version override: $Version" -ForegroundColor Yellow
+    } else {
+        Write-Host "→ Reading version from TOC file..." -ForegroundColor Yellow
+        $Version = Get-VersionFromToc -TocPath $TocFile
+    }
+    Write-Host "  ✓ Version: $Version" -ForegroundColor Green
     
     # Construct paths
     $archiveName = "SimpleUnitFrames-$version.zip"
