@@ -226,7 +226,16 @@ local function ColorPath(self, ...)
 end
 
 local function Update(self, event, unit)
-	-- Unit filtering handled by SmartRegisterUnitEvent - no manual check needed
+	-- PARTY_MEMBER_{ENABLE,DISABLE} can be fired without a unit token.
+	-- Normalize to the current frame unit so solo-party visibility updates remain safe.
+	if((event == 'PARTY_MEMBER_ENABLE' or event == 'PARTY_MEMBER_DISABLE') and not unit) then
+		unit = self.unit
+	end
+
+	if(not unit or self.unit ~= unit) then
+		return
+	end
+
 	local element = self.Health
 
 	--[[ Callback: Health:PreUpdate(unit)
@@ -393,14 +402,9 @@ Used to toggle coloring if the unit is offline.
 * state    - the desired state (boolean)
 * isForced - forces the event update even if the state wasn't changed (boolean)
 --]]
-local function SetColorDisconnected(element, state, isForced)
+local function SetColorDisconnected(element, state, isForced) -- DEPRECATED
 	if(element.colorDisconnected ~= state or isForced) then
 		element.colorDisconnected = state
-		if(state) then
-			element.__owner:RegisterEvent('UNIT_CONNECTION', ColorPath)
-		else
-			element.__owner:UnregisterEvent('UNIT_CONNECTION', ColorPath)
-		end
 	end
 end
 
@@ -476,7 +480,7 @@ local function SetColorThreat(element, state, isForced)
 	end
 end
 
-local function Enable(self)
+local function Enable(self, unit)
 	local element = self.Health
 	if(element) then
 		element.__owner = self
@@ -523,9 +527,11 @@ local function Enable(self)
 
 		Private.SmartRegisterUnitEvent(self, 'UNIT_HEALTH', self.unit, Path)
 		Private.SmartRegisterUnitEvent(self, 'UNIT_MAXHEALTH', self.unit, Path)
+		self:RegisterEvent('UNIT_CONNECTION', Path)
 
-		if(element.colorDisconnected) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_CONNECTION', self.unit, ColorPath)
+		if(unit == 'party' or unit == 'raid') then
+			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path, true)
+			self:RegisterEvent('PARTY_MEMBER_DISABLE', Path, true)
 		end
 
 		if(element.colorSelection) then
@@ -673,7 +679,9 @@ local function Disable(self)
 		self:UnregisterEvent('UNIT_ABSORB_AMOUNT_CHANGED', Path)
 		self:UnregisterEvent('UNIT_HEAL_ABSORB_AMOUNT_CHANGED', Path)
 		self:UnregisterEvent('UNIT_MAX_HEALTH_MODIFIERS_CHANGED', Path)
-		self:UnregisterEvent('UNIT_CONNECTION', ColorPath)
+		self:UnregisterEvent('UNIT_CONNECTION', Path)
+		self:UnregisterEvent('PARTY_MEMBER_ENABLE', Path)
+		self:UnregisterEvent('PARTY_MEMBER_DISABLE', Path)
 		self:UnregisterEvent('UNIT_FACTION', ColorPath)
 		self:UnregisterEvent('UNIT_FLAGS', ColorPath)
 		self:UnregisterEvent('UNIT_THREAT_LIST_UPDATE', ColorPath)

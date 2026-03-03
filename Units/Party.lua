@@ -45,7 +45,7 @@ registry.party = function(self)
 	-- This ensures health/name tags update immediately when party composition changes
 	-- instead of waiting for combat events to trigger updates
 	party:RegisterEvent("GROUP_ROSTER_UPDATE")
-	party:SetScript("OnEvent", function(self, event)
+	party:HookScript("OnEvent", function(self, event)
 		if event == "GROUP_ROSTER_UPDATE" then
 			-- Force update all elements (including tags) on all child frames
 			for i = 1, self:GetNumChildren() do
