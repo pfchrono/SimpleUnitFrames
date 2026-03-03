@@ -13,7 +13,7 @@ registry.focus = function(self)
 	---@type Frame Focus unit frame reference
 	local focus = oUF:Spawn("focus", "SUF_Focus")
 	self:HookAnchor(focus, "FocusFrame")
-
+	
 	-- Phase 3.4: Apply reusable mixins for fading, dragging, theming
 	if focus and self.GetUnitSettings then
 		local unitSettings = self:GetUnitSettings("focus")

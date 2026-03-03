@@ -13,6 +13,7 @@ registry.tot = function(self)
 	---@type Frame Target-of-target unit frame reference
 	local tot = oUF:Spawn("targettarget", "SUF_ToT")
 	self:HookAnchor(tot, "TargetFrameToT")
+	
 	-- Phase 3.4: Apply reusable mixins for fading, dragging, theming
 	if tot and self.GetUnitSettings then
 		local unitSettings = self:GetUnitSettings("tot")

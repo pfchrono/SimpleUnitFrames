@@ -430,6 +430,7 @@ local defaults = {
 			systems = {
 				General = true,
 				Performance = true,
+				ClickCasting = true,
 				Events = false,
 				Frames = false,
 				AbsorbEvents = false,
@@ -1147,6 +1148,87 @@ local function SafeAPICall(fn, ...)
 	return result
 end
 
+---Safely compare two values without performing arithmetic
+---@param a any First value (may be secret)
+---@param b any Second value (may be secret)
+---@return boolean|nil True if equal, false if different, nil if either is secret
+local function SafeCompare(a, b)
+	if IsSecretValue(a) or IsSecretValue(b) then
+		return nil
+	end
+	return a == b
+end
+
+---Safely perform arithmetic operations on potentially-secret values
+---@param value any Numeric value (may be secret)
+---@param operation string Operation ('+', '-', '*', '/', '%')
+---@param fallback number Default if value is secret or operation fails
+---@return number Result of operation or fallback
+local function SafeArithmetic(value, operation, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
+	value = tonumber(value)
+	if not value then
+		return fallback
+	end
+	local num = tonumber(1)  -- Identity for operations
+	if not num then
+		return fallback
+	end
+	local result
+	if operation == '+' then
+		result = value + num
+	elseif operation == '-' then
+		result = value - num
+	elseif operation == '*' then
+		result = value * num
+	elseif operation == '/' and num ~= 0 then
+		result = value / num
+	elseif operation == '%' and num ~= 0 then
+		result = value % num
+	else
+		return fallback
+	end
+	return SafeNumber(result, fallback)
+end
+
+---Safely convert value to number with pcall protection
+---@param value any Value to convert (may be secret)
+---@param fallback number Default if conversion fails
+---@return number Converted number or fallback
+local function SafeToNumber(value, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
+	local ok, result = pcall(tonumber, value)
+	if not ok or result == nil then
+		return fallback
+	end
+	if IsSecretValue(result) then
+		return fallback
+	end
+	return result
+end
+
+---Safely convert value to string with pcall protection
+---@param value any Value to convert (may be secret)
+---@param fallback string Default if conversion fails
+---@return string Converted string or fallback
+local function SafeToString(value, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
+	local ok, result = pcall(tostring, value)
+	if not ok or result == nil then
+		return fallback
+	end
+	if IsSecretValue(result) then
+		return fallback
+	end
+	return result
+end
+
 ---Deep copy a table recursively (includes nested tables)
 ---@param source table Source table to copy
 ---@return table Deep copy of source table
@@ -1184,6 +1266,10 @@ addon._core = addon._core or {}
 addon._core.defaults = defaults
 addon._core.RoundNumber = RoundNumber
 addon._core.SafeNumber = SafeNumber
+addon._core.SafeCompare = SafeCompare
+addon._core.SafeArithmetic = SafeArithmetic
+addon._core.SafeToNumber = SafeToNumber
+addon._core.SafeToString = SafeToString
 addon._core.CopyTableDeep = CopyTableDeep
 addon._core.MergeDefaults = MergeDefaults
 addon._core.addonName = addonName
@@ -1205,6 +1291,10 @@ addon.IsSecretValue = IsSecretValue
 addon.SafeNumber = SafeNumber
 addon.SafeText = SafeText
 addon.SafeAPICall = SafeAPICall
+addon.SafeCompare = SafeCompare
+addon.SafeArithmetic = SafeArithmetic
+addon.SafeToNumber = SafeToNumber
+addon.SafeToString = SafeToString
 
 local function GetPowerColor(powerToken)
 	if _G.PowerBarColor and powerToken and _G.PowerBarColor[powerToken] then
@@ -9303,7 +9393,11 @@ function addon:PromptReloadUI(message)
 		button1 = "Reload",
 		button2 = "Later",
 		OnAccept = function()
-			ReloadUI()
+			if addon.SafeReload then
+				addon:SafeReload()
+			else
+				ReloadUI()
+			end
 		end,
 		timeout = 0,
 		whileDead = true,

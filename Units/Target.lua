@@ -13,7 +13,7 @@ registry.target = function(self)
 	---@type Frame Target unit frame reference
 	local target = oUF:Spawn("target", "SUF_Target")
 	self:HookAnchor(target, "TargetFrame")
-
+	
 	-- Phase 3.4: Apply reusable mixins for fading, dragging, theming
 	if target and self.GetUnitSettings then
 		local unitSettings = self:GetUnitSettings("target")

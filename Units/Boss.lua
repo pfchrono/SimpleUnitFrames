@@ -14,7 +14,7 @@ registry.boss = function(self)
 	for index = 1, 5 do
 		local boss = oUF:Spawn("boss" .. index, "SUF_Boss" .. index)
 		bossFrames[index] = boss
-
+		
 		-- Phase 3.4: Apply reusable mixins to each boss frame
 		if boss and self.GetUnitSettings then
 			local unitSettings = self:GetUnitSettings("boss")

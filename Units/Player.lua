@@ -13,7 +13,7 @@ registry.player = function(self)
 	---@type Frame Player unit frame reference
 	local player = oUF:Spawn("player", "SUF_Player")
 	self:HookAnchor(player, "PlayerFrame")
-
+	
 	-- Phase 3.4: Apply reusable mixins for fading, dragging, theming
 	if player and self.GetUnitSettings then
 		local unitSettings = self:GetUnitSettings("player")

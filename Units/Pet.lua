@@ -13,7 +13,7 @@ registry.pet = function(self)
 	---@type Frame Pet unit frame reference
 	local pet = oUF:Spawn("pet", "SUF_Pet")
 	self:HookAnchor(pet, "PetFrame")
-
+	
 	-- Phase 3.4: Apply reusable mixins for fading, dragging, theming
 	if pet and self.GetUnitSettings then
 		local unitSettings = self:GetUnitSettings("pet")

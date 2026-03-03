@@ -1,876 +1,777 @@
-# SimpleUnitFrames Enhancement Research
+# RESEARCH.md - Fresh QUI Analysis for SUF Enhancements (v2)
 
-> **Date:** 2026-02-27
-> **Target:** WoW API 12.0.0+ (Midnight)
-> **Status:** Research Phase — Awaiting Decision on Implementation
+**Date:** 2026-03-06  
+**Status:** Comprehensive Analysis — QUI codeba examination complete  
+**Scope:** Options UI improvements + Low/Medium/High risk code enhancements  
 
 ---
 
 ## Executive Summary
 
-This document compiles research findings on potential enhancements for SimpleUnitFrames based on:
-- Modern WoW API 12.0.0+ patterns from Blizzard's reference implementations
-- Best practices from other successful addon authors
-- Architecture patterns from modern addons (QUI, PerformanceLib, Blizzard's CompactRaidFrames)
-- Performance optimization opportunities
-- Code modernization aligned with 12.0.0+ security model
+This comprehensive analysis examines QUI (QuaziiUI Community Edition) for SUF enhancement opportunities across:
+- **Options UI/UX Improvements** (best practice in UI organization and theming)
+- **Low-Risk Enhancements** (pure additions, zero breaking changes)
+- **Medium-Risk Enhancements** (moderate refactoring, validated approaches)
+- **High-Risk Enhancements** (architectural changes, significant complexity)
 
-**Key Insight:** SUF is already well-architected with strong secret value handling, PerformanceLib integration, and protected operations system. Research reveals opportunities for **incremental modernization** rather than fundamental restructuring.
-
----
-
-## 1. WoW API 12.0.0+ Modernization
-
-### 1.1 Curve/ColorCurve Integration for Secret Values ✅ **IMPLEMENTED** (2026-03-01)
-
-**Implementation Status:** ✅ COMPLETE — Phase 3 ColorCurve integration finished
-
-**What Was Implemented:**
-- Enabled oUF's existing ColorMixin infrastructure with ColorCurve support
-- Added config toggle: `profile.units.*.health.smooth` (default: false)
-- Created `addon:ApplyHealthCurve()` method to configure curves from config
-- Added UI checkbox: "Smooth Health Gradient" in Bars tab ([Modules/UI/OptionsV2/Registry.lua](../Modules/UI/OptionsV2/Registry.lua#L863-L895))
-- Frame creation conditionally enables `Health.colorSmooth` based on config ([SimpleUnitFrames.lua](../SimpleUnitFrames.lua#L7860-L7866))
-
-**How It Works:**
-- **CurveObject/ColorCurveObject** (new in 12.0.0) evaluates secret health percentages in WoW C++ engine
-- Health bars map secret health % to color gradients (red→yellow→green) without Lua arithmetic
-- **Benefit:** Eliminates arithmetic errors on secrets, delegates visual mapping to WoW's native system
-
-**Reference:**
-```lua
--- Modern pattern (12.0.0+)
-local colorCurve = C_CurveUtil.CreateColorCurve()
-colorCurve:SetParameters(0, 1)  -- 0% to 100% health
-colorCurve:AddColorStop(0, CreateColor(1, 0, 0, 1))    -- red at 0%
-colorCurve:AddColorStop(1, CreateColor(0, 1, 0, 1))    -- green at 100%
-
--- Pass secret health directly to color curve
-local secretHealthPercent = UnitHealth("target") / UnitHealthMax("target")
-local r, g, b, a = colorCurve:Evaluate(secretHealthPercent)  -- no error!
-healthBar:SetStatusBarColor(r, g, b, a)
-```
-
-**Implementation Scope:**
-- Health bars (Player, Target, Pet, Focus, ToT, Party, Raid, Boss)
-- Power bars (color gradients for mana/rage/energy)
-- Absorb overlays (transparency curves based on secret absorb amounts)
-
-**Priority:** Medium (nice-to-have, not critical — current SafeNumber wrappers work)
+QUI's strengths for SUF:
+- Modular options architecture (sidebar tabs + delegated page builders vs 3624-line monolith)
+- Systematic secret value handling (7 safe wrappers vs scattered SafeNumber/SafeText)
+- Pixel-perfect scaling for UI rendering
+- UIKit factory functions eliminating boilerplate
+- Advanced theming system with color derivation
+- Profile migration patterns for schema management
 
 ---
 
-### 1.2 DurationObject for Castbar/Cooldown Timing
+## SECTION A: OPTIONS UI/UX IMPROVEMENTS
 
-**Current State:** SUF castbars use manual math on UnitCastingInfo return values.
+### Current SUF Options Situation
 
-**Enhancement Opportunity:**
-- **DurationObject** (new in 12.0.0) allows time-based calculations on secret durations
-- `StatusBar:SetTimerDuration(durationObject)` accepts DurationObjects directly
-- **Benefit:** Eliminates manual elapsed time calculations, safer for secret durations
+**OptionsWindow.lua:** 3624 lines  
+**OptionsV2/:** 6 files (Bootstrap, Layout, Registry, Renderer, Search, Theme)  
 
-**Reference:**
+**Current Issues:**
+- Single large file makes navigation difficult
+- Tab definitions spread across multiple files
+- Search functionality exists but could be enhanced
+- Color theming exists but lacks advanced derivation
+- No accent color system for consistent theme customization
+- Scroll-to-section navigation not implemented
+- Action buttons (Edit Mode, etc.) not as prominent
+
+### A.1: Adopt Sidebar Tab UI Architecture (MEDIUM Risk, HIGH Value)
+
+**What QUI Does:**
+- Vertical sidebar (150px wide) with scrollable tabs
+- Main content area (800px wide)
+- Bottom action buttons (Edit Mode, CDM Settings, etc.)
+- Search tab at bottom with section separator
+
+**Benefits for SUF:**
+- Cleaner mental model for users (sidebar like WoW options)
+- Delegates tab builders to separate modules (easier maintenance)
+- Sticky sub-tab bar support (currently: Bars, Auras, Health, each have subs)
+- Space-efficient for 15+ option pages
+
+**Implementation Approach:**
+1. Refactor OptionsV2/Layout.lua to create sidebar (vertical tab buttons vs horizontal)
+2. Delegate each current page to a builder module (e.g., BarsBuild.lua, AurasBuilder.lua, GlobalBuilder.lua)
+3. Integrate bottom action buttons (Reload, Edit Mode, CDM Settings)
+4. Update search to highlight sidebar section from results
+
+**Files to Create:**
+- Modules/UI/OptionsV2/SidebarLayout.lua (new - replaces horizontal grid with vertical sidebar)
+- Modules/UI/OptionsV2/PageBuilders.lua (new - delegates to individual builders)
+- Modules/UI/OptionsV2/BarSections/ (new dir) - individual page builders
+
+**Files to Modify:**
+- Modules/UI/OptionsV2/Layout.lua (use sidebar instead of grid)
+- Modules/UI/OptionsV2/Bootstrap.lua (integrate bottom buttons)
+- SimpleUnitFrames.toc (new file loading)
+
+**Estimated Effort:** 6-8 hours (moderate refactoring)
+
+**Risk Level:** 🟡 MEDIUM
+- Breaking change: UI appearance will shift (good change, but users notice)
+- Validation: Test all tabs accessible, search navigation works
+- Rollback: Revert to horizontal tabs (Layout.lua reload)
+
+**Value:** 🟢🟢 HIGH
+- Better UX (familiar sidebar pattern)
+- Easier maintenance (delegated builders)
+- Visually cleaner
+
+---
+
+### A.2: Advanced Theme Color System with Accent Derivation (MEDIUM Risk, MEDIUM Value)
+
+**What QUI Does (framework.lua lines 60-85):**
 ```lua
--- Modern pattern (12.0.0+)
-local name, text, texture, startTime, endTime, isTradeSkill, castID, notInterruptible = UnitCastingInfo("target")
-if startTime and endTime then
-    local duration = C_DurationUtil.CreateDuration()
-    duration:SetStartTime(startTime / 1000)  -- ms to seconds
-    duration:SetEndTime(endTime / 1000)
-    castbar:SetTimerDuration(duration)  -- handles secret values natively
+function GUI:ApplyAccentColor(r, g, b)
+    local function lerp(a, b, t) return a + (b - a) * t end
+    -- Derives light/dark/hover variants from single accent
+    C.accentLight[1] = lerp(r, 1, 0.3)      -- 30% toward white
+    C.accentLight[2] = lerp(g, 1, 0.3)
+    C.accentLight[3] = lerp(b, 1, 0.3)
+    C.accentDark[1], C.accentDark[2], C.accentDark[3] = r * 0.5, g * 0.5, b * 0.5
+    C.accentHover[1] = lerp(r, 1, 0.15)     -- 15% toward white
+    -- ... updates all dependent colors
+    RefreshCachedColors()  -- Caches ~10 color tables for hot-path performance
 end
 ```
 
-**Implementation Scope:**
-- Castbar timing (all units)
-- Cooldown spirals (if SUF adds cooldown tracking)
-- Buff/debuff duration timers
+**Benefits for SUF:**
+- Single accent color picker → all UI colors automatically updated
+- No more inconsistent theming (currently: colors defined individually per widget)
+- Cached color components for performance (unpack colors once, not in loop)
+- Mint/Amber/Cool theme presets can be built on top
 
-**Priority:** Low (current implementation works, but this is more future-proof)
+**Implementation Approach:**
+1. Add accent color picker to Base/Global options
+2. Create color derivation function (lerp, darkening, lightening)
+3. Cache all derived colors on startup
+4. Update existing Theme.lua to read from cache
+5. Optionally add preset buttons (Mint, Amber, Cool themes)
+
+**Files to Modify:**
+- Modules/UI/Theme.lua (add accent derivation)
+- Modules/UI/OptionsV2/Registry.lua (add accent color picker widget to Global/Base)
+- SimpleUnitFrames.lua (cache colors on load)
+
+**Estimated Effort:** 2-3 hours
+
+**Risk Level:** 🟡 MEDIUM
+- Colors will change immediately when picker moved (good, but test perceptually)
+- Performance impact: negligible (colors cached)
+- Validation: Test all UI elements update, no flashing/redraws
+
+**Value:** 🟢 MEDIUM
+- Better UX (single control → all colors)
+- Consistent theming
+- Professional appearance
 
 ---
 
-### 1.3 C_UnitAuras Optimization Patterns
+### A.3: Settings Search with Navigation Index (LOW Risk, MEDIUM Value)
 
-**Current State:** SUF uses C_UnitAuras.GetAuraSlots and GetAuraDataBySlot for aura iteration (modern API).
+**What QUI Does (framework.lua + options.lua):**
+- Settings Registry: Maps setting names to their locations (tab, section, widget type)
+- Navigation Registry: Maps category names to tabs (e.g., "anchoring" → AnchoringTab)
+- Search results show both: matching settings + matching tabs/sections
+- Click result → navigates to correct tab + scrolls to section header
 
-**Enhancement Opportunity:**
-- Blizzard's CompactRaidFrames uses **continuation token** pattern for large aura lists
-- **Aura slot batching** can reduce per-frame overhead in raid scenarios
+**Benefits for SUF:**
+- Current search finds settings but doesn't navigate well
+- QUI's approach: search "health color" → highlights Health Settings tab + jumps to Color section
+- Better discovery for users with 15+ option pages
 
-**Reference from Blizzard_CompactRaidFrames:**
+**Implementation Approach:**
+1. Enhance SettingsRegistry in OptionsV2 to include tab/section info
+2. Expand NavigationRegistry to include category aliases (e.g., "bars" = "bars/general")
+3. Enhance Search.lua to support scroll-to-section
+4. Add visual link between search results and source tab
+
+**Files to Modify:**
+- Modules/UI/OptionsV2/Registry.lua (add tab/section metadata)
+- Modules/UI/OptionsV2/Search.lua (add navigation behavior)
+
+**Estimated Effort:** 1-2 hours
+
+**Risk Level:** 🟢 LOW
+- Non-breaking (search already works, just better)
+- No UI changes (only search result behavior)
+
+**Value:** 🟢 MEDIUM
+- Better user discoverability
+- Supports growing complexity of options
+
+---
+
+## SECTION B: LOW-RISK ENHANCEMENTS
+
+These are pure additions with zero breaking changes.
+
+### B.1: Systematic Secret Value Handling (6 Safe Wrappers)
+
+**What QUI Does (core/utils.lua lines 150-220):**
 ```lua
--- Blizzard pattern: iterate aura slots with continuation token
-local slots = {C_UnitAuras.GetAuraSlots(unit, 'HARMFUL', nil, continuationToken)}
-local continuationToken = slots[#slots]
-for i = 1, #slots - 1 do
-    local aura = C_UnitAuras.GetAuraDataBySlot(unit, slots[i])
-    if aura then
-        -- process aura
+-- 6 unsafe-value handlers covering all edge cases
+IsSecretValue(value)           → boolean (detects if value = nil/secret)
+SafeValue(value, fallback)     → any (returns value or fallback)
+SafeCompare(a, b)             → boolean|nil (compares without arithmetic)
+SafeArithmetic(val, op, fall)  → number (safe %, *, /, +, -)
+SafeToNumber(value, fall)      → number (converts with pcall)
+SafeToString(value, fall)      → string (converts with pcall)
+```
+
+**Current SUF Situation:**
+- Has SafeNumber and SafeText (lines ~765-835 in SimpleUnitFrames.lua)
+- Missing: SafeCompare, SafeArithmetic, SafeToNumber, SafeToString
+- Scattered usage (not systematic)
+
+**Benefits:**
+- Complete toolkit for secret value handling
+- Pattern consistency
+- Better error messages in debug mode
+
+**Implementation:**
+1. Add 4 missing wrappers to SimpleUnitFrames.lua safe value section
+2. Add to helper export (addon._core helpers)
+3. Update existing code to use where appropriate (non-breaking)
+
+**Files to Modify:**
+- SimpleUnitFrames.lua (add 4 new safe functions, ~50 lines)
+
+**Estimated Effort:** 30 minutes
+
+**Risk Level:** 🟢 LOW
+- Pure additions (no changes to existing functions)
+- No behavioral changes (existing code unchanged)
+
+**Value:** 🟢 MEDIUM
+- Future-proofs against secret value issues
+- Enables systematic refactoring (not urgent)
+
+---
+
+### B.2: SafeReload System (Prevent Addon Action Forbidden)
+
+**What QUI Does (core/main.lua lines 40-55):**
+```lua
+-- Check InCombatLockdown before reload
+if InCombatLockdown() then
+    -- Queue for PLAYER_REGEN_ENABLED
+    addon:ScheduleReload("after_combat")
+    ShowUIPanel(ReloadConfirmationDialog)  -- User-friendly popup
+else
+    -- Safe to reload immediately
+    ReloadUI()
+end
+```
+
+**Current SUF Situation:**
+- OptionsWindow has reload options on various setting changes
+- Users can hit reload during combat → ADDON_ACTION_FORBIDDEN error
+- No graceful handling
+
+**Benefits:**
+- No more "addon action forbidden" errors
+- User-friendly popup shows reload timing
+- Works with QueueOrRun protected operations system
+
+**Implementation:**
+1. Create Core/SafeReload.lua module
+2. Add SafeReload() function with InCombatLockdown check
+3. Queue deferred reload via addon:QueueOrRun() if in combat
+4. Show confirmation popup after PLAYER_REGEN_ENABLED
+5. Call from OptionsWindow.lua reload buttons
+
+**Files to Create:**
+- Core/SafeReload.lua (50-80 lines)
+
+**Files to Modify:**
+- SimpleUnitFrames.lua (register SafeReload method)
+- Modules/UI/OptionsWindow.lua (call SafeReload on reload button clicks)
+- SimpleUnitFrames.toc (load SafeReload.lua)
+
+**Estimated Effort:** 1 hour
+
+**Risk Level:** 🟢 LOW
+- Non-breaking (only called from option buttons)
+- Fallback: normal ReloadUI() if addon error occurs
+
+**Value:** 🟢 MEDIUM
+- Better UX (no error messages)
+- Professional addon behavior
+
+---
+
+### B.3: Profile Import/Export Validation
+
+**What QUI Does (core/profile_io.lua lines 250-330):**
+```lua
+function ValidateImportTree(tree, maxDepth, maxNodes)
+    -- Prevents crashes from malformed imports
+    if type(tree) ~= "table" then return false, "Not a table" end
+    if #tree > maxNodes then return false, "Too many nodes" end
+    -- Check for unsupported types (functions, threads, userdata)
+    for k, v in pairs(tree) do
+        if type(v) == "function" or type(v) == "thread" or type(v) == "userdata" then
+            return false, "Unsupported type: " .. type(v)
+        end
+        if type(v) == "table" and maxDepth > 0 then
+            return ValidateImportTree(v, maxDepth - 1, maxNodes)
+        end
     end
+    return true
 end
 ```
 
-**Implementation Scope:**
-- Raid aura display (current implementation already uses this pattern via oUF plugins)
-- Party frame auras (optimization for large debuff counts)
+**Current SUF Situation:**
+- Profiles can be exported as strings
+- No validation on import → potential crashes if string malformed
+- Error handling exists but not as comprehensive
 
-**Priority:** Very Low (SUF already uses modern C_UnitAuras API, this is micro-optimization)
+**Benefits:**
+- Prevents crashes from bad import strings
+- Clear error messages to user
+- Handles edge cases (deep nesting, huge tables)
 
----
+**Implementation:**
+1. Create Modules/UI/ProfileValidator.lua
+2. Port QUI's ValidateImportTree function
+3. Integrate into profile import handler (OptionsWindow.lua)
+4. Show validation errors in UI
 
-## 2. Architecture & Code Modernization
+**Files to Create:**
+- Modules/UI/ProfileValidator.lua (60-100 lines)
 
-### 2.1 Mixin-Based Component Architecture ✅ COMPLETED & INTEGRATED (2026-02-27)
+**Files to Modify:**
+- Modules/UI/OptionsWindow.lua (profile import section - call ValidateImportTree)
+- SimpleUnitFrames.toc
 
-**Status:** Fully implemented and loaded in addon initialization  
-**Files Created:** 4 new modules + load order integration  
-**Validation:** All 4 files zero syntax errors, TOC updated  
-**Architecture Impact:** Phase 2.1 extraction reduces SimpleUnitFrames.lua surface area, enables component composition  
+**Estimated Effort:** 1.5-2 hours
 
-**Implementation Details:**
-- **FrameFaderMixin** ([Modules/UI/FrameFaderMixin.lua](Modules/UI/FrameFaderMixin.lua)) — Combat alpha, mouseover fade, casting state
-  - InitFader(settings) — Initialize with fader configuration 
-  - UpdateFaderAlpha() — Calculate and apply alpha based on combat/hover/target state
-  - OnFaderEvent(event, unit) — Handle PLAYER_REGEN_*, UNIT_SPELLCAST_* events
-  - ResetFader() — Clear animations and restore default alpha
-  - Settings: enabled, minAlpha, maxAlpha, smooth, combat, hover, playerTarget, actionTarget, unitTarget, casting
-  - Smooth fade animation with configurable duration (0-1 seconds)
+**Risk Level:** 🟢 LOW
+- Non-breaking (only adds validation)
+- Prevents errors, doesn't change success path
 
-- **DraggableMixin** ([Modules/System/DraggableMixin.lua](Modules/System/DraggableMixin.lua)) — Frame dragging and position persistence
-  - InitDraggable(db, frameName, settings) — Set up dragging and event handlers
-  - SavePosition() — Store frame position in AceDB (rounded to 2 decimals for storage efficiency)
-  - LoadPosition() — Restore position on frame creation
-  - ResetPosition() — Clear saved position and center frame
-  - SetDraggingEnabled(enabled) — Enable/disable dragging without removing handlers
-  - Automatic position persistence across reloads
-  - Screen clamping with configurable inset
-
-- **ThemeMixin** ([Modules/UI/ThemeMixin.lua](Modules/UI/ThemeMixin.lua)) — Color/backdrop/font theming (WoW 12.0.0+ safe)
-  - InitTheme(themeSettings) — Initialize with theme configuration
-  - ApplyTheme() — Apply all theme settings (backdrop, font, statusbar)
-  - ApplyBackdropTheme() — Safe color application with IsSecretValue checks
-  - ApplyFontTheme() — Apply font/size/flags to FontString children
-  - ApplyStatusbarTheme() — Apply texture to StatusBar elements
-  - SetTextColor(), SetBackgroundColor(), SetBorderColor() — Runtime color updates
-  - Helper functions: SafeSetBackdropColor, SafeSetBorderColor, SafeSetFontColor, SafeSetFontStringTheme, SafeSetStatusbarTexture
-  - Full WoW 12.0.0+ secret value compatibility
-
-- **MixinIntegration** ([Modules/System/MixinIntegration.lua](Modules/System/MixinIntegration.lua)) — Integration helpers
-  - ApplyUnitFrameMixins(frame, unitType, db, settings) — Compose all mixins onto a frame
-  - RegisterUnitFrameMixins(addon, frame, unitType) — Register with event callbacks
-  - UpdateUnitFrameMixins(addon, frame, unitType) — Update mixin settings on plugin changes
-  - RemoveUnitFrameMixins(frame) — Clean up mixins when frame disabled
-
-- **Mixins/Init.xml** ([Mixins/Init.xml](Mixins/Init.xml)) — Load order for all mixins
-  - Loaded after Libraries, before SimpleUnitFrames.lua
-  - Ensures mixins available when unit frames spawn
-
-**Load Order Integration:**
-- Added `Mixins/Init.xml` to SimpleUnitFrames.toc after `Libraries/Init.xml`
-- Added `Modules/System/MixinIntegration.lua` to load after FrameIndex.lua
-- Mixins available for immediate use in frame builders
-
-**Benefit:**
-- ✅ Cleaner code organization (3 focused files vs. 8200-line monolith)
-- ✅ Reusable across unit types (Player, Target, Pet, Party, Raid all share behavior)
-- ✅ Composable components (mix and match FrameFaderMixin + DraggableMixin + ThemeMixin)
-- ✅ Easier testing and debugging (isolated mixin behavior)
-- ✅ WoW 12.0.0+ safe (secret value handling in ThemeMixin)
-- ✅ Event decoupling (mixins driven by settings, not directly by SimpleUnitFrames.lua)
-
-**Next Phase (2.2 - Post-Phase-3):**
-When ready to integrate mixins into unit frames:
-1. Apply mixins via Mixin() in unit frame builders (Units/Player.lua, Units/Target.lua, etc.)
-2. Call RegisterUnitFrameMixins() from Launcher.lua after frame spawn
-3. Wire mixin events into frame event handlers
-4. Remove redundant fade/drag/theme logic from SimpleUnitFrames.lua
-
-**Benefit of Post-Integration:**
-- Estimated 500-800 lines reduction in SimpleUnitFrames.lua
-- 20-30% faster reload time (less in-frame initialization complexity)
-- 100% backward compatible (mixins replace existing behavior)
+**Value:** 🟢 MEDIUM
+- Better error handling
+- Professional-grade robustness
 
 ---
 
-### 2.2 ObjectPool for Temporary Indicators
+### B.4: API Version Compatibility Patterns
 
-**Current State:** PerformanceLib provides frame pooling; SUF uses it for aura buttons via oUF plugins.
-
-**Enhancement Opportunity:**
-- Extend pooling to **temporary indicators**: threat glow, target highlight, dispel borders
-- **CreateObjectPool** (native WoW API) for texture recycling
-- Reduce GC pressure from temporary visual overlays
-
-**Example Pattern:**
+**What QUI Does (core/main.lua lines 20-40):**
 ```lua
--- Pool for threat glow textures
-local threatGlowPool = CreateObjectPool(
-    function(pool)  -- creator
-        local texture = frame:CreateTexture()
-        texture:SetBlendMode("ADD")
-        return texture
-    end,
-    function(pool, texture)  -- resetter
-        texture:Hide()
-        texture:ClearAllPoints()
-        texture:SetVertexColor(1, 1, 1, 1)
-    end
-)
-
--- Use in threat update
-function UpdateThreatGlow(frame, hasThreat)
-    if hasThreat then
-        local glow = threatGlowPool:Acquire()
-        glow:SetParent(frame)
-        glow:SetAllPoints()
-        glow:Show()
-        frame.threatGlow = glow
-    elseif frame.threatGlow then
-        threatGlowPool:Release(frame.threatGlow)
-        frame.threatGlow = nil
-    end
-end
-```
-
-**Benefit:**
-- 40-60% GC reduction for temporary visual indicators (measured in other addons)
-- Smoother frame times during high-activity periods (many targets cycling)
-
-**Implementation Scope:**
-- Threat glow texture pool
-- Target highlight texture pool
-- Dispel border texture pool
-- Range check fade overlays
-
-**Priority:** Medium (PerformanceLib already provides frame pooling; this extends it)
-
----
-
-### 2.3 CallbackRegistryMixin for Event Bus
-
-**Current State:** SUF uses AceEvent-3.0 for event handling; internal events use direct function calls.
-
-**Enhancement Opportunity:**
-- **CallbackRegistryMixin** (Blizzard standard) for internal addon events
-- Decouples modules (e.g., options window shouldn't directly call frame refresh functions)
-- Allows external addons to hook SUF events without taint
-
-**Example Pattern:**
-```lua
--- In SUF core
-addon.EventBus = CreateFromMixins(CallbackRegistryMixin)
-addon.EventBus:OnLoad()
-addon.EventBus:GenerateCallbackEvents({
-    "ProfileChanged",
-    "UnitSettingsChanged",
-    "ThemeChanged",
-    "FrameSpawned",
-})
-
--- In OptionsWindow
-addon.EventBus:RegisterCallback("ProfileChanged", function(profile)
-    -- refresh UI
-end)
-
--- In frame update system
-addon:ScheduleUpdateAll()
-addon.EventBus:TriggerEvent("UnitSettingsChanged", {unitType = "player"})
-```
-
-**Benefit:**
-- Better module isolation (options UI doesn't need direct references to frame internals)
-- External addon integration (other addons can listen to SUF events)
-- Debugging (can log all event triggers)
-
-**Implementation Scope:**
-- Profile system (load/save/switch events)
-- Unit settings changes (options → frame updates)
-- Theme changes (skin changes)
-- Frame lifecycle (spawn/hide/show events)
-
-**Priority:** Low (nice-to-have for architecture cleanliness, but AceEvent works fine)
-
----
-
-## 3. Performance & Optimization
-
-### 3.1 GridLayoutMixin for Raid Frames
-
-**Current State:** SUF raid frames use oUF's default header positioning.
-
-**Enhancement Opportunity:**
-- **GridLayoutMixin** (Blizzard standard) for efficient grid-based layouts
-- Optimized for large raid groups (20-40 players)
-- Built-in support for dynamic resizing and growth directions
-
-**Example Pattern:**
-```lua
--- Grid mixin for raid frames
-local raidContainer = CreateFrame("Frame", nil, UIParent)
-Mixin(raidContainer, GridLayoutMixin)
-raidContainer:Init(GridLayoutMixin.Direction.TopLeftToBottomRight, 5, 5, 5)  -- 5 cols, 5px spacing
-
-for i = 1, 40 do
-    local unitFrame = CreateFrame("Button", "SUF_RaidFrame"..i, raidContainer)
-    -- setup frame
-    raidContainer:AddFrame(unitFrame)
-end
-raidContainer:Layout()  -- efficient batch layout
-```
-
-**Benefit:**
-- Reduced layout calculation overhead (currently done per-frame)
-- Native support for growth directions (up/down/left/right)
-- Cleaner code vs. manual positioning math
-
-**Implementation Scope:**
-- Raid frames (40-player grids)
-- Party frames (5-player grids)
-
-**Priority:** Low (current implementation works; this is optimization)
-
----
-
-### 3.2 RegisterUnitEvent for UNIT_* Events ✅ FULLY IMPLEMENTED & OPTIMIZED (2026-02-27)
-
-**Status:** Completed and fully verified — All manual unit filtering removed  
-**Performance Validation:** ✅ Passed 3-run profile series (2026-03-01)  
-**Performance Gain:** 30-50% reduction in UNIT_* event handler calls (event filtering moved to WoW engine level)  
-**Backwards Compatibility:** Fully compatible with existing code  
-
-**Final Performance Results (Validation Complete):**
-- **Run 1 (76.5s, idle/low combat):** 16.69ms frame budget, 66.6% coalescing, 521 emergency flushes
-- **Run 2 (138.6s, aggressive tuning attempt):** 16.66ms frame budget, 63.7% coalescing (tuning backfired, reverted)
-- **Run 3 (109.9s, active combat):** **16.68ms frame budget, 60.9% coalescing, 0 dropped frames, 0 deferred frames** ✅
-- **Conclusion:** Frame budget locked at 60 FPS baseline (16.68ms avg, p99=18ms) throughout all scenarios; original delays optimal
-
-**Implementation Details:**
-- All oUF element modules using `Private.SmartRegisterUnitEvent()` for unit-specific subscriptions
-- Manual unit filtering checks (`if unit ~= self.unit then return end`) removed from:
-  - health.lua: Removed from Update() function (line 217)
-  - auras.lua: Removed from UpdateAuras() and Update() functions (lines 312, 851)
-- Power.lua SetColor* functions updated to use SmartRegisterUnitEvent:
-  - SetColorReaction uses SmartRegisterUnitEvent for UNIT_FACTION
-  - SetColorTapping uses SmartRegisterUnitEvent for UNIT_FACTION
-  - SetColorThreat uses SmartRegisterUnitEvent for UNIT_THREAT_LIST_UPDATE
-- All Disable functions remain consistent, using UnregisterEvent with unit-specific callbacks
-
-**Example Implementation (health.lua):**
-```lua
--- AFTER: Unit-specific registration (no filtering needed)
--- Enable function uses SmartRegisterUnitEvent
-Private.SmartRegisterUnitEvent(self, 'UNIT_HEALTH', self.unit, Path)
-Private.SmartRegisterUnitEvent(self, 'UNIT_MAXHEALTH', self.unit, Path)
-
--- Update function no longer needs manual filtering
-local function Update(self, event, unit)
-    -- Unit filtering handled by SmartRegisterUnitEvent - no manual check needed
-    local element = self.Health
-    -- ... rest of update logic
-end
-
--- Result: Event only fires for registered unit, zero filtering overhead
-```
-
-**Scope of Implementation (All Completed):**
-- **Core element events:** health, power, castbar, auras (all using SmartRegisterUnitEvent)
-- **Color events:** UNIT_CONNECTION, UNIT_FACTION, UNIT_THREAT_LIST_UPDATE (all unit-specific)
-- **Prediction events:** UNIT_HEAL_PREDICTION, UNIT_ABSORB_AMOUNT_CHANGED, UNIT_HEAL_ABSORB_AMOUNT_CHANGED (all unit-specific)
-- **Dynamic color methods:** SetColorReaction, SetColorTapping, SetColorThreat (now unit-specific via SmartRegisterUnitEvent)
-
-**Performance Impact Verified:**
-- Eliminated ~5-8 broad UNIT_HEALTH/UNIT_POWER_UPDATE event handlers per unit frame
-- With 40 raid frames = 200-320 fewer event callback invocations per second during heavy combat
-- Engine-level filtering (SmartRegisterUnitEvent) faster than addon-level unit checking
-- Real-world improvement: ~35% fewer event handler calls in active combat (middle of 30-50% range)
-
-**Priority:** ✅ COMPLETED & VALIDATED — High priority feature fully implemented, optimized, and performance-tested
-
----
-
-### 3.3 ObjectPool for Temporary Indicators ✅ FULLY IMPLEMENTED & EXTENDED (2026-02-28)
-
-**Status:** Completed with full integration across 7 indicator systems
-**Performance Gain:** 40-60% GC reduction in raid scenarios with multiple threat/status updates
-**Implementation:** IndicatorPoolManager + integration into threatindicator, questindicator, readycheckindicator, raidtargetindicator, leaderindicator, raidroleindicator, restingindicator
-
-**Integrated Indicators:**
-- **ThreatIndicator** — Dynamic threat glow (red/yellow/green based on threat level)
-- **QuestIndicator** — Golden highlight for quest bosses
-- **ReadyCheckIndicator** — Green/red/yellow glows for ready/notready/waiting status
-- **RaidTargetIndicator** — Blue highlight for marked targets
-- **LeaderIndicator** — Golden glow for group leaders
-- **RaidRoleIndicator** — Red (tank) / Orange (assist) glow for raid roles
-- **RestingIndicator** — Light blue highlight for resting status
-
-**Reference Implementation:**
-- [Core/IndicatorPoolManager.lua](Core/IndicatorPoolManager.lua) — Pool manager (484 lines)
-- [docs/INDICATOR_POOL_INTEGRATION.md](docs/INDICATOR_POOL_INTEGRATION.md) — Integration guide
-- [docs/THREAT_INDICATOR_OBJECTPOOL_EXAMPLE.lua](docs/THREAT_INDICATOR_OBJECTPOOL_EXAMPLE.lua) — Example code
-- 7 oUF element files updated with pooled visual effects
-
-**Result:** 7 oUF element files now use pooled visual effects, reducing temporary texture allocations by ~40-60% during active combat encounters with multiple indicator state changes per second.
-
-**Priority:** ✅ COMPLETED — High priority feature fully implemented and extended across multiple indicator systems
-
----
-
-### 3.4 SecondsFormatterMixin for Time Display
-
-**Current State:** SUF uses custom time formatting functions for castbar/debuff durations.
-
-**Enhancement Opportunity:**
-- **SecondsFormatterMixin** (Blizzard standard) for consistent time formatting
-- Supports abbreviation styles (e.g., "1m 30s", "1.5m", "90s")
-- Built-in localization support
-
-**Example Pattern:**
-```lua
--- Create formatter
-local timeFormatter = CreateFromMixins(SecondsFormatterMixin)
-timeFormatter:Init(
-    SecondsFormatter.Abbreviation.Truncate,  -- "1m" not "1m 0s"
-    SecondsFormatter.Interval.All,           -- all time units (h/m/s)
-    true                                      -- abbreviate
-)
-
--- Use in castbar update
-local remaining = endTime - GetTime()
-castbarText:SetText(timeFormatter:Format(remaining))  -- "2.5s"
-```
-
-**Benefit:**
-- Consistent formatting across addon
-- Localization handled automatically
-- Less custom code to maintain
-
-**Implementation Scope:**
-- Castbar remaining time
-- Buff/debuff duration timers
-- Data text displays (XP/Rep time to level)
-
-**Priority:** Very Low (cosmetic, not functional)
-
----
-
-## 4. UI/UX Enhancements
-
-### 4.1 Edit Mode Integration Improvements
-
-**Current State:** SUF frames integrate with Blizzard Edit Mode via Movers.lua.
-
-**Enhancement Opportunity:**
-- **Deeper Edit Mode hooks** for SUF-specific settings in Edit Mode UI
-- Allow frame scale/alpha adjustments directly in Edit Mode (not just position)
-- **EditModeSystemMixin** pattern from Blizzard UI
-
-**Example Use Case:**
-- Player opens Edit Mode (`/editmode`)
-- Clicks on SUF Player frame
-- Edit Mode UI shows:
-  - Position (already supported)
-  - **Scale slider** (new)
-  - **Alpha slider** (new)
-  - **Show/Hide toggle** (new)
-- Changes apply live without reloading UI
-
-**Reference from Blizzard UI:**
-```lua
--- EditModeSystemMixin pattern
-SUFPlayerFrameMixin = CreateFromMixins(EditModeSystemMixin)
-function SUFPlayerFrameMixin:UpdateSystem(systemInfo)
-    self:SetScale(systemInfo.scale or 1.0)
-    self:SetAlpha(systemInfo.alpha or 1.0)
-end
-```
-
-**Benefit:**
-- Better UX (no need to open SUF options for basic adjustments)
-- Consistency with Blizzard UI (everything configurable in Edit Mode)
-
-**Implementation Scope:**
-- All unit frames (Player, Target, Pet, Focus, ToT, Party, Raid, Boss)
-- Settings: scale, alpha, show/hide
-
-**Priority:** Medium (UX improvement, but SUF options work fine)
-
----
-
-### 4.2 Nameplate Integration (Limited by 12.0.0 Restrictions)
-
-**Current State:** SUF does not provide nameplate customization.
-
-**Enhancement Opportunity:**
-- **C_NamePlate API** for basic nameplate modifications
-- **CRITICAL:** 12.0.0 restricts nameplate modifications in instances (see instructions)
-- Can still customize color, font, size (but not based on secret unit info)
-
-**Restrictions to Note:**
-> From wow-api-important.instructions.md:
-> "Nameplates cannot be altered by addons while in an instance. This includes changing number of buffs/debuffs shown, their size, or their position & position of elements within the unit frame."
-
-**Safe Enhancements:**
-- Custom nameplate fonts (outside instances)
-- Custom threat borders (color-based, not info-based)
-- Custom textures (non-functional)
-
-**Priority:** Very Low (heavily restricted by 12.0.0, low value-add)
-
----
-
-### 4.3 Minimap Button Modern Skinning
-
-**Current State:** SUF uses LibDBIcon for minimap button.
-
-**Enhancement Opportunity:**
-- Modern addon UI buttons use **atlas textures** and **hover states**
-- QUI uses advanced button skinning with glow effects
-
-**Example Pattern:**
-```lua
--- Modern minimap button styling
-local button = LibDBIcon:GetMinimapButton("SimpleUnitFrames")
-button:SetNormalAtlas("UI-HUD-AddonButton-Normal")
-button:SetPushedAtlas("UI-HUD-AddonButton-Pressed")
-button:SetHighlightAtlas("UI-HUD-AddonButton-Highlight", "ADD")
-```
-
-**Benefit:**
-- More polished appearance
-- Consistent with modern addon standards
-
-**Priority:** Very Low (cosmetic only)
-
----
-
-## 5. Advanced Feature Ideas (Inspired by Other Addons)
-
-### 5.1 Aura Consolidation/Priority System
-
-**Inspiration:** ElvUI, Grid2
-
-**Concept:**
-- Display only **important** auras (user-defined priority lists)
-- Consolidate less important buffs into a single "+" icon with count
-- **Corner indicators** for specific high-priority debuffs (e.g., dispellable magic)
-
-**Use Case:**
-- Raid healing: show dispellable debuffs prominently, hide minor buffs
-- DPS: show cooldown procs prominently, hide passive buffs
-
-**Implementation Scope:**
-- New aura filtering system (whitelist/blacklist)
-- Corner indicator system (4 corners = 4 tracked auras)
-- Consolidation overlay (single icon with count)
-
-**Priority:** Low (niche feature, oUF plugins already provide basic filtering)
-
----
-
-### 5.2 Range Fading with LibRangeCheck-3.0
-
-**Current State:** SUF already uses LibRangeCheck-3.0.
-
-**Enhancement Opportunity:**
-- **Graduated alpha** based on range (0-10yd = 100%, 10-30yd = 75%, 30-40yd = 50%, 40+ = 25%)
-- More nuanced than binary visible/faded
-
-**Example Pattern:**
-```lua
-local function UpdateRangeFading(frame, unit)
-    local minRange, maxRange = LibRangeCheck:GetRange(unit)
-    local alpha = 1.0
-    if maxRange and maxRange > 40 then
-        alpha = 0.25
-    elseif maxRange and maxRange > 30 then
-        alpha = 0.5
-    elseif maxRange and maxRange > 10 then
-        alpha = 0.75
-    end
-    frame:SetAlpha(alpha)
-end
-```
-
-**Benefit:**
-- More informative (can see approximate range, not just "in/out")
-- Useful for healers (know who is close vs. far)
-
-**Priority:** Low (nice-to-have, current binary range check works)
-
----
-
-### 5.3 Combat Indicator Integration
-
-**Current State:** SUF shows resting icon for player frame.
-
-**Enhancement Opportunity:**
-- **Combat state indicator** (red border, icon, or glow when in combat)
-- LibCustomGlow already integrated (can use for combat glow)
-
-**Example Pattern:**
-```lua
-function UpdateCombatState(frame, inCombat)
-    if inCombat then
-        LibCustomGlow.ButtonGlow_Start(frame, {1, 0, 0, 1})  -- red glow
+local tocVersion = tonumber((select(4, GetBuildInfo()))) or 0
+
+function GetHealthPct(unit, usePredicted)
+    if tocVersion >= 120000 and type(UnitHealthPercent) == "function" then
+        -- 12.01+ supports UnitHealthPercent with curve parameter
+        ok, pct = pcall(UnitHealthPercent, unit, usePredicted, CurveConstants)
     else
-        LibCustomGlow.ButtonGlow_Stop(frame)
+        -- Fallback for older builds
+        local health, maxHealth = UnitHealth(unit), UnitHealthMax(unit)
+        pct = maxHealth > 0 and health / maxHealth or 0
     end
+    return pct
 end
 ```
 
-**Benefit:**
-- Visual clarity (especially useful for focus/target frames)
-- Useful in PvP
+**Current SUF Situation:**
+- Doesn't cache tocVersion
+- Uses GetBuildInfo every time
+- Limited API version compatibility checks
 
-**Priority:** Very Low (minor visual enhancement)
+**Benefits:**
+- Future-proof for API changes (12.01, 12.1, etc.)
+- Performance (cached version, no string parsing per call)
+- Systematic pattern for all version-dependent code
+
+**Implementation:**
+1. Cache tocVersion in SimpleUnitFrames.lua (line 1)
+2. Create version-aware wrapper functions for common APIs
+3. Document pattern for future changes
+
+**Files to Modify:**
+- SimpleUnitFrames.lua (add tocVersion cache, update tag handlers)
+
+**Estimated Effort:** 30 minutes
+
+**Risk Level:** 🟢 LOW
+- Pure additions (no breaking changes)
+- Better performance (cached vs repeated parsing)
+
+**Value:** 🟢 MEDIUM
+- Future-proofs against WoW API changes
+- Performance improvement
 
 ---
 
-## 6. Code Quality & Maintenance
+## SECTION C: MEDIUM-RISK ENHANCEMENTS
 
-### 6.1 Migrate to Typed Lua Annotations — ✅ COMPLETED (2026-02-27)
+These require moderate refactoring but use proven patterns.
 
-**Concept:**
-- Add **EmmyLua/LuaLS annotations** for type hinting
-- Enables better IDE intellisense and static analysis
-- No runtime impact (annotations are comments)
+### C.1: Pixel-Perfect Scaling System (4-5 hours)
 
-**Implementation Complete:**
-- 195+ type annotation comments added across 18 files
-- Core addon class definition (@class SimpleUnitFrames : AceAddon)
-- Safe value wrapper annotations (IsSecretValue, SafeNumber, SafeText, SafeAPICall)
-- All oUF element class definitions (oUFHealthElement, oUFPowerElement, oUFCastbarElement, etc.)
-- Module-level annotations (Units/, Modules/UI/, Modules/System/)
-- 100% validation pass rate (0 Lua syntax errors)
-
-**Files Modified:**
-- [SimpleUnitFrames.lua](SimpleUnitFrames.lua) — Core addon class + 75 annotations
-- 8 Unit spawner modules (Player, Target, Focus, Pet, Tot, Party, Raid, Boss)
-- 6 oUF element modules (health, power, castbar, auras, portrait, runes)
-- 3 system/UI modules (OptionsWindow, Theme, Movers)
-- 1 protected operations core module
-
-**Example Implementation:**
+**What QUI Does (core/scaling.lua lines 1-100):**
 ```lua
----@class SimpleUnitFrames : AceAddon
----@field db AceDB Database instance
----@field frames table<integer, Frame> Array of spawned unit frames
----@field performanceLib table|nil Optional PerformanceLib integration
-
----Safely extract numeric value from potentially-secret WoW API return
----@param value any Potentially-secret value from WoW API
----@param fallback number Default value if input is secret or invalid
----@return number Safe numeric value
-function addon:SafeNumber(value, fallback)
-    -- implementation
+-- Calculate physical pixel size at current UI scale
+function GetPixelSize(frame)
+    local pixelHeight = 768 / (GetPhysicalScreenSize() * frame:GetEffectiveScale())
+    return pixelHeight  -- e.g., 1.5 physical pixels = 1 virtual pixel needed
 end
 
----Get unit-specific settings from current profile
----@param unitType string Unit type identifier ("player", "target", "party1", etc.)
----@return table Configuration table for unit
-function addon:GetUnitSettings(unitType)
-    -- implementation
+-- Round values to nearest pixel
+function Pixels(n, frame)
+    return math.floor(GetPixelSize(frame) * n + 0.5)
+end
+
+-- Use when setting frame sizes/positions
+frame:SetHeight(Pixels(20, frame))  -- Exact 20 physical pixels at any UI scale
+```
+
+**Benefits:**
+- Borders render cleanly at all UI scales (75%, 100%, 125%)
+- No more 1.5px borders rendering as fuzzy
+- Consistent appearance across all screen resolutions
+
+**Current SUF:**
+- Uses fixed pixel values
+- Borders can appear blurry at non-100% UI scales
+
+**Implementation:**
+1. Create Core/PixelPerfect.lua with GetPixelSize, Pixels, PixelRound
+2. Cache screen dimensions on UI_SCALE_CHANGED
+3. Update frame sizing in all unit frame builders
+4. Update theme border creation
+5. Update Movers.lua to preserve pixel-perfect offsets
+
+**Files to Create:**
+- Core/PixelPerfect.lua (80-120 lines)
+
+**Files to Modify:**
+- Units/Player.lua, Units/Target.lua, Units/Pet.lua, Units/Focus.lua, Units/Tot.lua (sizing)
+- Modules/UI/Theme.lua (border creation)
+- Modules/System/Movers.lua (position tracking)
+- SimpleUnitFrames.lua (cache screen dimensions)
+- SimpleUnitFrames.toc
+
+**Estimated Effort:** 4-5 hours
+
+**Risk Level:** 🟡 MEDIUM
+- Non-breaking (default sizes unchanged)
+- Validation: Visual inspection at 75%, 100%, 125% UI scales
+- Rollback: Revert Core/PixelPerfect.lua changes
+
+**Value:** 🟢🟢 HIGH
+- Visual quality improvement (most important to users)
+- Professional appearance
+
+---
+
+### C.2: Modular Options Page Builders (Refactoring, 3-4 hours)
+
+**What QUI Does:**
+- Each options page built by separate file (GeneralOptions.lua, UnitFramesOptions.lua, etc.)
+- Page builder called from central registry
+- Each builder responsible for creating its widgets
+
+**Current SUF:**
+- OptionsTabs.lua (1800+ lines) defines all tabs
+- OptionsWindow.lua builds tabs inline
+- Hard to navigate, understand, modify
+
+**Benefits:**
+- Each page in own file (easier to find, modify)
+- Clear separation of concerns
+- Better for team collaboration
+
+**Implementation:**
+1. Extract each tab into builder file (Modules/UI/Builders/GlobalBuilder.lua, BarBuilder.lua, etc.)
+2. Register builders in central registry
+3. Update OptionsWindow.lua to call builders
+4. Clean up OptionsTabs.lua (remove inline definitions)
+
+**Files to Create:**
+- Modules/UI/Builders/ (new directory)
+- Modules/UI/Builders/GlobalBuilder.lua
+- Modules/UI/Builders/BarBuilder.lua
+- Modules/UI/Builders/AuraBuilder.lua
+- ... (one per tab)
+
+**Files to Modify:**
+- Modules/UI/OptionsWindow.lua (call builders instead of inline)
+- Modules/UI/OptionsTabs.lua (remove inline definitions, keep metadata)
+- SimpleUnitFrames.toc (load builders)
+
+**Estimated Effort:** 3-4 hours
+
+**Risk Level:** 🟡 MEDIUM
+- Non-breaking (same final UI)
+- Validation: All tabs render, all settings work
+- Rollback: Revert OptionsWindow.lua, OptionsTabs.lua
+
+**Value:** 🟢 MEDIUM
+- Code maintenance (easier to work with)
+- Scalability (easier to add/remove tabs)
+
+---
+
+### C.3: Backwards Compatibility Profile Migrations (3-4 hours)
+
+**What QUI Does (core/compatibility.lua):**
+```lua
+local function BackwardsCompat()
+    MigrateDatatextSlots()        -- v1 → v2 datatext format
+    MigratePerSlotSettings()      -- v2 → v3 per-slot options
+    MigrateMasterTextColors()     -- v3 → v4 color system
+    MigrateCooldownSwipeV2()      -- v4 → v5 cooldown format
+end
+
+-- Called during ADDON_LOADED
+if profile.version < CURRENT_VERSION then
+    BackwardsCompat()
+    profile.version = CURRENT_VERSION
 end
 ```
 
-**Benefit:**
-- ✅ Full IDE intellisense and autocomplete
-- ✅ Parameter hints on function calls
-- ✅ Static analysis tools can detect type errors
-- ✅ Self-documenting code for all public APIs
-- ✅ Foundation for Phase 3 Mixin architecture
+**Current SUF:**
+- Profiles stored in AceDB
+- Schema changes sometimes break old profiles
+- No systematic migration support
 
-**Priority:** ✅ COMPLETED — High (improves developer experience, enables better maintainability)
+**Benefits:**
+- Users' profiles continue working across addon updates
+- No "reset to defaults" required
+- Professional addon behavior
 
----
+**Implementation:**
+1. Create Modules/System/ProfileMigrations.lua
+2. Define migration functions (one per schema version change)
+3. Add version field to profile
+4. Call migrations on load if version outdated
+5. Document migration pattern for future changes
 
-### 6.2 Unit Test Framework (WoW Testing Framework)
+**Files to Create:**
+- Modules/System/ProfileMigrations.lua (100-200 lines)
 
-**Concept:**
-- **WoW Testing Framework** (official Blizzard tool) for addon testing
-- Write unit tests for core functions (SafeNumber, color calculations, etc.)
-- Automated regression testing
+**Files to Modify:**
+- SimpleUnitFrames.lua (call migrations on load)
+- SimpleUnitFrames.toc
 
-**Example Test:**
-```lua
--- Test SafeNumber wrapper
-WoWTest("SafeNumber returns fallback for secret values", function()
-    local secret = UnitHealth("target")  -- may be secret
-    local safe = SafeNumber(secret, 100)
-    assert(type(safe) == "number")
-    assert(safe >= 0)
-end)
-```
+**Estimated Effort:** 3-4 hours
 
-**Benefit:**
-- Prevents regressions (catch bugs before release)
-- Safer refactoring (tests validate behavior)
+**Risk Level:** 🟡 MEDIUM
+- Breaking: If migration logic wrong, users' profiles break
+- Validation: Test with old profile data, verify settings migrate correctly
+- Rollback: Revert ProfileMigrations.lua, users can manually re-apply settings
 
-**Priority:** Low (development workflow improvement, not user-facing)
-
----
-
-## 7. Integration Opportunities
-
-### 7.1 WeakAuras Integration
-
-**Concept:**
-- Expose SUF frame references to WeakAuras
-- Allow WeakAuras to anchor to SUF frames
-- Trigger WeakAuras on SUF events (profile change, etc.)
-
-**Example Pattern:**
-```lua
--- Global table for external addons
-_G.SimpleUnitFrames_API = {
-    GetPlayerFrame = function() return _G["SUF_Player"] end,
-    GetTargetFrame = function() return _G["SUF_Target"] end,
-    GetFrameByUnit = function(unit) return _G["SUF_"..unit] end,
-}
-```
-
-**Benefit:**
-- Better integration with WeakAuras (anchor custom auras to SUF frames)
-- Supports advanced users who want custom displays
-
-**Priority:** Low (niche use case, but easy to implement)
+**Value:** 🟢 MEDIUM
+- User satisfaction (profiles don't break)
+- Professional quality
 
 ---
 
-### 7.2 Plater/ThreatPlates Compatibility Checks
+## SECTION D: HIGH-RISK ENHANCEMENTS
 
-**Concept:**
-- Detect if nameplate addons are active
-- Provide compatibility warnings/settings
+Large architectural changes with potential for significant impact.
 
-**Example:**
-```lua
-if C_AddOns.IsAddOnLoaded("Plater") then
-    print("|cFF8080FFSimpleUnitFrames:|r Plater detected. SUF does not customize nameplates.")
-end
-```
+### D.1: Modular Cooldown System Port (8-12 hours)
 
-**Benefit:**
-- Reduces user confusion (clarifies that SUF doesn't conflict with nameplate addons)
+**What QUI Has:**
+- Modular Cooldown Manager (separate from action bars)
+- Configurable cooldown target (action buttons, pet skills, runes)
+- Rich UI for customization (position, scale, count format)
 
-**Priority:** Very Low (informational only)
+**SUF Current:**
+- No built-in cooldown system
+- Relies on oUF elements (basic)
+- Users use third-party addons (Oui Damage Numbers, GoldpawUI, etc.)
 
----
+**Benefits:**
+- POV of SUF users: Option for built-in cooldown visuals
+- Reduces dependency on third-party addons
+- Integrated with SUF's theming
 
-## 8. Implementation Recommendations
+**Risk:**
+- Complex feature with many edge cases
+- Potential conflicts with third-party cooldown addons
+- Maintenance burden (requires cooldown sprite sheet management)
 
-### ✅ Completed (Phase 1, 2 & 3)
-1. **RegisterUnitEvent for UNIT_* events** (Section 3.2) — ✅ DONE (2026-02-24)
-   - 30-50% reduction in UNIT_* event handler calls in raid scenarios
-   - Implemented across all 18+ oUF element modules
-2. **Typed Lua annotations** (Section 6.1) — ✅ DONE (2026-02-27)
-   - 195+ type comments across 18 files
-   - Full IDE intellisense enabled
-   - Zero runtime cost (comment-based only)
-3. **ObjectPool for temporary indicators** (Section 3.3) — ✅ DONE (2026-02-28)
-   - 40-60% GC reduction in raid scenarios with indicator updates
-   - Integrated across 7 oUF indicator elements (threat, quest, ready check, raid target, leader, raid role, resting)
-   - Comprehensive integration documentation and examples provided
+**Implementation Scope:**
+1. Study QUI's cooldown system (modules/cooldowns/)
+2. Port to SUF as optional module
+3. Add to options (toggle, positioning, styling)
+4. Test for conflicts with popular addons
 
-### High Priority (Ready to Start — Phase 4+)
-1. **Mixin-based component architecture** (Section 2.1) — Foundation laid by typed annotations
-   - Extract reusable mixins (FaderMixin, DragMixin, ThemeMixin)
-   - Improves maintainability, reduces duplication
-   - Estimated: 14-21 days
+**Estimated Effort:** 8-12 hours (high uncertainty)
 
-### Medium Priority (Valuable Enhancements)
-1. **Edit Mode integration improvements** (Section 4.1) — Better UX, moderate effort
-2. **CurveObject/ColorCurve integration** (Section 1.1) — Safer secret value handling, low-medium effort
-3. **CallbackRegistryMixin event bus** (Section 2.3) — Cleaner architecture, moderate effort
+**Risk Level:** 🔴 HIGH
+- Complex feature (many edge cases)
+- Potential addon conflicts
+- Maintenance burden
+- Users may not need (third-party alternatives exist)
 
-### Low Priority (Nice-to-Have)
-1. **Aura consolidation system** (Section 5.1) — Advanced feature, high effort
-2. **WeakAuras API exposure** (Section 7.1) — Niche use case, easy implementation
-3. **Plater/ThreatPlates compatibility checks** (Section 7.2) — Informational only, very low effort
+**Value:** 🟡 MEDIUM
+- Nice-to-have feature (not essential)
+- Reduces addon count for users who want cooldowns in SUF
+- Better integration with SUF theme
 
-### Not Recommended
-1. **Nameplate integration** (Section 4.2) — Heavily restricted by 12.0.0, low value
-2. **SecondsFormatterMixin** (Section 3.4) — Cosmetic, low value
+**Recommendation:** 🔴 DEFER for now
+- Focus on core functionality improvements first
+- Revisit if users specifically request integrated cooldoms
 
 ---
 
-## 9. Risk Assessment
+### D.2: Advanced Aura Filtering System (10-15 hours)
 
-### Low Risk Enhancements
-- RegisterUnitEvent (backwards compatible, purely additive) ✅ COMPLETED
-- Typed Lua annotations (comment-based, no runtime impact) ✅ COMPLETED
-- ObjectPool for indicators (fully tested integration, no existing functionality affected) ✅ COMPLETED
-- WeakAuras API exposure (purely additive)
+**What QUI Has:**
+- Whitelist/blacklist auras by name
+- Filter by type (buff, debuff, both)
+- Filter by application (player, targets, both)
+- Regex pattern matching for dynamic filtering
 
-### Medium Risk Enhancements
-- Mixin architecture refactor (requires testing across all unit types)
-- Edit Mode integration (potential conflicts with Movers system)
+**SUF Current:**
+- Auras display with basic options (max count, time format)
+- No built-in filtering
+- Users customize via oUF's aura settings
 
-### High Risk Enhancements
-- DurationObject for castbars (changes core timing logic, needs extensive testing)
-- CurveObject for health colors (changes visual behavior, may surprise users)
+**Benefits:**
+- Users can hide irrelevant auras (e.g., all buffs, specific debuffs)
+- Better UI clarity (show only important auras)
+- Competitive advantage vs other frame addons
 
----
+**Risk:**
+- Complex configuration UI
+- Many edge cases (regex behavior, buff/debuff distinction)
+- Maintenance burden (aura list updates)
 
-## 10. Next Steps
+**Implementation Scope:**
+1. Study QUI's aura filtering (modules/frames/auras.lua)
+2. Port filter system to oUF's aura element
+3. Add filter management UI (whitelist/blacklist tabs)
+4. Add regex pattern support
+5. Test with common aura scenarios
 
-**Status:** Phase 1, 2 & 3 Complete — Ready for Phase 4 (Mixin-Based Component Architecture)
+**Estimated Effort:** 10-15 hours
 
-**Phase 4 Details (Section 2.1):**
-- Use typed annotations as foundation for composable components
-- Extract reusable mixins: FaderMixin, DragMixin, ThemeMixin
-- Improve code maintainability and reduce duplication
-- Estimated effort: 14-21 days
+**Risk Level:** 🔴 HIGH
+- Complex feature with many permutations
+- UI complexity (filter management page alone is substantial)
+- Edge cases (boss debuffs, special effects, buffs from other players)
 
-**Phase 4 (Optional):** ObjectPool for temporary indicators (Section 2.2)
-- 60-75% GC reduction for temporary aura buttons and indicators
-- Estimated effort: 7-14 days
+**Value:** 🟡 MEDIUM
+- Power users appreciate aura filtering
+- General users may not use heavily
+- Niche feature
 
-**Phase 5 (Optional):** Edit Mode integration improvements (Section 4.1)
-- Scale/alpha adjustments in Edit Mode UI
-- Estimated effort: 3-5 days
-
-**Recommended Approach:**
-1. In-game smoke test for Phase 1 & 2 changes (no regressions)
-2. Commit changes to master branch
-3. Begin Phase 3 (Mixin architecture) — uses typed annotations as foundation
-4. Profile performance improvements of Phase 1 & 2 in raid scenarios
-
-**Documentation:**
-- Phase 1 completion: [WORK_SUMMARY.md - RegisterUnitEvent section](#)
-- Phase 2 completion: [WORK_SUMMARY.md - Phase 2 Typed Lua Annotations](#)
-- Next phase details: [RESEARCH.md Section 2.1 - Mixin Architecture](#)
-
----
-
-## 11. References
-
-### Blizzard Reference Implementations
-- **Blizzard_CompactRaidFrames** — Modern raid frame patterns (C_UnitAuras, GridLayout)
-- **Blizzard_EditMode** — Edit Mode integration patterns (EditModeSystemMixin)
-- **Blizzard_WorldMap** — CreateFromMixins examples (DataProvider pattern)
-- **Blizzard_UnitFrame** — Class resource bars (BuilderSpenderFrame, AlternatePowerBar)
-
-### External Addons (Workspace Analysis)
-- **QUI** — Modern anchoring system, edit mode integration, unit frame patterns
-- **PerformanceLib** — Frame pooling, event coalescing, performance monitoring
-- **Dominos** — Secure frame practices (template inheritance, attribute-driven state)
-
-### WoW API Documentation
-- **wow-api-important.instructions.md** — 12.0.0 secret values, combat log changes, instance restrictions
-- **wow-ui-source** — Blizzard reference UI code (live branch)
-- **WoWAddonAPIAgents skills** — Comprehensive API references (C_UnitAuras, C_EditMode, mixins)
+**Recommendation:** 🔴 DEFER for now
+- Medium ROI given complexity
+- Revisit if user demand justifies effort
 
 ---
 
-## Conclusion
+### D.3: Frame Preview/Builder Mode (6-8 hours)
 
-SimpleUnitFrames is architecturally sound with strong WoW 12.0.0+ compatibility. Research reveals **incremental modernization opportunities** focused on:
-- Performance (RegisterUnitEvent, ObjectPool)
-- Maintainability (Mixins, type annotations)
-- UX (Edit Mode integration)
+**What QUI Lacks but SUF Could Add:**
+- Preview mode showing frame layout without combat/real resources
+- Renders fake health, power, auras for UI testing
+- Helpful for customizing appearances
 
-No fundamental restructuring required. Enhancements can be implemented **incrementally** based on user feedback and maintainer priorities.
+**SUF Current:**
+- Options affect live frames
+- Users must enter combat or manually edit settings to see changes
+- Difficult to design optimal layout
 
-**Status:** Awaiting decision on which enhancements to plan and implement.
+**Benefits:**
+- Users can design frames without combat
+- See appearance changes in real-time
+- Better UX for theme customization
+
+**Risk:**
+- Significant new feature (not critical)
+- Edge cases (what if player health/power out of sync with preview?)
+- Performance impact (rendering fake data)
+
+**Implementation Scope:**
+1. Create preview data generator (fake health %, power, auras)
+2. Add preview toggle to options
+3. Update frame rendering to use preview data when active
+4. Test for UI glitches (tooltips showing fake data, etc.)
+
+**Estimated Effort:** 6-8 hours
+
+**Risk Level:** 🔴 HIGH
+- New feature with uncertain UX implications
+- Performance considerations
+- Testing complexity
+
+**Value:** 🟡 MEDIUM
+- Nice-to-have (not essential)
+- Power users appreciate
+- Better first-time setup experience
+
+**Recommendation:** 🟡 CONSIDER in Phase 5 (polish phase)
+- Not urgent, but good for user experience
+- Implement after core features stable
+
+---
+
+## SECTION E: QUICK WIN IMPLEMENTATION ORDER
+
+### Recommended Phase Breakdown:
+
+**Phase 1: Low-Effort Quick Wins (2-3 hours total)**
+1. B.4: API Version Compatibility (30 min) — Start here
+2. B.1: Safe Helpers (30 min)
+3. B.2: SafeReload System (1 hour)
+4. B.3: Profile Validation (1 hour)
+
+**Phase 2: UI Improvements (8-10 hours total)**
+1. A.2: Accent Color System (2-3 hours) — Quick win for theming
+2. A.3: Search Navigation (1-2 hours) — Enhances existing search
+3. C.2: Modular Builders (3-4 hours) — Code quality improvement
+
+**Phase 3: Visual Polish (5-6 hours total)**
+1. C.1: Pixel-Perfect Scaling (4-5 hours) — Highest visual impact
+
+**Phase 4 (Optional): Advanced Features (20+ hours - DEFER)**
+1. A.1: Sidebar Tabs (6-8 hours) — Major UI refactor
+2. C.3: Profile Migrations (3-4 hours) — Infrastructure
+3. D.* (HIGH-RISK features) — Only if time + demand permits
+
+---
+
+## SECTION F: IMPLEMENTATION RESOURCES
+
+### QUI Reference Code Locations
+- [Sidebar UIArchitecture](../QUI/options/framework.lua) — Color system, theme management (5124 lines)
+- [Tab System](../QUI/options/options.lua) — Tab registry, page builders (200 lines)
+- [Pixel-Perfect Scaling](../QUI/core/scaling.lua) — GetPixelSize, Pixels functions (487 lines)
+- [UIKit Factories](../QUI/core/uikit.lua) — Frame primitives (503 lines)
+- [Safe Helpers](../QUI/core/utils.lua) — 7 unsafe-value wrappers (976 lines)
+- [SafeReload Pattern](../QUI/core/main.lua) — Combat-aware reload (lines 40-55)
+- [Profile Validation](../QUI/core/profile_io.lua) — ValidateImportTree (667 lines)
+- [Profile Migration](../QUI/core/compatibility.lua) — Backwards compat pattern (180 lines)
+
+### SUF Reference
+- [OptionsWindow.lua](./Modules/UI/OptionsWindow.lua) — Current options implementation
+- [OptionsV2/](./Modules/UI/OptionsV2/) — Modern options system
+- [SimpleUnitFrames.lua](./SimpleUnitFrames.lua) — Main addon (lines 765-835: safe helpers)
+- [Theme.lua](./Modules/UI/Theme.lua) — Current theming
+- [Units/*.lua](./Units/) — Frame spawning (8 files)
+
+---
+
+## SECTION G: SUCCESS CRITERIA & VALIDATION
+
+### Before Starting Any Phase:
+- [ ] Understand the QUI implementation (read reference code)
+- [ ] Identity all affected SUF files (create list)
+- [ ] Plan rollback strategy (git branch + revert)
+- [ ] Estimate time accurately (add 20% buffer)
+
+### After Completing Each Improvement:
+- [ ] `/reload` addon and verify no Lua errors
+- [ ] Test in safe zone first (no combat)
+- [ ] Test in dungeons/raids if applicable
+- [ ] Verify no performance regressions (`/SUFperf`)
+- [ ] Visually inspect UI appearance (especially Theme.lua changes)
+- [ ] Update WORK_SUMMARY.md
+- [ ] Commit with clear message
+
+### Risk Mitigation:
+- **Low-Risk Items:** Commit directly to main branch
+- **Medium-Risk Items:** Create feature branch, test thoroughly, code review before merge
+- **High-Risk Items:** Create separate branch, extended testing, community beta before merge
+
+---
+
+## SECTION H: NOTES & DECISIONS
+
+**This Analysis Captured:**
+- 8 low/medium/high-risk enhancements from QUI
+- 3 options UI/UX improvements
+- Clear effort/value/risk assessments
+- Specific code references for implementation
+- Recommended implementation order
+
+**Not Included (Out of Scope):**
+- Advanced ML optimization (D.1 cooldown system unnecessary complexity)
+- Custom action bar system (3624 line ClickCasting removal just completed)
+- Transmog system port (orthogonal to unit frames)
+- Custom tracker implementation (niche feature)
+
+**Future Revisit Points:**
+- Cooldom system (D.1): If users request "integrated cooldowns"
+- Aura filtering (D.2): If power users ask for advanced aura management
+- Preview mode (D.3): After core features stabilized (Phase 5 polish)
+
+---
+
+**Next Steps:** Pick a Quick Win from Phase 1 to implement (recommend B.4: API Version Compatibility, 30 min)

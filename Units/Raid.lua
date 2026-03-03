@@ -9,6 +9,7 @@ _G.SimpleUnitFrames_UnitBuilders = registry
 ---@param self SimpleUnitFrames Addon instance
 ---@return void
 registry.raid = function(self)
+	local owner = self
 	local oUF = self.oUF
 	if not self.allowGroupHeaders then
 		return
@@ -40,7 +41,7 @@ registry.raid = function(self)
 	)
 	self:HookAnchor(raid, "CompactRaidFrameContainer")
 	self.headers.raid = raid
-
+	
 	-- Phase 3.4: Apply reusable mixins to raid header frame
 	if raid and self.GetUnitSettings then
 		local unitSettings = self:GetUnitSettings("raid")

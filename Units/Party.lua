@@ -9,6 +9,7 @@ _G.SimpleUnitFrames_UnitBuilders = registry
 ---@param self SimpleUnitFrames Addon instance
 ---@return void
 registry.party = function(self)
+	local owner = self
 	local oUF = self.oUF
 	if not self.allowGroupHeaders then
 		return
@@ -51,6 +52,19 @@ registry.party = function(self)
 				local child = select(i, self:GetChildren())
 				if child and child.UpdateAllElements then
 					child:UpdateAllElements("GroupRosterUpdate")
+				end
+			end
+		end
+	end)
+	
+	-- Initial registration of party frames for hover casting
+	C_Timer.After(0.1, function()
+		if owner.ClickCastingSystem and owner.ClickCastingSystem.RegisterFrame then
+			for i = 1, party:GetNumChildren() do
+				local child = select(i, party:GetChildren())
+				local childUnit = child and (child.unit or (child.GetAttribute and child:GetAttribute("unit")))
+				if child and childUnit and not child.__sufClickCastingRegistered then
+					owner.ClickCastingSystem:RegisterFrame(child, childUnit)
 				end
 			end
 		end
