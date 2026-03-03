@@ -40,6 +40,7 @@ function addon:ShowLauncherHelp()
 	self:Print(addonName .. ": /sufperf (performance dashboard)")
 	self:Print(addonName .. ": /sufprofile <start|stop|sample|analyze> (alias -> /perflib profile ...)")
 	self:Print(addonName .. ": /libperf (alias -> /sufperf)")
+	self:Print(addonName .. ": /suf test (interactive test panel)")
 	self:Print(addonName .. ": /suf debug")
 	self:Print(addonName .. ": /suf status")
 	self:Print(addonName .. ": /suf protected (see also: /SUFprotected help)")
@@ -224,6 +225,10 @@ function addon:HandleSUFSlash(msg)
 
 	if command == "debug" then
 		self:ToggleDebugPanel()
+		return
+	end
+	if command == "test" then
+		self:ShowTestPanel()
 		return
 	end
 	if command == "reload" or command == "rl" then

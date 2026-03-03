@@ -1,6 +1,6 @@
 ## Title: SimpleUnitFrames
 ## Interface: 120001
-## Version: 1.25.1.30226
+## Version: 1.26.0.30226
 ## Author: |cFF8080FFGrevin|r
 ## Notes: Simple Unitframe replacement with WIP features.
 ## IconTexture: Interface\AddOns\SimpleUnitFrames\Media\AddonIcon
@@ -44,6 +44,7 @@ Modules/UI/PerformanceMetricsHelper.lua
 Modules/UI/AuraTooltipHelper.lua
 Modules/UI/AuraTooltipManager.lua
 Modules/UI/DebugWindow.lua
+Modules/UI/TestPanel.lua
 
 # Unit Frames
 Units/Player.lua

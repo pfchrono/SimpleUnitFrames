@@ -701,9 +701,21 @@ local PERF_EVENT_PRIORITY = {
 	UNIT_AURA = 3,
 	UNIT_THREAT_SITUATION_UPDATE = 3,
 	UNIT_THREAT_LIST_UPDATE = 3,
+	UNIT_SPELLCAST_START = 2,
+	UNIT_SPELLCAST_CHANNEL_START = 2,
+	UNIT_SPELLCAST_EMPOWER_START = 2,
+	UNIT_SPELLCAST_STOP = 4,
+	UNIT_SPELLCAST_CHANNEL_STOP = 4,
+	UNIT_SPELLCAST_EMPOWER_STOP = 4,
+	UNIT_SPELLCAST_DELAYED = 4,
+	UNIT_SPELLCAST_CHANNEL_UPDATE = 4,
+	UNIT_SPELLCAST_EMPOWER_UPDATE = 4,
+	UNIT_SPELLCAST_FAILED = 4,
+	UNIT_SPELLCAST_INTERRUPTED = 4,
+	UNIT_SPELLCAST_INTERRUPTIBLE = 4,
+	UNIT_SPELLCAST_NOT_INTERRUPTIBLE = 4,
 	PLAYER_TOTEM_UPDATE = 3,
 	RUNE_POWER_UPDATE = 3,
-	UNIT_SPELLCAST_CHANNEL_UPDATE = 3,
 	UNIT_PORTRAIT_UPDATE = 4,
 	UNIT_NAME_UPDATE = 4,
 	UNIT_FACTION = 4,
@@ -712,7 +724,6 @@ local PERF_EVENT_PRIORITY = {
 	RAID_TARGET_UPDATE = 4,
 	GROUP_ROSTER_UPDATE = 4,
 	PLAYER_ROLES_ASSIGNED = 4,
-	PARTY_LEADER_CHANGED = 4,
 }
 
 local PERF_DIRTY_PRIORITY = {
@@ -733,9 +744,22 @@ local EVENT_COALESCE_CONFIG = {
 	UNIT_DISPLAYPOWER = { delay = 0.12, priority = 3 },
 	UNIT_THREAT_SITUATION_UPDATE = { delay = 0.14, priority = 3 },
 	UNIT_THREAT_LIST_UPDATE = { delay = 0.16, priority = 4 },
+	UNIT_SPELLCAST_START = { delay = 0.05, priority = 2 },
+	UNIT_SPELLCAST_CHANNEL_START = { delay = 0.05, priority = 2 },
+	UNIT_SPELLCAST_EMPOWER_START = { delay = 0.05, priority = 2 },
+	UNIT_SPELLCAST_STOP = { delay = 0.08, priority = 4 },
+	UNIT_SPELLCAST_CHANNEL_STOP = { delay = 0.08, priority = 4 },
+	UNIT_SPELLCAST_EMPOWER_STOP = { delay = 0.08, priority = 4 },
+	UNIT_SPELLCAST_DELAYED = { delay = 0.12, priority = 4 },
+	UNIT_SPELLCAST_CHANNEL_UPDATE = { delay = 0.10, priority = 4 },
+	UNIT_SPELLCAST_EMPOWER_UPDATE = { delay = 0.10, priority = 4 },
+	UNIT_SPELLCAST_FAILED = { delay = 0.08, priority = 4 },
+	UNIT_SPELLCAST_INTERRUPTED = { delay = 0.08, priority = 4 },
+	UNIT_SPELLCAST_INTERRUPTIBLE = { delay = 0.10, priority = 4 },
+	UNIT_SPELLCAST_NOT_INTERRUPTIBLE = { delay = 0.10, priority = 4 },
+	UNIT_AURA = { delay = 0.22, priority = 3 },
 	PLAYER_TOTEM_UPDATE = { delay = 0.05, priority = 3 },
 	RUNE_POWER_UPDATE = { delay = 0.05, priority = 3 },
-	UNIT_SPELLCAST_CHANNEL_UPDATE = { delay = 0.05, priority = 3 },
 	UNIT_PORTRAIT_UPDATE = { delay = 0.20, priority = 4 },
 	UNIT_NAME_UPDATE = { delay = 0.15, priority = 4 },
 	UNIT_FACTION = { delay = 0.15, priority = 4 },
@@ -744,7 +768,6 @@ local EVENT_COALESCE_CONFIG = {
 	RAID_TARGET_UPDATE = { delay = 0.05, priority = 4 },
 	GROUP_ROSTER_UPDATE = { delay = 0.12, priority = 4 },
 	PLAYER_ROLES_ASSIGNED = { delay = 0.12, priority = 4 },
-	PARTY_LEADER_CHANGED = { delay = 0.12, priority = 4 },
 }
 
 local NON_UNIT_EVENT_TARGETS = {
@@ -765,7 +788,19 @@ local UNIT_SCOPED_EVENTS = {
 	UNIT_AURA = true,
 	UNIT_THREAT_SITUATION_UPDATE = true,
 	UNIT_THREAT_LIST_UPDATE = true,
+	UNIT_SPELLCAST_START = true,
+	UNIT_SPELLCAST_CHANNEL_START = true,
+	UNIT_SPELLCAST_EMPOWER_START = true,
+	UNIT_SPELLCAST_STOP = true,
+	UNIT_SPELLCAST_CHANNEL_STOP = true,
+	UNIT_SPELLCAST_EMPOWER_STOP = true,
+	UNIT_SPELLCAST_DELAYED = true,
 	UNIT_SPELLCAST_CHANNEL_UPDATE = true,
+	UNIT_SPELLCAST_EMPOWER_UPDATE = true,
+	UNIT_SPELLCAST_FAILED = true,
+	UNIT_SPELLCAST_INTERRUPTED = true,
+	UNIT_SPELLCAST_INTERRUPTIBLE = true,
+	UNIT_SPELLCAST_NOT_INTERRUPTIBLE = true,
 	UNIT_PORTRAIT_UPDATE = true,
 	UNIT_NAME_UPDATE = true,
 	UNIT_FACTION = true,
@@ -2725,6 +2760,22 @@ function addon:SetupPerformanceLib()
 		optimizer:RegisterSequence("UNIT_POWER_UPDATE", "UNIT_DISPLAYPOWER", 0.65)
 		optimizer:RegisterSequence("UNIT_MAXHEALTH", "UNIT_HEALTH", 0.60)
 	end
+
+	-- Initialize DirtyFlagManager for batched frame updates
+	local dfm = self.performanceLib.DirtyFlagManager
+	if dfm and dfm.Initialize then
+		pcall(dfm.Initialize, dfm)
+		if dfm.SetBatchSize then
+			pcall(dfm.SetBatchSize, dfm, 15)  -- Process 15 frames max per batch
+		end
+		if dfm.SetEnabled then
+			pcall(dfm.SetEnabled, dfm, true)
+		end
+		-- Log only if db is available (safe guard for early initialization)
+		if self.db and self.db.profile then
+			self:DebugLog("Performance", "DirtyFlagManager initialized with batch size 15", 2)
+		end
+	end
 end
 
 function addon:RecordProfilerEvent(eventName, durationMs)
@@ -3198,6 +3249,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 	local traceAbsorb = (eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED")
 		and (unit == "target" or unit == "tot" or unit == "targettarget")
 	local tracedHits = 0
+	local priority = PERF_EVENT_PRIORITY[eventName] or 3
 
 	local index = self:EnsureFrameEventIndex()
 	local seen = {}
@@ -3211,7 +3263,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				seen[frame] = true
 				hasDirectMatch = true
 				tracedHits = tracedHits + 1
-				self:MarkFrameDirty(frame, eventName)
+				self:MarkFrameDirty(frame, priority)
 			end
 		end
 	end
@@ -3225,7 +3277,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				if frame and not seen[frame] then
 					seen[frame] = true
 					tracedHits = tracedHits + 1
-					self:MarkFrameDirty(frame, eventName)
+					self:MarkFrameDirty(frame, priority)
 				end
 			end
 		end
@@ -3241,7 +3293,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				if frame and not seen[frame] and isSameUnit then
 					seen[frame] = true
 					tracedHits = tracedHits + 1
-					self:MarkFrameDirty(frame, eventName)
+					self:MarkFrameDirty(frame, priority)
 				end
 			end
 		end
@@ -3255,7 +3307,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				if frame and not seen[frame] then
 					seen[frame] = true
 					tracedHits = tracedHits + 1
-					self:MarkFrameDirty(frame, eventName)
+					self:MarkFrameDirty(frame, priority)
 				end
 			end
 		end
@@ -3323,7 +3375,8 @@ function addon:HandleCoalescedEvent(eventName, ...)
 
 	for _, frame in ipairs(self.frames or {}) do
 		if frame then
-			self:MarkFrameDirty(frame, eventName)
+			local framePriority = (eventConfig and eventConfig.priority) or PERF_EVENT_PRIORITY[eventName] or 3
+			self:MarkFrameDirty(frame, framePriority)
 		end
 	end
 end
@@ -4103,6 +4156,103 @@ function addon:QueueLocalWork(workType, unitType)
 			self:RecordProfilerEvent("suf:localwork.flush", elapsed)
 		end
 	end)
+end
+
+---Determine priority for frame based on unit type (for DirtyFlagManager)
+---@param frame table Frame to determine priority for
+---@return integer Priority level (1=LOW, 2=MEDIUM, 3=HIGH, 4=CRITICAL)
+function addon:GetFrameUpdatePriority(frame)
+	if not frame then
+		return 2  -- MEDIUM default
+	end
+
+	local unitType = frame.sufUnitType
+	if unitType == "player" then
+		return 4  -- CRITICAL - player always first
+	elseif unitType == "target" or unitType == "focus" then
+		return 3  -- HIGH - important targets
+	elseif unitType == "pet" or unitType == "tot" then
+		return 3  -- HIGH - personal frames
+	elseif unitType and unitType:find("^party") then
+		return 2  -- MEDIUM - party secondary
+	elseif unitType == "raid" or unitType == "boss" then
+		return 1  -- LOW - raid background
+	else
+		return 2  -- MEDIUM default
+	end
+end
+
+---Mark single frame as dirty (deferred update via DirtyFlagManager)
+---@param frame table Frame to mark dirty
+---@param priority? integer Priority level (defaults based on unit type)
+---@return boolean True if marked, false if DirtyFlagManager unavailable
+function addon:MarkFrameDirty(frame, priority)
+	if not frame or not self:IsPerformanceIntegrationEnabled() then
+		return false
+	end
+
+	local dfm = self.performanceLib and self.performanceLib.DirtyFlagManager
+	if not dfm then
+		return false
+	end
+
+	priority = priority or self:GetFrameUpdatePriority(frame)
+	priority = tonumber(priority) or 2  -- Ensure priority is always a number
+	dfm:MarkDirty(frame, priority)
+	return true
+end
+
+---Mark all frames as dirty (batch deferred update)
+---@param priority? integer Override priority for all frames (or determine per-frame)
+---@return integer Count of frames marked dirty
+function addon:MarkAllFramesDirty(priority)
+	if not self:IsPerformanceIntegrationEnabled() then
+		return 0
+	end
+
+	local dfm = self.performanceLib and self.performanceLib.DirtyFlagManager
+	if not dfm then
+		return 0
+	end
+
+	local marked = 0
+	for _, frame in ipairs(self.frames or {}) do
+		if frame then
+			local p = priority or self:GetFrameUpdatePriority(frame)
+			p = tonumber(p) or 2  -- Ensure priority is always a number
+			dfm:MarkDirty(frame, p)
+			marked = marked + 1
+		end
+	end
+
+	return marked
+end
+
+---Mark frames by unit type as dirty
+---@param unitType string Unit type to mark dirty
+---@param priority? integer Override priority for unit type
+---@return integer Count of frames marked dirty
+function addon:MarkFramesByUnitTypeDirty(unitType, priority)
+	if not unitType or not self:IsPerformanceIntegrationEnabled() then
+		return 0
+	end
+
+	local dfm = self.performanceLib and self.performanceLib.DirtyFlagManager
+	if not dfm then
+		return 0
+	end
+
+	local marked = 0
+	for _, frame in ipairs(self.frames or {}) do
+		if frame and frame.sufUnitType == unitType then
+			local p = priority or self:GetFrameUpdatePriority(frame)
+			p = tonumber(p) or 2  -- Ensure priority is always a number
+			dfm:MarkDirty(frame, p)
+			marked = marked + 1
+		end
+	end
+
+	return marked
 end
 
 function addon:ScheduleApplyVisibility()
@@ -5934,7 +6084,23 @@ function addon:ApplyMedia(frame)
 
 	if frame.Castbar then
 		local castbarEnabled = unitCastbarCfg.enabled ~= false
-		frame.Castbar:SetShown(castbarEnabled)
+		-- Don't override castbar visibility during active casts - let oUF element control it
+		-- Only apply configuration outside of active casting/channeling
+		local isCasting = frame.Castbar.casting or frame.Castbar.channeling or frame.Castbar.empowering
+		addon:DebugLog("ApplyMedia", ("Castbar check for %s: casting=%s, channeling=%s, empowering=%s, isCasting=%s, enabled=%s"):format(
+			frame.sufUnitType or "unknown", 
+			tostring(frame.Castbar.casting),
+			tostring(frame.Castbar.channeling),
+			tostring(frame.Castbar.empowering),
+			tostring(isCasting),
+			tostring(castbarEnabled)
+		), 2)
+		if not isCasting then
+			addon:DebugLog("ApplyMedia", "Setting castbar visibility to " .. tostring(castbarEnabled) .. " for " .. (frame.sufUnitType or "unknown"), 2)
+			frame.Castbar:SetShown(castbarEnabled)
+		else
+			addon:DebugLog("ApplyMedia", "SKIPPING castbar visibility change during active cast for " .. (frame.sufUnitType or "unknown"), 2)
+		end
 		if castbarEnabled then
 			frame.Castbar:SetReverseFill(unitCastbarCfg.reverseFill == true)
 			SetStatusBarTexturePreserveLayer(frame.Castbar, texture)
@@ -6810,6 +6976,11 @@ end
 
 function addon:UpdateAllFrames()
 	local totalStart = debugprofilestop and debugprofilestop() or nil
+	
+	-- Direct synchronous update - DirtyFlagManager integration deferred for testing
+	-- (Keeping batching logic in mark functions for future use)
+	-- TODO: Re-enable after validating DirtyFlagManager behavior with SUF frames
+	
 	for _, frame in ipairs(self.frames) do
 		local frameStart = debugprofilestop and debugprofilestop() or nil
 		self:UpdateSingleFrame(frame)
@@ -7544,12 +7715,14 @@ function addon:UpdateSingleFrame(frame)
 			local now = (GetTime and GetTime()) or 0
 			local last = tonumber(frame.__sufLastFullRefreshAt) or 0
 			if now - last < 1.0 then
+				addon:DebugLog("UpdateSingleFrame", "THROTTLED: " .. unitType .. " (last=" .. tostring(last) .. ", now=" .. tostring(now) .. ", diff=" .. tostring(now-last) .. ")", 3)
 				return
 			end
 			frame.__sufLastFullRefreshAt = now
 		end
 	end
 
+	addon:DebugLog("UpdateSingleFrame", "Called for unit: " .. (unitType or "unknown"), 3)
 	self:ApplyTags(frame)
 	self:ApplyMedia(frame)
 	self:ApplySize(frame)
@@ -7569,6 +7742,10 @@ function addon:UpdateFramesByUnitType(unitType)
 	end
 
 	local totalStart = debugprofilestop and debugprofilestop() or nil
+	
+	-- Direct synchronous update - DirtyFlagManager integration deferred for testing
+	-- TODO: Re-enable after validating DirtyFlagManager behavior with SUF frames
+	
 	local updated = 0
 	for _, frame in ipairs(self.frames or {}) do
 		if frame and frame.sufUnitType == unitType then
@@ -8400,6 +8577,66 @@ function addon:Style(frame, unit)
 	if unit == "player" or unit == "target" or (unit and unit:match("^boss%d*$")) then
 		local anchor = frame.ClassPowerAnchor
 		CreateCastbar(frame, self.db.profile.castbarHeight, anchor)
+		
+		-- Manually register castbar events since element was created after oUF initialization
+		if frame.Castbar and frame.unit and not frame.unit:match('%wtarget$') then
+			local castbarEvents = {
+				'UNIT_SPELLCAST_START',
+				'UNIT_SPELLCAST_CHANNEL_START',
+				'UNIT_SPELLCAST_EMPOWER_START',
+				'UNIT_SPELLCAST_STOP',
+				'UNIT_SPELLCAST_CHANNEL_STOP',
+				'UNIT_SPELLCAST_EMPOWER_STOP',
+				'UNIT_SPELLCAST_DELAYED',
+				'UNIT_SPELLCAST_CHANNEL_UPDATE',
+				'UNIT_SPELLCAST_EMPOWER_UPDATE',
+				'UNIT_SPELLCAST_FAILED',
+				'UNIT_SPELLCAST_INTERRUPTED',
+				'UNIT_SPELLCAST_INTERRUPTIBLE',
+				'UNIT_SPELLCAST_NOT_INTERRUPTIBLE',
+			}
+			
+			-- Register all castbar events on the main frame
+			for i, event in ipairs(castbarEvents) do
+				frame:RegisterUnitEvent(event, frame.unit)
+			end
+			
+			-- Set up OnEvent handler to dispatch castbar events to element handlers
+			if not frame.CastbarEventHandlerInstalled then
+				local origOnEvent = frame:GetScript('OnEvent')
+				frame:SetScript('OnEvent', function(self, event, ...)
+					-- Map events to castbar handler methods (from castbar.lua eventMethods)
+					local eventHandlers = {
+						['UNIT_SPELLCAST_START'] = true,
+						['UNIT_SPELLCAST_CHANNEL_START'] = true,
+						['UNIT_SPELLCAST_EMPOWER_START'] = true,
+						['UNIT_SPELLCAST_STOP'] = true,
+						['UNIT_SPELLCAST_CHANNEL_STOP'] = true,
+						['UNIT_SPELLCAST_EMPOWER_STOP'] = true,
+						['UNIT_SPELLCAST_DELAYED'] = true,
+						['UNIT_SPELLCAST_CHANNEL_UPDATE'] = true,
+						['UNIT_SPELLCAST_EMPOWER_UPDATE'] = true,
+						['UNIT_SPELLCAST_FAILED'] = true,
+						['UNIT_SPELLCAST_INTERRUPTED'] = true,
+						['UNIT_SPELLCAST_INTERRUPTIBLE'] = true,
+						['UNIT_SPELLCAST_NOT_INTERRUPTIBLE'] = true,
+					}
+					
+					-- Dispatch casting events to castbar element's ForceUpdate
+					if eventHandlers[event] then
+						if self.Castbar and self.Castbar.ForceUpdate then
+							self.Castbar:ForceUpdate()
+						end
+					end
+					
+					-- Call original handler if it existed
+					if origOnEvent then
+						origOnEvent(self, event, ...)
+					end
+				end)
+				frame.CastbarEventHandlerInstalled = true
+			end
+		end
 	end
 
 	if frame.sufUnitType == "player" or frame.sufUnitType == "target" or frame.sufUnitType == "focus" or frame.sufUnitType == "pet" or frame.sufUnitType == "tot" or frame.sufUnitType == "party" or frame.sufUnitType == "raid" or frame.sufUnitType == "boss" then
