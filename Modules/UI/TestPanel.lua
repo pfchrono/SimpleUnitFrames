@@ -35,213 +35,242 @@ local function ClearTestOutput()
 	end
 end
 
--- Test Functions
-local function TestPhase1()
+-- Test Functions (Phase 1 Validation)
+local function TestDiagnostics()
 	ClearTestOutput()
-	AddTestOutput(COLORS.HEADER .. "=== PHASE 1: Addon Load & Initialization ===" .. COLORS.RESET)
+	AddTestOutput(COLORS.HEADER .. "=== Phase 1 Diagnostics ===" .. COLORS.RESET)
 	AddTestOutput("")
 	
-	-- Test: Reload (inform user)
-	AddTestOutput(COLORS.INFO .. "[1/4] Addon loaded and ready" .. COLORS.RESET)
-	
-	-- Test: PerformanceLib
-	if addon and addon.performanceLib then
-		AddTestOutput(COLORS.SUCCESS .. "[2/4] [OK] PerformanceLib LOADED" .. COLORS.RESET)
+	-- Check validator loaded
+	if addon.ValidateImportTree then
+		AddTestOutput(COLORS.SUCCESS .. "[OK] Validator loaded" .. COLORS.RESET)
 	else
-		AddTestOutput(COLORS.ERROR .. "[2/4] [FAIL] PerformanceLib NOT LOADED" .. COLORS.RESET)
-		AddTestOutput("       Make sure PerformanceLib addon is enabled")
-		return
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Validator MISSING" .. COLORS.RESET)
 	end
 	
-	-- Test: DirtyFlagManager
-	if addon.performanceLib.DirtyFlagManager then
-		AddTestOutput(COLORS.SUCCESS .. "[3/4] [OK] DirtyFlagManager READY" .. COLORS.RESET)
+	-- Check safe helpers exported
+	if addon.SafeCompare then
+		AddTestOutput(COLORS.SUCCESS .. "[OK] SafeCompare loaded" .. COLORS.RESET)
 	else
-		AddTestOutput(COLORS.ERROR .. "[3/4] [FAIL] DirtyFlagManager NOT INITIALIZED" .. COLORS.RESET)
-		return
+		AddTestOutput(COLORS.ERROR .. "[FAIL] SafeCompare MISSING" .. COLORS.RESET)
 	end
 	
-	-- Test: Frame Visibility
-	local playerFrame = _G["SUF_Player"]
-	local targetFrame = _G["SUF_Target"]
-	if playerFrame and targetFrame then
-		AddTestOutput(COLORS.SUCCESS .. "[4/4] [OK] Player/Target frames visible" .. COLORS.RESET)
+	if addon._core and addon._core.SafeArithmetic then
+		AddTestOutput(COLORS.SUCCESS .. "[OK] SafeArithmetic loaded" .. COLORS.RESET)
 	else
-		AddTestOutput(COLORS.ERROR .. "[4/4] [FAIL] Frames not found (player=" .. tostring(playerFrame ~= nil) .. 
-			", target=" .. tostring(targetFrame ~= nil) .. ")" .. COLORS.RESET)
-		return
+		AddTestOutput(COLORS.ERROR .. "[FAIL] SafeArithmetic MISSING" .. COLORS.RESET)
+	end
+	
+	-- Test simple validation
+	local ok, err = addon:ValidateImportTree({a = 1, b = 2})
+	if ok then
+		AddTestOutput(COLORS.SUCCESS .. "[OK] Validation test passed" .. COLORS.RESET)
+	else
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Validation test failed: " .. tostring(err) .. COLORS.RESET)
 	end
 	
 	AddTestOutput("")
-	AddTestOutput(COLORS.SUCCESS .. "[PASS] PHASE 1 PASSED - Ready for gameplay testing" .. COLORS.RESET)
+	AddTestOutput(COLORS.INFO .. "Memory Usage: " .. string.format("%.1f MB", collectgarbage("count") / 1024) .. COLORS.RESET)
+	AddTestOutput(COLORS.INFO .. "Active Frames: " .. #(addon.frames or {}) .. COLORS.RESET)
 end
 
-local function TestPhase2()
-	AddTestOutput(COLORS.HEADER .. "=== PHASE 2: Performance Profiler Setup ===" .. COLORS.RESET)
+local function TestValidProfileImport()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 1: Valid Profile Import ===" .. COLORS.RESET)
 	AddTestOutput("")
-	AddTestOutput(COLORS.INFO .. "Starting performance profiler..." .. COLORS.RESET)
-	AddTestOutput("Command: /SUFprofile start")
+	AddTestOutput(COLORS.INFO .. "INSTRUCTIONS:" .. COLORS.RESET)
+	AddTestOutput("1. Export current profile: /suf export")
+	AddTestOutput("2. Open options → Profiles tab")
+	AddTestOutput("3. Click 'Import Profile'")
+	AddTestOutput("4. Paste export string")
+	AddTestOutput("5. Click 'Import'")
 	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "📊 INSTRUCTIONS:" .. COLORS.RESET)
-	AddTestOutput("1. Execute: /SUFprofile start")
-	AddTestOutput("2. Play solo for 2 minutes (walk, target NPCs, cast spells)")
-	AddTestOutput("3. Execute: /SUFprofile stop")
-	AddTestOutput("4. Execute: /SUFprofile analyze")
+	AddTestOutput(COLORS.HEADER .. "EXPECTED:" .. COLORS.RESET)
+	AddTestOutput("  • Profile loads successfully")
+	AddTestOutput("  • Settings apply correctly")
+	AddTestOutput("  • No validation errors in chat")
 	AddTestOutput("")
-	AddTestOutput(COLORS.INFO .. "Record these metrics:" .. COLORS.RESET)
-	AddTestOutput("  • Average FPS")
-	AddTestOutput("  • Frame time P50 (target: ~16.68ms)")
-	AddTestOutput("  • Frame time P99 (target: <20ms)")
-	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "✅ Then proceed to PHASE 3" .. COLORS.RESET)
+	AddTestOutput(COLORS.SUCCESS .. "PASS CRITERIA: Settings applied, no chat errors" .. COLORS.RESET)
 end
 
-local function TestPhase3A()
-	AddTestOutput(COLORS.HEADER .. "=== PHASE 3a: Party Testing ===" .. COLORS.RESET)
+local function TestMalformedImport()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 2: Malformed Import ===" .. COLORS.RESET)
 	AddTestOutput("")
-	AddTestOutput(COLORS.INFO .. "Running validation checks..." .. COLORS.RESET)
-	
-	-- Check party frames
-	local partyFrames = 0
-	for i = 1, 4 do
-		if _G["SUF_PartyUnitButton" .. i] then
-			partyFrames = partyFrames + 1
-		end
-	end
-	
+	AddTestOutput(COLORS.INFO .. "INSTRUCTIONS:" .. COLORS.RESET)
+	AddTestOutput("1. Open options → Profiles tab")
+	AddTestOutput("2. Click 'Import Profile'")
+	AddTestOutput("3. Paste truncated/invalid string (first 50 chars of export)")
+	AddTestOutput("4. Click 'Import'")
 	AddTestOutput("")
-	AddTestOutput("Party frames found: " .. COLORS.SUCCESS .. partyFrames .. "/4" .. COLORS.RESET)
+	AddTestOutput(COLORS.HEADER .. "EXPECTED:" .. COLORS.RESET)
+	AddTestOutput("  • Clear error message shown")
+	AddTestOutput("  • Original profile unchanged")
+	AddTestOutput("  • Addon remains stable")
+	AddTestOutput("")
+	AddTestOutput(COLORS.SUCCESS .. "PASS CRITERIA: Error shown, no crash, addon stable" .. COLORS.RESET)
+end
+
+local function TestCycleDetection()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 3: Cycle Detection ===" .. COLORS.RESET)
+	AddTestOutput("")
+	AddTestOutput(COLORS.INFO .. "Running automated test..." .. COLORS.RESET)
+	AddTestOutput("")
 	
-	if partyFrames > 0 then
-		AddTestOutput(COLORS.SUCCESS .. "[OK] Party frames available" .. COLORS.RESET)
+	-- Create circular reference
+	local t = {}
+	t.self = t
+	
+	local ok, err = addon:ValidateImportTree(t)
+	if not ok and err and (err:match("cycl") or err:match("repeated")) then
+		AddTestOutput(COLORS.SUCCESS .. "[PASS] Cycle detected correctly" .. COLORS.RESET)
+		AddTestOutput("  Error: " .. err)
+	elseif ok then
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Cycle NOT detected (returned OK)" .. COLORS.RESET)
 	else
-		AddTestOutput(COLORS.ERROR .. "[FAIL] No party frames detected" .. COLORS.RESET)
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Unexpected error: " .. tostring(err) .. COLORS.RESET)
 	end
 	
 	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "📊 INSTRUCTIONS:" .. COLORS.RESET)
-	AddTestOutput("1. Join party with 4 others (5 total, or use alts)")
-	AddTestOutput("2. Execute: /SUFprofile start")
-	AddTestOutput("3. Move between party members for 3 minutes")
-	AddTestOutput("4. Change targets frequently")
-	AddTestOutput("5. Execute: /SUFprofile stop")
-	AddTestOutput("6. Execute: /SUFprofile analyze")
-	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "✅ Check metrics and proceed to PHASE 3b" .. COLORS.RESET)
+	AddTestOutput(COLORS.SUCCESS .. "PASS: No infinite loop, no crash" .. COLORS.RESET)
 end
 
-local function TestPhase3B()
-	AddTestOutput(COLORS.HEADER .. "=== PHASE 3b: Raid Testing ===" .. COLORS.RESET)
+local function TestNodeLimit()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 4: Node Limit Validation ===" .. COLORS.RESET)
 	AddTestOutput("")
-	AddTestOutput(COLORS.INFO .. "Raid validation..." .. COLORS.RESET)
+	AddTestOutput(COLORS.INFO .. "Creating large nested structure (51,000 table nodes)..." .. COLORS.RESET)
 	
-	-- Check raid frames
-	local raidFrames = 0
-	for i = 1, 40 do
-		if _G["SUF_Raid_" .. i] or _G["SUF_RaidUnitButton" .. i] then
-			raidFrames = raidFrames + 1
-		end
+	local t = {}
+	for i = 1, 51000 do
+		t[i] = {}  -- Create nested tables, not primitives
 	end
 	
-	AddTestOutput("")
-	AddTestOutput("Raid frames found: " .. COLORS.SUCCESS .. raidFrames .. "/40" .. COLORS.RESET)
+	AddTestOutput(COLORS.INFO .. "Running validation..." .. COLORS.RESET)
+	local startTime = GetTime()
+	local ok, err = addon:ValidateImportTree(t)
+	local elapsed = GetTime() - startTime
 	
-	if raidFrames > 0 then
-		AddTestOutput(COLORS.SUCCESS .. "[OK] Raid frames available" .. COLORS.RESET)
+	AddTestOutput("")
+	if not ok and err and (err:match("node") or err:match("large")) then
+		AddTestOutput(COLORS.SUCCESS .. "[PASS] Node limit enforced" .. COLORS.RESET)
+		AddTestOutput("  Error: " .. err)
+	elseif ok then
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Large table accepted (should reject)" .. COLORS.RESET)
 	else
-		AddTestOutput(COLORS.INFO .. "[INFO] Not in raid group currently" .. COLORS.RESET)
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Unexpected error: " .. tostring(err) .. COLORS.RESET)
 	end
 	
 	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "📊 INSTRUCTIONS:" .. COLORS.RESET)
-	AddTestOutput("1. Join raid (10+ players preferred)")
-	AddTestOutput("2. Execute: /SUFprofile start")
-	AddTestOutput("3. Engage in combat for 3-5 minutes")
-	AddTestOutput("4. Move around and change targets")
-	AddTestOutput("5. Execute: /SUFprofile stop")
-	AddTestOutput("6. Execute: /SUFprofile analyze")
-	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "Success Criteria:" .. COLORS.RESET)
-	AddTestOutput("  [OK] P50 frame time ≤16.68ms (60 FPS)")
-	AddTestOutput("  [OK] P99 frame time <25ms (raid is acceptable)")
-	AddTestOutput("  [OK] No visual glitches or slowdowns")
-	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "[PASS] Check metrics and finish testing" .. COLORS.RESET)
-end
-
-local function TestPhase3C()
-	AddTestOutput(COLORS.HEADER .. "=== PHASE 3c: Edge Cases ===" .. COLORS.RESET)
-	AddTestOutput("")
-	AddTestOutput(COLORS.INFO .. "System Status:" .. COLORS.RESET)
-	
-	-- Check PerformanceLib fallback
-	local perfLibLoaded = addon.performanceLib and true or false
-	AddTestOutput("")
-	
-	if perfLibLoaded then
-		AddTestOutput(COLORS.SUCCESS .. "[OK] PerformanceLib active (fallback not needed)" .. COLORS.RESET)
+	AddTestOutput(COLORS.INFO .. "Elapsed: " .. string.format("%.3fs", elapsed) .. COLORS.RESET)
+	if elapsed < 1.0 then
+		AddTestOutput(COLORS.SUCCESS .. "[PASS] Completes quickly (<1s)" .. COLORS.RESET)
 	else
-		AddTestOutput(COLORS.INFO .. "[INFO] PerformanceLib inactive (synchronous mode)" .. COLORS.RESET)
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Too slow (>1s)" .. COLORS.RESET)
 	end
-	
-	-- Check memory usage
-	local memBefore = collectgarbage("count") / 1024
-	AddTestOutput("")
-	AddTestOutput(COLORS.INFO .. "Memory Usage: " .. COLORS.RESET .. string.format("%.1f MB", memBefore))
-	
-	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "📊 EDGE CASE TESTS:" .. COLORS.RESET)
-	AddTestOutput("1. Disable PerformanceLib and reload")
-	AddTestOutput("   • Edit: PerformanceLib.toc, set ## LoadOnDemand: 1")
-	AddTestOutput("   • Execute: /reload")
-	AddTestOutput("   • Verify: SUF still works (fallback to sync mode)")
-	AddTestOutput("")
-	AddTestOutput("2. Rapid frame changes")
-	AddTestOutput("   • Join/leave party repeatedly")
-	AddTestOutput("   • Watch for errors or stuck frames")
-	AddTestOutput("")
-	AddTestOutput("3. Memory stability")
-	AddTestOutput("   • Play for 30 minutes")
-	AddTestOutput("   • Record memory at start and end")
-	AddTestOutput("   • Should not grow unbounded")
-	AddTestOutput("")
-	AddTestOutput(COLORS.HEADER .. "[PASS] Complete all tests for full validation" .. COLORS.RESET)
 end
 
-local function TestShowStats()
-	AddTestOutput(COLORS.HEADER .. "=== Performance & System Stats ===" .. COLORS.RESET)
+local function TestDepthLimit()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 5: Depth Limit Validation ===" .. COLORS.RESET)
 	AddTestOutput("")
+	AddTestOutput(COLORS.INFO .. "Creating 25-level deep nesting..." .. COLORS.RESET)
 	
-	-- DirtyFlagManager stats
-	if addon.performanceLib and addon.performanceLib.DirtyFlagManager then
-		AddTestOutput(COLORS.INFO .. "[DirtyFlagManager Stats]" .. COLORS.RESET)
-		local stats = addon.performanceLib.DirtyFlagManager.stats or {}
-		AddTestOutput("  Frames processed: " .. (stats.framesProcessed or 0))
-		AddTestOutput("  Batches: " .. (stats.batchCount or 0))
-		AddTestOutput("  Invalid frames skipped: " .. (stats.invalidFrames or 0))
-		AddTestOutput("")
+	local t = {}
+	local cur = t
+	for i = 1, 25 do
+		local new = {}
+		cur.next = new
+		cur = new
 	end
 	
-	-- EventCoalescer stats
-	if addon.performanceLib and addon.performanceLib.EventCoalescer then
-		AddTestOutput(COLORS.INFO .. "[EventCoalescer Stats]" .. COLORS.RESET)
-		AddTestOutput("(Execute: /run SUF.performanceLib.EventCoalescer:PrintStats())")
-		AddTestOutput("")
+	AddTestOutput(COLORS.INFO .. "Running validation..." .. COLORS.RESET)
+	local ok, err = addon:ValidateImportTree(t)
+	
+	AddTestOutput("")
+	if not ok and err and err:match("depth") then
+		AddTestOutput(COLORS.SUCCESS .. "[PASS] Depth limit enforced" .. COLORS.RESET)
+		AddTestOutput("  Error: " .. err)
+	elseif ok then
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Deep nesting accepted (should reject)" .. COLORS.RESET)
+	else
+		AddTestOutput(COLORS.ERROR .. "[FAIL] Unexpected error: " .. tostring(err) .. COLORS.RESET)
 	end
 	
-	-- Memory usage
-	local memory = collectgarbage("count") / 1024
-	AddTestOutput(COLORS.INFO .. "[Memory Usage]" .. COLORS.RESET)
-	AddTestOutput("  Current: " .. string.format("%.1f MB", memory))
+	AddTestOutput("")
+	AddTestOutput(COLORS.SUCCESS .. "PASS: No crash or hang" .. COLORS.RESET)
+end
+
+local function TestProfileReload()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 6: Profile Reload (SafeReload) ===" .. COLORS.RESET)
+	AddTestOutput("")
+	AddTestOutput(COLORS.INFO .. "INSTRUCTIONS:" .. COLORS.RESET)
+	AddTestOutput("1. Open options window (/suf)")
+	AddTestOutput("2. Make a setting change (e.g., toggle status bar)")
+	AddTestOutput("3. Click 'Reload Profile' button OR type: /suf reload")
+	AddTestOutput("4. Verify settings revert to saved state")
+	AddTestOutput("")
+	AddTestOutput(COLORS.HEADER .. "EXPECTED:" .. COLORS.RESET)
+	AddTestOutput("  • Profile reloads without UI glitches")
+	AddTestOutput("  • Settings reset to saved values")
+	AddTestOutput("  • Chat shows confirmation message")
+	AddTestOutput("")
+	AddTestOutput(COLORS.SUCCESS .. "PASS CRITERIA: Reload completes, UI stable, settings reset" .. COLORS.RESET)
+end
+
+local function TestSafeHelpersInstance()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 7: Safe Helpers (Instance Test) ===" .. COLORS.RESET)
 	AddTestOutput("")
 	
-	-- Frame count
-	local frameCount = #(addon.frames or {})
-	AddTestOutput(COLORS.INFO .. "[Frame Count]" .. COLORS.RESET)
-	AddTestOutput("  Active frames: " .. frameCount)
-	AddTestOutput("")
+	-- Check if in instance
+	local inInstance, instanceType = IsInInstance()
+	if inInstance then
+		AddTestOutput(COLORS.INFO .. "Currently in instance: " .. (instanceType or "unknown") .. COLORS.RESET)
+	else
+		AddTestOutput(COLORS.ERROR .. "[Note] Not in instance - secret values may not be active" .. COLORS.RESET)
+	end
 	
-	AddTestOutput(COLORS.SUCCESS .. "[OK] Stats updated successfully" .. COLORS.RESET)
+	AddTestOutput("")
+	AddTestOutput(COLORS.INFO .. "INSTRUCTIONS:" .. COLORS.RESET)
+	AddTestOutput("1. Enter a Dungeon/Raid Instance (where secret values active)")
+	AddTestOutput("2. Open options window (/suf)")
+	AddTestOutput("3. Toggle 3-4 settings:")
+	AddTestOutput("   • Health bar color")
+	AddTestOutput("   • Power bar visibility")
+	AddTestOutput("   • Nameplate mode")
+	AddTestOutput("4. Watch for errors in chat")
+	AddTestOutput("")
+	AddTestOutput(COLORS.HEADER .. "EXPECTED:" .. COLORS.RESET)
+	AddTestOutput("  • Settings apply correctly")
+	AddTestOutput("  • No 'attempt to perform arithmetic' errors")
+	AddTestOutput("  • No secret value comparison errors")
+	AddTestOutput("")
+	AddTestOutput(COLORS.SUCCESS .. "PASS CRITERIA: No secret value errors, settings apply" .. COLORS.RESET)
+end
+
+local function TestRoundTrip()
+	ClearTestOutput()
+	AddTestOutput(COLORS.HEADER .. "=== Test 8: Export/Import Round-Trip ===" .. COLORS.RESET)
+	AddTestOutput("")
+	AddTestOutput(COLORS.INFO .. "INSTRUCTIONS:" .. COLORS.RESET)
+	AddTestOutput("1. Export current profile: /suf export")
+	AddTestOutput("2. Create new profile (e.g., 'Test Copy')")
+	AddTestOutput("3. Import exported string into new profile")
+	AddTestOutput("4. Compare 5-6 key settings with original:")
+	AddTestOutput("   • Colors (health, power)")
+	AddTestOutput("   • Visibility toggles")
+	AddTestOutput("   • Font settings")
+	AddTestOutput("5. Delete test profile when done")
+	AddTestOutput("")
+	AddTestOutput(COLORS.HEADER .. "EXPECTED:" .. COLORS.RESET)
+	AddTestOutput("  • Re-imported profile identical to original")
+	AddTestOutput("  • All settings preserved")
+	AddTestOutput("  • No data loss")
+	AddTestOutput("")
+	AddTestOutput(COLORS.SUCCESS .. "PASS CRITERIA: Round-trip successful, all settings preserved" .. COLORS.RESET)
 end
 
 -- Create Test Panel UI
@@ -256,21 +285,24 @@ function addon:ShowTestPanel()
 		-- Title
 		local title = frame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 		title:SetPoint("TOP", frame, "TOP", 0, -10)
-		title:SetText("SUF Test Panel (Phase 4 DirtyFlagManager)")
+		title:SetText("SUF Test Panel (Phase 1 Validation)")
 
 		-- Button Panel (top)
 		local buttonPanel = CreateFrame("Frame", nil, frame)
-		buttonPanel:SetSize(580, 120)
+		buttonPanel:SetSize(580, 135)
 		buttonPanel:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -35)
 
-		-- Test Buttons (3 columns, 2 rows for better visibility)
+		-- Test Buttons (3 columns, 3 rows)
 		local buttons = {
-			{ text = "Phase 1: Load Test", func = TestPhase1, col = 1, row = 1 },
-			{ text = "Phase 2: Profiler Setup", func = TestPhase2, col = 2, row = 1 },
-			{ text = "Phase 3a: Party", func = TestPhase3A, col = 3, row = 1 },
-			{ text = "Phase 3b: Raid", func = TestPhase3B, col = 1, row = 2 },
-			{ text = "Phase 3c: Edge Cases", func = TestPhase3C, col = 2, row = 2 },
-			{ text = "Stats", func = TestShowStats, col = 3, row = 2 },
+			{ text = "Diagnostics", func = TestDiagnostics, col = 1, row = 1 },
+			{ text = "1: Valid Import", func = TestValidProfileImport, col = 2, row = 1 },
+			{ text = "2: Malformed Import", func = TestMalformedImport, col = 3, row = 1 },
+			{ text = "3: Cycle Detection", func = TestCycleDetection, col = 1, row = 2 },
+			{ text = "4: Node Limit", func = TestNodeLimit, col = 2, row = 2 },
+			{ text = "5: Depth Limit", func = TestDepthLimit, col = 3, row = 2 },
+			{ text = "6: Profile Reload", func = TestProfileReload, col = 1, row = 3 },
+			{ text = "7: Safe Helpers", func = TestSafeHelpersInstance, col = 2, row = 3 },
+			{ text = "8: Round-Trip", func = TestRoundTrip, col = 3, row = 3 },
 		}
 
 		for _, btnData in ipairs(buttons) do
@@ -315,25 +347,26 @@ function addon:ShowTestPanel()
 			self:ShowTestExportDialog()
 		end)
 
-		-- Output Text
+		-- Output Text with ScrollFrame
 		local scroll = CreateFrame("ScrollFrame", nil, frame, "UIPanelScrollFrameTemplate")
-		scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -155)
+		scroll:SetPoint("TOPLEFT", frame, "TOPLEFT", 10, -170)
 		scroll:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -30, 10)
 
 		local textFrame = CreateFrame("Frame", nil, scroll)
-		textFrame:SetSize(560, 300)
+		textFrame:SetSize(560, 1)  -- Height will be adjusted dynamically
 		scroll:SetScrollChild(textFrame)
 
 		local messagesText = textFrame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		messagesText:SetPoint("TOPLEFT", textFrame, "TOPLEFT", 0, 0)
 		messagesText:SetWidth(550)
-		messagesText:SetHeight(300)
 		messagesText:SetJustifyH("LEFT")
 		messagesText:SetJustifyV("TOP")
-		messagesText:SetText("Welcome to SUF Test Panel!\n\nClick a test phase to begin.\nResults will appear here.")
+		messagesText:SetText("Welcome to SUF Phase 1 Test Panel!\n\nClick 'Diagnostics' to verify components, then run tests 1-8.\n\nAutomated tests (3-5) run immediately.\nManual tests (1,2,6-8) show instructions.")
+		messagesText:SetNonSpaceWrap(true)  -- Enable word wrapping
 
 		frame.messagesText = messagesText
 		frame.textFrame = textFrame
+		frame.scrollFrame = scroll
 
 		self.testPanel = frame
 
@@ -355,8 +388,24 @@ function addon:testPanelRefresh()
 	
 	local text = table.concat(testOutput, "\n")
 	self.testPanel.messagesText:SetText(text)
-	local height = self.testPanel.messagesText:GetStringHeight()
-	self.testPanel.textFrame:SetHeight(math.max(height + 10, 1))
+	
+	-- Wait for text to render, then update height
+	C_Timer.After(0.01, function()
+		if not self.testPanel or not self.testPanel.messagesText or not self.testPanel.textFrame then
+			return
+		end
+		
+		local height = self.testPanel.messagesText:GetStringHeight()
+		local scrollHeight = self.testPanel.scrollFrame:GetHeight()
+		
+		-- Set textFrame height to content height (minimum is scroll frame height)
+		self.testPanel.textFrame:SetHeight(math.max(height + 20, scrollHeight))
+		
+		-- Scroll to bottom if content is long
+		if height > scrollHeight - 20 then
+			self.testPanel.scrollFrame:SetVerticalScroll(height - scrollHeight + 40)
+		end
+	end)
 end
 
 function addon:ShowTestExportDialog()

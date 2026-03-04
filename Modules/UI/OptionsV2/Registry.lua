@@ -3729,6 +3729,28 @@ function addon:GetOptionsV2PageSpec(pageKey)
 							end
 						end,
 					},
+					{
+						type = "color",
+						label = "Accent Color",
+						tooltip = "Pick a color to theme all UI elements (buttons, controls, text).",
+						get = function()
+							if addon.GetAccentColor then
+								local r, g, b = addon:GetAccentColor()
+								return { r, g, b, 1 }
+							end
+							return { 0.74, 0.58, 0.99, 1 }
+						end,
+						set = function(r, g, b)
+							if addon.db and addon.db.profile then
+								addon.db.profile.media = addon.db.profile.media or {}
+								addon.db.profile.media.accentColor = { r, g, b }
+							end
+							if addon.UpdateAccentColor then
+								addon:UpdateAccentColor(r, g, b)
+								addon:ScheduleUpdateAll()
+							end
+						end,
+					},
 				},
 			},
 			{

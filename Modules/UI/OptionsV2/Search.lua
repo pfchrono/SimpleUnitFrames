@@ -166,8 +166,21 @@ function addon:SearchOptionsV2(text)
 		local bk = tostring(b.pageKey or "") .. "|" .. tostring(b.sectionKey or "")
 		return ak < bk
 	end)
+	-- Filter out page-level matches (sectionKey=nil) if section-level matches exist for the same page
+	local pageHasSections = {}
 	for i = 1, #results do
-		results[i]._rank = nil
+		if results[i].sectionKey then
+			pageHasSections[results[i].pageKey] = true
+		end
 	end
-	return results
+	local filtered = {}
+	for i = 1, #results do
+		local result = results[i]
+		-- Keep result if: (1) it has a sectionKey, OR (2) the page has no section-level matches
+		if result.sectionKey or not pageHasSections[result.pageKey] then
+			result._rank = nil
+			filtered[#filtered + 1] = result
+		end
+	end
+	return filtered
 end

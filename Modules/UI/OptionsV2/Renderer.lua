@@ -554,6 +554,11 @@ function addon:RenderOptionsV2Page(content, page)
 	end
 	ReleaseContent(content)
 
+	-- Clear section frames for this page before rendering new content
+	if page and page.key and addon._optionsV2SectionFrames then
+		addon._optionsV2SectionFrames[page.key] = nil
+	end
+
 	local style = (self.GetOptionsV2Style and self:GetOptionsV2Style()) or {}
 	if page and page.key == "importexport" then
 		self:RenderOptionsV2ImportExport(content, page, style)
@@ -593,6 +598,14 @@ function addon:RenderOptionsV2Page(content, page)
 			card:SetSize(cardWidth, 48)
 			if self.ApplySUFBackdropColors then
 				self:ApplySUFBackdropColors(card, style.panelBg, style.panelBorder, true)
+			end
+			-- Store section frame reference for search navigation (Phase 2.2)
+			if page and page.key and not addon._optionsV2SectionFrames then
+				addon._optionsV2SectionFrames = {}
+			end
+			if addon._optionsV2SectionFrames then
+				addon._optionsV2SectionFrames[page.key] = addon._optionsV2SectionFrames[page.key] or {}
+				addon._optionsV2SectionFrames[page.key][sectionTab] = card
 			end
 			Track(content, card)
 

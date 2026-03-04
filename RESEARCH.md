@@ -1,8 +1,14 @@
 # RESEARCH.md - Fresh QUI Analysis for SUF Enhancements (v2)
 
-**Date:** 2026-03-06  
-**Status:** Comprehensive Analysis — QUI codeba examination complete  
-**Scope:** Options UI improvements + Low/Medium/High risk code enhancements  
+**Date:** 2026-03-03  
+**Status:** Comprehensive analysis complete; implementation in progress  
+**Scope:** Midnight (12.0.x) compatible UI improvements + low/medium/high risk enhancements  
+
+**Progress Update (2026-03-03):**
+- Task 1.1 removed from roadmap (project now focused only on Midnight API 12.0.x)
+- Task 1.2 complete (safe helper wrappers refined and documented)
+- Task 1.3 complete (SafeReload implementation active)
+- Task 1.4 complete (iterative profile import tree validation integrated into core import path)
 
 ---
 
@@ -687,10 +693,10 @@ Large architectural changes with potential for significant impact.
 ### Recommended Phase Breakdown:
 
 **Phase 1: Low-Effort Quick Wins (2-3 hours total)**
-1. B.4: API Version Compatibility (30 min) — Start here
-2. B.1: Safe Helpers (30 min)
-3. B.2: SafeReload System (1 hour)
-4. B.3: Profile Validation (1 hour)
+1. ✅ B.1: Safe Helpers (30 min)
+2. ✅ B.2: SafeReload System (1 hour)
+3. 🔜 B.3: Profile Validation (1 hour)
+4. ⛔ B.4: API Version Compatibility (removed for 12.0.x-only scope)
 
 **Phase 2: UI Improvements (8-10 hours total)**
 1. A.2: Accent Color System (2-3 hours) — Quick win for theming
@@ -774,4 +780,4 @@ Large architectural changes with potential for significant impact.
 
 ---
 
-**Next Steps:** Pick a Quick Win from Phase 1 to implement (recommend B.4: API Version Compatibility, 30 min)
+**Next Steps:** Continue with Phase 2 UI improvements.

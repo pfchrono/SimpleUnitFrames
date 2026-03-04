@@ -662,6 +662,127 @@ function addon:ApplySUFControlSkinsInFrame(root, variant)
 	Walk(root, 0)
 end
 
+---=================================================================================
+--- ACCENT COLOR DERIVATION SYSTEM
+---=================================================================================
+
+--- Interpolate between two colors (Linear Interpolation)
+--- @param r1 number Red component (0-1) of first color
+--- @param g1 number Green component (0-1) of first color
+--- @param b1 number Blue component (0-1) of first color
+--- @param r2 number Red component (0-1) of second color
+--- @param g2 number Green component (0-1) of second color
+--- @param b2 number Blue component (0-1) of second color
+--- @param t number Interpolation factor (0-1, 0=first color, 1=second color)
+--- @return number, number, number Interpolated RGB values
+local function LerpColor(r1, g1, b1, r2, g2, b2, t)
+	t = math.max(0, math.min(1, t or 0.5))
+	return r1 + (r2 - r1) * t, g1 + (g2 - g1) * t, b1 + (b2 - b1) * t
+end
+
+--- Darken a color by reducing brightness
+--- @param r number Red component (0-1)
+--- @param g number Green component (0-1)
+--- @param b number Blue component (0-1)
+--- @param factor number Darkening factor (0-1, higher = darker)
+--- @return number, number, number Darkened RGB values
+local function DarkenColor(r, g, b, factor)
+	factor = math.max(0, math.min(1, factor or 0.3))
+	return r * (1 - factor), g * (1 - factor), b * (1 - factor)
+end
+
+--- Lighten a color by increasing brightness
+--- @param r number Red component (0-1)
+--- @param g number Green component (0-1)
+--- @param b number Blue component (0-1)
+--- @param factor number Lightening factor (0-1, higher = lighter)
+--- @return number, number, number Lightened RGB values
+local function LightenColor(r, g, b, factor)
+	factor = math.max(0, math.min(1, factor or 0.3))
+	return math.min(1, r + (1 - r) * factor), math.min(1, g + (1 - g) * factor), math.min(1, b + (1 - b) * factor)
+end
+
+--- Generate accent color variants from a base accent color
+--- @param accentR number Red component (0-1)
+--- @param accentG number Green component (0-1)
+--- @param accentB number Blue component (0-1)
+--- @return table Accent color variants {accent, soft, dark, light}
+local function GenerateAccentVariants(accentR, accentG, accentB)
+	local soft_r, soft_g, soft_b = LerpColor(accentR, accentG, accentB, 0.5, 0.5, 0.5, 0.35)
+	local dark_r, dark_g, dark_b = DarkenColor(accentR, accentG, accentB, 0.4)
+	local light_r, light_g, light_b = LightenColor(accentR, accentG, accentB, 0.25)
+	
+	return {
+		base = { accentR, accentG, accentB, 1 },
+		soft = { soft_r, soft_g, soft_b, 1 },
+		dark = { dark_r, dark_g, dark_b, 1 },
+		light = { light_r, light_g, light_b, 1 },
+	}
+end
+
+--- Cache for derived accent colors
+addon.accentColorCache = {}
+
+--- Update accent color cache and refresh all theme colors based on new accent
+--- @param accentR number Red component (0-1)
+--- @param accentG number Green component (0-1)
+--- @param accentB number Blue component (0-1)
+--- @return void
+function addon:UpdateAccentColor(accentR, accentG, accentB)
+	accentR = math.max(0, math.min(1, accentR or 0.74))
+	accentG = math.max(0, math.min(1, accentG or 0.58))
+	accentB = math.max(0, math.min(1, accentB or 0.99))
+	
+	-- Generate variants
+	local variants = GenerateAccentVariants(accentR, accentG, accentB)
+	
+	-- Store in cache
+	self.accentColorCache = {
+		base = variants.base,
+		soft = variants.soft,
+		dark = variants.dark,
+		light = variants.light,
+	}
+	
+	-- Update THEME structure  
+	THEME.options.accent = variants.base
+	THEME.options.accentSoft = variants.soft
+	
+	-- Update derived colors in buttons, controls, etc.
+	THEME.buttons.default.normal.border = variants.base
+	THEME.buttons.default.hover.border = variants.soft
+	THEME.buttons.default.pressed.border = variants.base
+	
+	THEME.buttons.subtle.normal.border = { variants.soft[1], variants.soft[2], variants.soft[3], 0.95 }
+	THEME.buttons.subtle.hover.border = variants.base
+	THEME.buttons.subtle.pressed.border = { variants.base[1], variants.base[2], variants.base[3], 0.98 }
+	
+	THEME.controls.slider.bar = variants.soft
+	THEME.controls.slider.thumb = variants.base
+	THEME.controls.checkbox.check = variants.base
+	THEME.controls.scrollbar.thumb = variants.soft
+	THEME.controls.scrollbar.button = variants.base
+	THEME.controls.statusbar.bar = variants.base
+	
+	THEME.text.title = variants.base
+	THEME.text.header = variants.soft
+	THEME.text.accent = variants.base
+	
+	-- Sync with OptionsV2 if available
+	if self.SyncThemeFromOptionsV2 then
+		self:SyncThemeFromOptionsV2()
+	end
+end
+
+--- Get current accent color from cache
+--- @return number, number, number Base accent RGB values
+function addon:GetAccentColor()
+	if self.accentColorCache and self.accentColorCache.base then
+		return self.accentColorCache.base[1], self.accentColorCache.base[2], self.accentColorCache.base[3]
+	end
+	return THEME.options.accent[1], THEME.options.accent[2], THEME.options.accent[3]
+end
+
 function addon:ApplyThemeToPerformanceWindows()
 	local frames = {}
 	local function AddFrame(frame)

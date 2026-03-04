@@ -160,9 +160,11 @@ function addon:CreateOptionsV2Window()
 	reloadButton:SetSize(76, 22)
 	reloadButton:SetText("ReloadUI")
 	reloadButton:SetScript("OnClick", function()
-		if addon.PromptReloadUI then
+		if addon.SafeReload then
+			addon:SafeReload()
+		elseif addon.PromptReloadUI then
 			addon:PromptReloadUI("Reload UI now?")
-		elseif ReloadUI then
+		else
 			ReloadUI()
 		end
 	end)
@@ -420,6 +422,82 @@ function addon:CreateOptionsV2Window()
 				end
 			end
 			frame:SetPage(target.key)
+			if C_Timer and C_Timer.After then
+				C_Timer.After(0.1, function()
+					local currentStyle = addon:GetOptionsV2Style() or {}
+					-- Silent: Check if section frames are available
+					if match.sectionKey and addon._optionsV2SectionFrames and addon._optionsV2SectionFrames[match.pageKey] then
+						local sectionFrame = addon._optionsV2SectionFrames[match.pageKey][match.sectionKey]
+						if pageScroll and sectionFrame then
+							-- Get the section's top position relative to the scroll child (pageContent)
+							local pageContent = pageScroll:GetScrollChild()
+							if pageContent and sectionFrame:GetParent() == pageContent then
+								-- Get section's relative position to its parent (pageContent)
+								local numPoints = sectionFrame:GetNumPoints()
+								local targetScroll = 0
+								for i = 1, numPoints do
+									local point, relativeTo, relativePoint, xOfs, yOfs = sectionFrame:GetPoint(i)
+									if point and point:match("^TOP") and relativeTo == pageContent then
+										-- Found a TOP anchor, use its Y offset (absolute value since negative = down)
+										targetScroll = math.abs(yOfs or 0) - 50 -- Offset 50 pixels from top for visibility
+										targetScroll = math.max(0, targetScroll)
+										break
+									end
+								end
+								pageScroll:SetVerticalScroll(targetScroll)
+							end
+						end
+						-- Find and highlight the specific control label that matches the search query
+						local query = string.lower((frame._searchQuery or ""):match("^%s*(.-)%s*$") or "")
+						if query ~= "" and sectionFrame then
+							-- Check regions for FontStrings (control labels and text)
+							local regions = sectionFrame.GetRegions and {sectionFrame:GetRegions()} or {}
+							for i = 1, #regions do
+								local region = regions[i]
+								if region and region.GetObjectType and region:GetObjectType() == "FontString" then
+									local textContent = region:GetText() or ""
+									local lowerText = string.lower(textContent)
+									-- Check if this FontString contains the search query
+									if lowerText:find(query, 1, true) then
+										-- Store original color for restoration
+										if not region.__searchOriginalColor then
+											region.__searchOriginalColor = {region:GetTextColor()}
+										end
+										-- Apply highlight color (bold effect by using accent color)
+										local highlightColor = (currentStyle.accent or {0.74, 0.58, 0.99})
+										region:SetTextColor(highlightColor[1], highlightColor[2], highlightColor[3], 1)
+										-- Create pulsing effect that continues until search is cleared
+										if C_Timer and C_Timer.NewTicker then
+											-- Cancel any existing pulse timer for this region
+											if region.__searchPulseTimer then
+												region.__searchPulseTimer:Cancel()
+											end
+											-- Track highlighted regions globally so we can cancel them when search clears
+											addon._searchHighlightedRegions = addon._searchHighlightedRegions or {}
+											table.insert(addon._searchHighlightedRegions, region)
+											-- Start pulsing between highlight and original color
+											local isPulseOn = true
+											region.__searchPulseTimer = C_Timer.NewTicker(0.5, function()
+												if region and region.__searchOriginalColor then
+													if isPulseOn then
+														-- Pulse to original color
+														region:SetTextColor(region.__searchOriginalColor[1], region.__searchOriginalColor[2], region.__searchOriginalColor[3], region.__searchOriginalColor[4] or 1)
+													else
+														-- Pulse to highlight color
+														region:SetTextColor(highlightColor[1], highlightColor[2], highlightColor[3], 1)
+													end
+													isPulseOn = not isPulseOn
+												end
+											end)
+										end
+										break -- Only highlight the first match in the section
+									end
+								end
+							end
+						end
+					end
+				end)
+			end
 			local label = match.label or target.label or target.key
 			searchStatus:SetText(("%d/%d: %s"):format(idx, #results, tostring(label)))
 		else
@@ -574,6 +652,21 @@ function addon:CreateOptionsV2Window()
 			frame._searchIndex = nil
 			if selfBox:GetText() == "" then
 				searchStatus:SetText("")
+				-- Cancel all active search highlight pulse timers
+				if addon._searchHighlightedRegions then
+					for i, region in ipairs(addon._searchHighlightedRegions) do
+						if region and region.__searchPulseTimer then
+							region.__searchPulseTimer:Cancel()
+							region.__searchPulseTimer = nil
+						end
+						-- Restore original color
+						if region and region.__searchOriginalColor then
+							region:SetTextColor(region.__searchOriginalColor[1], region.__searchOriginalColor[2], region.__searchOriginalColor[3], region.__searchOriginalColor[4] or 1)
+							region.__searchOriginalColor = nil
+						end
+					end
+					addon._searchHighlightedRegions = {}
+				end
 			end
 		end
 	end)
@@ -587,6 +680,21 @@ function addon:CreateOptionsV2Window()
 		frame._searchQuery = nil
 		frame._searchResults = nil
 		frame._searchIndex = nil
+		-- Cancel all active search highlight pulse timers
+		if addon._searchHighlightedRegions then
+			for i, region in ipairs(addon._searchHighlightedRegions) do
+				if region and region.__searchPulseTimer then
+					region.__searchPulseTimer:Cancel()
+					region.__searchPulseTimer = nil
+				end
+				-- Restore original color
+				if region and region.__searchOriginalColor then
+					region:SetTextColor(region.__searchOriginalColor[1], region.__searchOriginalColor[2], region.__searchOriginalColor[3], region.__searchOriginalColor[4] or 1)
+					region.__searchOriginalColor = nil
+				end
+			end
+			addon._searchHighlightedRegions = {}
+		end
 	end)
 	searchBox:SetScript("OnKeyDown", function(selfBox, key)
 		if key == "UP" then

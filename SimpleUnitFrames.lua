@@ -63,6 +63,7 @@ local defaults = {
 			font = "Friz Quadrata TT",
 			globalStatusbarOverride = true,
 			globalFontOverride = true,
+			accentColor = { 0.74, 0.58, 0.99 },
 		},
 		optionsUI = {
 			sectionState = {},
@@ -1000,22 +1001,48 @@ local function IsSecretValue(value)
 	return type(issecretvalue) == "function" and issecretvalue(value) or false
 end
 
+---Safely convert value to number with pcall protection
+---@param value any Value to convert (may be secret)
+---@param fallback number Default if conversion fails
+---@return number Converted number or fallback
+local function SafeToNumber(value, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
+	local ok, result = pcall(tonumber, value)
+	if not ok or result == nil then
+		return fallback
+	end
+	if IsSecretValue(result) then
+		return fallback
+	end
+	return result
+end
+
+---Safely convert value to string with pcall protection
+---@param value any Value to convert (may be secret)
+---@param fallback string Default if conversion fails
+---@return string Converted string or fallback
+local function SafeToString(value, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
+	local ok, result = pcall(tostring, value)
+	if not ok or result == nil then
+		return fallback
+	end
+	if IsSecretValue(result) then
+		return fallback
+	end
+	return result
+end
+
 ---Safely extract numeric value from potentially-secret WoW API return
 ---@param value any Potentially-secret value from WoW API
 ---@param fallback number Default value if input is secret or invalid
 ---@return number Safe numeric value (fallback if secret)
 local function SafeNumber(value, fallback)
-	if IsSecretValue(value) then
-		return fallback
-	end
-	local num = tonumber(value)
-	if not num then
-		return fallback
-	end
-	if IsSecretValue(num) then
-		return fallback
-	end
-	return num
+	return SafeToNumber(value, fallback)
 end
 
 ---Safely extract boolean value from potentially-secret WoW API return
@@ -1123,11 +1150,11 @@ end
 ---@param fallback string Default value if input is secret or invalid
 ---@return string Safe text value (fallback if secret)
 local function SafeText(value, fallback)
-	if value == nil or IsSecretValue(value) then
+	if value == nil then
 		return fallback
 	end
-	local ok, text = pcall(tostring, value)
-	if not ok or not text or IsSecretValue(text) then
+	local text = SafeToString(value, nil)
+	if not text then
 		return fallback
 	end
 	return text
@@ -1148,6 +1175,8 @@ local function SafeAPICall(fn, ...)
 	return result
 end
 
+-- Task 1.2 helpers: secret-safe wrappers for comparison, arithmetic, and conversions.
+
 ---Safely compare two values without performing arithmetic
 ---@param a any First value (may be secret)
 ---@param b any Second value (may be secret)
@@ -1160,73 +1189,47 @@ local function SafeCompare(a, b)
 end
 
 ---Safely perform arithmetic operations on potentially-secret values
----@param value any Numeric value (may be secret)
+---@param value any Left-side numeric value (may be secret)
 ---@param operation string Operation ('+', '-', '*', '/', '%')
----@param fallback number Default if value is secret or operation fails
+---@param operandOrFallback any Right-side numeric value (optional) or fallback in legacy 3-arg calls
+---@param fallback number Default if secret/invalid input or operation fails
 ---@return number Result of operation or fallback
-local function SafeArithmetic(value, operation, fallback)
-	if IsSecretValue(value) then
-		return fallback
+local function SafeArithmetic(value, operation, operandOrFallback, fallback)
+	local rhs = 1
+	local default = fallback
+	if fallback == nil then
+		default = operandOrFallback
+	else
+		rhs = operandOrFallback
 	end
-	value = tonumber(value)
-	if not value then
-		return fallback
+
+	local lhsValue = SafeToNumber(value, nil)
+	local rhsValue = SafeToNumber(rhs, nil)
+	if lhsValue == nil or rhsValue == nil then
+		return default
 	end
-	local num = tonumber(1)  -- Identity for operations
-	if not num then
-		return fallback
-	end
+
 	local result
 	if operation == '+' then
-		result = value + num
+		result = lhsValue + rhsValue
 	elseif operation == '-' then
-		result = value - num
+		result = lhsValue - rhsValue
 	elseif operation == '*' then
-		result = value * num
-	elseif operation == '/' and num ~= 0 then
-		result = value / num
-	elseif operation == '%' and num ~= 0 then
-		result = value % num
+		result = lhsValue * rhsValue
+	elseif operation == '/' then
+		if rhsValue == 0 then
+			return default
+		end
+		result = lhsValue / rhsValue
+	elseif operation == '%' then
+		if rhsValue == 0 then
+			return default
+		end
+		result = lhsValue % rhsValue
 	else
-		return fallback
+		return default
 	end
-	return SafeNumber(result, fallback)
-end
-
----Safely convert value to number with pcall protection
----@param value any Value to convert (may be secret)
----@param fallback number Default if conversion fails
----@return number Converted number or fallback
-local function SafeToNumber(value, fallback)
-	if IsSecretValue(value) then
-		return fallback
-	end
-	local ok, result = pcall(tonumber, value)
-	if not ok or result == nil then
-		return fallback
-	end
-	if IsSecretValue(result) then
-		return fallback
-	end
-	return result
-end
-
----Safely convert value to string with pcall protection
----@param value any Value to convert (may be secret)
----@param fallback string Default if conversion fails
----@return string Converted string or fallback
-local function SafeToString(value, fallback)
-	if IsSecretValue(value) then
-		return fallback
-	end
-	local ok, result = pcall(tostring, value)
-	if not ok or result == nil then
-		return fallback
-	end
-	if IsSecretValue(result) then
-		return fallback
-	end
-	return result
+	return SafeToNumber(result, default)
 end
 
 ---Deep copy a table recursively (includes nested tables)
@@ -6664,15 +6667,27 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		if UnitIsDeadOrGhost and UnitIsDeadOrGhost(unit) then
 			text = "DEAD"
 			r, g, b = 1.0, 0.25, 0.25
-		elseif isPlayerUnit and UnitIsConnected and not UnitIsConnected(unit) then
-			text = "OFFLINE"
-			r, g, b = 0.70, 0.70, 0.70
-		elseif isPlayerUnit and UnitIsAFK and UnitIsAFK(unit) then
-			text = "AFK"
-			r, g, b = 1.0, 0.90, 0.35
-		elseif isPlayerUnit and UnitIsDND and UnitIsDND(unit) then
-			text = "DND"
-			r, g, b = 1.0, 0.25, 0.25
+		elseif isPlayerUnit and UnitIsConnected then
+			-- WoW 12.0.0+: UnitIsConnected may return secret value, avoid boolean test with 'not'
+			local connected = SafeAPICall(UnitIsConnected, unit)
+			if connected == false then
+				text = "OFFLINE"
+				r, g, b = 0.70, 0.70, 0.70
+			end
+		end
+		if text == "" and isPlayerUnit and UnitIsAFK then
+			local afk = SafeAPICall(UnitIsAFK, unit)
+			if afk then
+				text = "AFK"
+				r, g, b = 1.0, 0.90, 0.35
+			end
+		end
+		if text == "" and isPlayerUnit and UnitIsDND then
+			local dnd = SafeAPICall(UnitIsDND, unit)
+			if dnd then
+				text = "DND"
+				r, g, b = 1.0, 0.25, 0.25
+			end
 		end
 		frame.StatusIndicator:SetText(text)
 		frame.StatusIndicator:SetTextColor(r, g, b, 1.0)
@@ -9202,6 +9217,11 @@ local function UnwrapImportedPayload(data)
 end
 
 function addon:ValidateImportedProfileData(data)
+	local treeOk, treeErr = self:ValidateImportTree(data)
+	if not treeOk then
+		return nil, treeErr or "Imported data failed structural validation."
+	end
+
 	local profileData, envelope = UnwrapImportedPayload(data)
 	if type(profileData) ~= "table" then
 		return nil, "Imported data is not a table."
@@ -9375,7 +9395,11 @@ function addon:PromptReloadAfterImport(summaryText)
 		button1 = "Reload",
 		button2 = "Later",
 		OnAccept = function()
-			ReloadUI()
+			if addon.SafeReload then
+				addon:SafeReload()
+			else
+				ReloadUI()
+			end
 		end,
 		timeout = 0,
 		whileDead = true,
@@ -9630,18 +9654,31 @@ function addon:SetFramesVisible(isEditMode)
 		self:ApplyVisibilityRules()
 	end
 	self:UpdateAllUnitFrameUnlockHandles()
+	-- Queue Blizzard frame visibility updates to avoid protected API conflicts during combat (12.0.0+ restriction)
 	if _G.CompactRaidFrameManager and isGrouped then
-		if _G.CompactRaidFrameManager_SetSetting then
-			pcall(_G.CompactRaidFrameManager_SetSetting, "IsShown", "1")
+		local function UpdateBlizzardVisibility()
+			if _G.CompactRaidFrameManager_SetSetting then
+				pcall(_G.CompactRaidFrameManager_SetSetting, "IsShown", "1")
+			end
+			if _G.CompactRaidFrameManager_UpdateShown then
+				pcall(_G.CompactRaidFrameManager_UpdateShown)
+			end
+			if _G.CompactRaidFrameManager.Show then
+				pcall(_G.CompactRaidFrameManager.Show, _G.CompactRaidFrameManager)
+			end
+			if _G.CompactRaidFrameManagerDisplayFrame and _G.CompactRaidFrameManagerDisplayFrame.Show then
+				pcall(_G.CompactRaidFrameManagerDisplayFrame.Show, _G.CompactRaidFrameManagerDisplayFrame)
+			end
 		end
-		if _G.CompactRaidFrameManager_UpdateShown then
-			pcall(_G.CompactRaidFrameManager_UpdateShown)
-		end
-		if _G.CompactRaidFrameManager.Show then
-			pcall(_G.CompactRaidFrameManager.Show, _G.CompactRaidFrameManager)
-		end
-		if _G.CompactRaidFrameManagerDisplayFrame and _G.CompactRaidFrameManagerDisplayFrame.Show then
-			pcall(_G.CompactRaidFrameManagerDisplayFrame.Show, _G.CompactRaidFrameManagerDisplayFrame)
+		-- Use protected operations system to defer during combat (if available)
+		if InCombatLockdown and InCombatLockdown() and self.QueueOrRun then
+			self:QueueOrRun(UpdateBlizzardVisibility, {
+				key = "BlizzardFramesVisibility",
+				type = "BLIZZARD_VISIBILITY",
+				priority = "NORMAL",
+			})
+		else
+			UpdateBlizzardVisibility()
 		end
 	end
 end
@@ -9909,6 +9946,21 @@ function addon:OnInitialize()
 				self.db.profile.units[unitType].auraSize = unitDefaults.auraSize
 			end
 		end
+	end
+
+	-- Initialize accent color from profile (Phase 2.1)
+	if not self.db.profile.media then
+		self.db.profile.media = {}
+	end
+	if not self.db.profile.media.accentColor then
+		self.db.profile.media.accentColor = CopyTableDeep(defaults.profile.media.accentColor)
+	end
+	if self.UpdateAccentColor then
+		self:UpdateAccentColor(
+			self.db.profile.media.accentColor[1],
+			self.db.profile.media.accentColor[2],
+			self.db.profile.media.accentColor[3]
+		)
 	end
 
 	if LibDualSpec then
