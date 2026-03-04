@@ -116,11 +116,17 @@ local function EnsureBackdrop(frame)
 	if frame.GetBackdrop and frame:GetBackdrop() then
 		return
 	end
-	frame:SetBackdrop({
-		bgFile = "Interface\\Buttons\\WHITE8x8",
-		edgeFile = "Interface\\Buttons\\WHITE8x8",
-		edgeSize = 1,
-	})
+	-- Use pixel-perfect backdrop if available
+	if addon.SetPixelPerfectBackdrop then
+		addon:SetPixelPerfectBackdrop(frame, 1, "Interface\\Buttons\\WHITE8x8")
+	else
+		-- Fallback to manual backdrop creation
+		frame:SetBackdrop({
+			bgFile = "Interface\\Buttons\\WHITE8x8",
+			edgeFile = "Interface\\Buttons\\WHITE8x8",
+			edgeSize = 1,
+		})
+	end
 end
 
 -- Per Blizzard_SharedXML/Shared/Scroll/ScrollBar.lua lines 10-31, ScrollBar steppers/track/thumb are simple widgets.

@@ -209,13 +209,29 @@ local function BuildBarLookup()
     return bars, byID
 end
 
+local function NormalizeEntryID(entryID)
+    local id = tonumber(entryID)
+    if id and id > 0 then
+        return math.floor(id + 0.5)
+    end
+    return entryID
+end
+
+local function EntryIDsEqual(leftID, rightID)
+    local left = NormalizeEntryID(leftID)
+    local right = NormalizeEntryID(rightID)
+    return left == right
+end
+
 function CT:IsEntryTracked(entryType, entryID, barID)
+    local targetID = NormalizeEntryID(entryID)
     local bars, byID = BuildBarLookup()
     if barID and byID[barID] then
         local entries = byID[barID].entries or {}
         for i = 1, #entries do
             local entry = entries[i]
-            if entry and entry.type == entryType and entry.id == entryID then
+            if entry and entry.type == entryType and EntryIDsEqual(entry.id, targetID) then
+                entry.id = NormalizeEntryID(entry.id)
                 return true
             end
         end
@@ -226,7 +242,8 @@ function CT:IsEntryTracked(entryType, entryID, barID)
         local entries = bars[i].entries or {}
         for j = 1, #entries do
             local entry = entries[j]
-            if entry and entry.type == entryType and entry.id == entryID then
+            if entry and entry.type == entryType and EntryIDsEqual(entry.id, targetID) then
+                entry.id = NormalizeEntryID(entry.id)
                 return true
             end
         end
@@ -924,6 +941,54 @@ end
 
 CT.RebuildActiveSet = RebuildActiveSet
 
+local function PopulateBarIcon(bar, icon, entry)
+    if not bar or not icon or not entry then
+        return
+    end
+
+    local config = bar.config or {}
+    entry.id = NormalizeEntryID(entry.id)
+    icon.entry = entry
+    icon.isVisible = true
+
+    local info
+    if entry.type == "spell" then
+        info = GetCachedSpellInfo(entry.id)
+    else
+        info = GetCachedItemInfo(entry.id)
+    end
+
+    if info and info.icon then
+        icon.tex:SetTexture(info.icon)
+    else
+        icon.tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
+    end
+
+    UpdateIconSecureAttributes(icon, entry, config)
+end
+
+local function AppendEntryIcon(bar, entry)
+    if not bar or not entry then
+        return false
+    end
+
+    local config = bar.config or {}
+    local clickable = config.clickableIcons and not config.dynamicLayout
+    local icon = CreateTrackerIcon(bar, clickable)
+    StyleTrackerIcon(icon, config)
+    PopulateBarIcon(bar, icon, entry)
+
+    bar.icons[#bar.icons + 1] = icon
+    LayoutBarIcons(bar)
+    PositionBar(bar)
+
+    if bar.bg then
+        bar.bg:SetAlpha(config.bgOpacity or 0)
+    end
+
+    return true
+end
+
 ---------------------------------------------------------------------------
 -- UPDATE BAR ICONS
 ---------------------------------------------------------------------------
@@ -948,23 +1013,7 @@ function CT:UpdateBarIcons(bar)
     for _, entry in ipairs(entries) do
         local icon = CreateTrackerIcon(bar, clickable)
         StyleTrackerIcon(icon, config)
-        icon.entry = entry
-        icon.isVisible = true
-
-        local info
-        if entry.type == "spell" then
-            info = GetCachedSpellInfo(entry.id)
-        else
-            info = GetCachedItemInfo(entry.id)
-        end
-
-        if info and info.icon then
-            icon.tex:SetTexture(info.icon)
-        else
-            icon.tex:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark")
-        end
-
-        UpdateIconSecureAttributes(icon, entry, config)
+        PopulateBarIcon(bar, icon, entry)
         bar.icons[#bar.icons + 1] = icon
     end
 
@@ -1447,6 +1496,7 @@ end
 -- ENTRY MANAGEMENT
 ---------------------------------------------------------------------------
 function CT:AddEntry(barID, entryType, entryID)
+    local normalizedID = NormalizeEntryID(entryID)
     local db = GetDB()
     if not db or not db.bars then return false end
     for _, barConfig in ipairs(db.bars) do
@@ -1454,15 +1504,29 @@ function CT:AddEntry(barID, entryType, entryID)
             if not barConfig.entries then barConfig.entries = {} end
             -- Duplicate check
             for _, entry in ipairs(barConfig.entries) do
-                if entry.type == entryType and entry.id == entryID then
+                entry.id = NormalizeEntryID(entry.id)
+                if entry.type == entryType and EntryIDsEqual(entry.id, normalizedID) then
                     return false
                 end
             end
-            barConfig.entries[#barConfig.entries + 1] = { type = entryType, id = entryID }
-            if self.activeBars[barID] then
-                self.activeBars[barID].config = barConfig
-                self:UpdateBarIcons(self.activeBars[barID])
-                RebuildActiveSet(self.activeBars[barID])
+
+            local newEntry = { type = entryType, id = normalizedID }
+            barConfig.entries[#barConfig.entries + 1] = newEntry
+
+            local activeBar = self.activeBars[barID]
+            if activeBar then
+                activeBar.config = barConfig
+
+                local didAppend = false
+                if activeBar.icons and (#activeBar.icons + 1 == #barConfig.entries) then
+                    didAppend = AppendEntryIcon(activeBar, newEntry)
+                end
+
+                if not didAppend then
+                    self:UpdateBarIcons(activeBar)
+                end
+
+                RebuildActiveSet(activeBar)
             end
             return true
         end
@@ -1471,6 +1535,7 @@ function CT:AddEntry(barID, entryType, entryID)
 end
 
 function CT:RemoveEntry(barID, entryType, entryID)
+    local normalizedID = NormalizeEntryID(entryID)
     local db = GetDB()
     if not db or not db.bars then return false end
     for _, barConfig in ipairs(db.bars) do
@@ -1478,12 +1543,14 @@ function CT:RemoveEntry(barID, entryType, entryID)
             local entries = barConfig.entries
             if entries then
                 for i, entry in ipairs(entries) do
-                    if entry.type == entryType and entry.id == entryID then
+                    entry.id = NormalizeEntryID(entry.id)
+                    if entry.type == entryType and EntryIDsEqual(entry.id, normalizedID) then
                         table.remove(entries, i)
-                        if self.activeBars[barID] then
-                            self.activeBars[barID].config = barConfig
-                            self:UpdateBarIcons(self.activeBars[barID])
-                            RebuildActiveSet(self.activeBars[barID])
+                        local activeBar = self.activeBars[barID]
+                        if activeBar then
+                            activeBar.config = barConfig
+                            self:UpdateBarIcons(activeBar)
+                            RebuildActiveSet(activeBar)
                         end
                         return true
                     end

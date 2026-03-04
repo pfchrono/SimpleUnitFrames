@@ -886,6 +886,10 @@ local function CreateStatusBar(parent, height)
 			newTex:SetDrawLayer(layer, subLevel)
 		end
 	end
+	-- Apply pixel-perfect texture snapping for crisp rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(bar)
+	end
 	return bar
 end
 
@@ -4168,6 +4172,20 @@ function addon:ScheduleUpdateAll()
 	end
 end
 
+---Snap frame to pixel-perfect grid position after drag operations
+---Calls PixelPerfect:SnapFramePosition() if available, ensuring
+---frame position lands exactly on pixel boundaries
+---@param frame Frame The frame to snap
+---@return string?, Frame?, string?, number?, number? point, relativeTo, relativePoint, x, y
+function addon:SnapFrameToPixelGrid(frame)
+	if not frame then return end
+	if self.SnapFramePosition then
+		return self:SnapFramePosition(frame)
+	end
+	-- Fallback: return current position unchanged
+	return frame:GetPoint()
+end
+
 ---Get optimal work delay with ML optimization support
 ---@return number Delay in seconds (0.01 to 0.20 range)
 function addon:GetLocalWorkDelay()
@@ -6959,7 +6977,12 @@ function addon:ApplySize(frame)
 		return
 	end
 
-	frame:SetSize(size.width, size.height)
+	-- Apply pixel-perfect sizing for clean frame borders
+	if addon.SetPixelPerfectSize then
+		addon:SetPixelPerfectSize(frame, size.width, size.height)
+	else
+		frame:SetSize(size.width, size.height)
+	end
 
 	if frame.Health then
 		frame.Health:SetHeight(size.height)
@@ -7085,6 +7108,11 @@ function addon:UpdateAllFrames()
 	-- Direct synchronous update - DirtyFlagManager integration deferred for testing
 	-- (Keeping batching logic in mark functions for future use)
 	-- TODO: Re-enable after validating DirtyFlagManager behavior with SUF frames
+	
+	-- Guard against early calls before frames are spawned
+	if not self.frames then
+		return
+	end
 	
 	for _, frame in ipairs(self.frames) do
 		local frameStart = debugprofilestop and debugprofilestop() or nil
@@ -7244,6 +7272,10 @@ local function CreateCastbar(self, height, anchor)
 	local Castbar = CreateFrame("StatusBar", nil, self)
 	Castbar:SetStatusBarTexture(DEFAULT_TEXTURE)
 	Castbar:SetHeight(height)
+	-- Apply texture snapping for crisp castbar rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(Castbar)
+	end
 	SetMousePassthrough(Castbar)
 	if anchor then
 		Castbar:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -8)
@@ -7318,6 +7350,10 @@ local function CreateClassPower(self, height)
 		bar:SetHeight(height)
 		bar:SetPoint("TOPLEFT", anchor, "TOPLEFT", (index - 1) * 18, 0)
 		bar:SetWidth(16)
+		-- Apply texture snapping for crisp ClassPower bar rendering
+		if addon and addon.ApplyPixelSnapping then
+			addon:ApplyPixelSnapping(bar)
+		end
 		SetMousePassthrough(bar)
 		ClassPower[index] = bar
 	end
@@ -7347,6 +7383,10 @@ local function CreateHealthPrediction(self)
 	healingAll:SetStatusBarTexture(DEFAULT_TEXTURE)
 	healingAll:SetStatusBarColor(0.35, 0.95, 0.45, 0.40)
 	healingAll:SetFrameLevel(predictionLevel)
+	-- Apply texture snapping for crisp healing prediction rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(healingAll)
+	end
 	SetMousePassthrough(healingAll)
 
 	local healingPlayer = CreateFrame("StatusBar", nil, self)
@@ -7357,6 +7397,10 @@ local function CreateHealthPrediction(self)
 	healingPlayer:SetStatusBarTexture(DEFAULT_TEXTURE)
 	healingPlayer:SetStatusBarColor(0.35, 0.95, 0.45, 0.40)
 	healingPlayer:SetFrameLevel(predictionLevel)
+	-- Apply texture snapping for crisp healing prediction rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(healingPlayer)
+	end
 	SetMousePassthrough(healingPlayer)
 
 	local healingOther = CreateFrame("StatusBar", nil, self)
@@ -7367,6 +7411,10 @@ local function CreateHealthPrediction(self)
 	healingOther:SetStatusBarTexture(DEFAULT_TEXTURE)
 	healingOther:SetStatusBarColor(0.20, 0.75, 0.35, 0.40)
 	healingOther:SetFrameLevel(predictionLevel)
+	-- Apply texture snapping for crisp healing prediction rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(healingOther)
+	end
 	SetMousePassthrough(healingOther)
 
 	local damageAbsorb = CreateFrame("StatusBar", nil, absorbOverlay)
@@ -7378,6 +7426,10 @@ local function CreateHealthPrediction(self)
 	damageAbsorb:SetStatusBarTexture(DEFAULT_TEXTURE)
 	damageAbsorb:SetStatusBarColor(1.00, 0.95, 0.20, 0.80)
 	damageAbsorb:SetFrameLevel((absorbOverlay:GetFrameLevel() or predictionLevel) + 1)
+	-- Apply texture snapping for crisp absorb overlay rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(damageAbsorb)
+	end
 	SetMousePassthrough(damageAbsorb)
 	do
 		local tex = damageAbsorb:GetStatusBarTexture()
@@ -7406,6 +7458,10 @@ local function CreateHealthPrediction(self)
 	healAbsorb:SetStatusBarTexture(DEFAULT_TEXTURE)
 	healAbsorb:SetStatusBarColor(0.95, 0.25, 0.25, 0.55)
 	healAbsorb:SetFrameLevel((absorbOverlay:GetFrameLevel() or predictionLevel) + 1)
+	-- Apply texture snapping for crisp heal absorb overlay rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(healAbsorb)
+	end
 	SetMousePassthrough(healAbsorb)
 	do
 		local tex = healAbsorb:GetStatusBarTexture()
@@ -8270,7 +8326,18 @@ function addon:Style(frame, unit)
 	frame:SetScript("OnLeave", SUF_OnLeave)
 
 	local size = self.db.profile.sizes[frame.sufUnitType]
-	frame:SetSize(size.width, size.height)
+	-- Apply pixel-perfect sizing for clean frame borders
+	if self.SetPixelPerfectSize then
+		self:SetPixelPerfectSize(frame, size.width, size.height)
+	else
+		frame:SetSize(size.width, size.height)
+	end
+	
+	-- Apply texture snapping for crisp rendering
+	if self.ApplyPixelSnapping then
+		self:ApplyPixelSnapping(frame)
+	end
+	
 	if frame.unlockHandle then
 		frame.unlockHandle:SetAllPoints(frame)
 	end
@@ -8375,6 +8442,10 @@ function addon:Style(frame, unit)
 	PowerPrediction:SetStatusBarColor(1, 0.9, 0.25, 0.70)
 	PowerPrediction:SetReverseFill(true)
 	PowerPrediction:Hide()
+	-- Apply texture snapping for crisp power prediction rendering
+	if addon and addon.ApplyPixelSnapping then
+		addon:ApplyPixelSnapping(PowerPrediction)
+	end
 	SetMousePassthrough(PowerPrediction)
 	frame.PowerPrediction = PowerPrediction
 
@@ -9966,6 +10037,9 @@ function addon:OnInitialize()
 	if LibDualSpec then
 		LibDualSpec:EnhanceDatabase(self.db, "SimpleUnitFrames")
 	end
+
+	-- Initialize pixel-perfect system after database is ready
+	self:InitializePixelPerfect()
 
 	self:RegisterChatCommand("suf", "HandleSUFSlash")
 	self:RegisterChatCommand("sufdebug", "HandleDebugSlash")

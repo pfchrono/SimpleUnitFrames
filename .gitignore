@@ -8,3 +8,4 @@ CLAUDE.md
 /.claude/worktrees
 COMMIT_MESSAGE.txt
 releases
+RELEASE_NOTES_*.md
