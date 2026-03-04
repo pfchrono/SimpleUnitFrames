@@ -1,3 +1,11 @@
+## [1.29.3] - 2026-03-04
+
+### Added
+- Add ProfileValidator module for validating import trees and enhancing data integrity (`8c7f3f7`)
+
+---
+
+
 ## [1.29.0] - 2026-03-04
 
 ### Added
