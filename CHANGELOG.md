@@ -1,3 +1,17 @@
+## [1.29.0] - 2026-03-04
+
+### Added
+- Implement SmartRegisterUnitEvent kernel-level event filtering for 30-50% performance gain (`86f2088`)
+
+### Other
+- Stop (`- Enabl`)
+- P99: 19.00ms (`- Frame`)
+- P99: 20.00ms (`- Frame`)
+- P99: 18.00ms Γ£à (`- Frame`)
+
+---
+
+
 ## [1.28.1] - 2026-03-03
 
 ### Added
