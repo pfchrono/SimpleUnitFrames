@@ -1,3 +1,14 @@
+## [1.31.0] - 2026-03-04
+
+### Changed
+- Remove outdated release notes for v1.29.0 (`5fb9529`)
+
+### Other
+- Task 3.1: Implement Pixel-Perfect Scaling System for clean frame rendering at all UI scales (`b1e0894`)
+
+---
+
+
 ## [1.29.3] - 2026-03-04
 
 ### Added
