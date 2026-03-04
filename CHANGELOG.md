@@ -1,3 +1,18 @@
+## [1.28.1] - 2026-03-03
+
+### Added
+- Implement SafeReload system to prevent errors during combat (`9ea43d4`)
+- Update release infrastructure for v1.26.0 and enhance automation scripts (`06b00b6`)
+
+### Changed
+- Sync: merge recent upstream connection updates and fix solo party visibility (`864db87`)
+
+### Other
+- Release Infrastructure: v1.26.0 Build & Publish Automation (`db007c5`)
+
+---
+
+
 # SimpleUnitFrames Changelog
 
 All notable changes to SimpleUnitFrames will be documented in this file.
