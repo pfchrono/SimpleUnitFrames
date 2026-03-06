@@ -1,3 +1,11 @@
+## [1.32.0] - 2026-03-05
+
+### Added
+- Major Phase 4 Update - Castbar For All Units, OptionsV2 Sidebar, Profile Migration System (`edab41b`)
+
+---
+
+
 ## [1.31.0] - 2026-03-04
 
 ### Changed
