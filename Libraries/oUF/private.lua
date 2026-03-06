@@ -53,6 +53,7 @@ end
 
 function Private.isUnitEvent(event, unit)
 	local isOK = pcall(validator.RegisterUnitEvent, validator, event, unit)
+	
 	if(isOK) then
 		validator:UnregisterEvent(event)
 	end

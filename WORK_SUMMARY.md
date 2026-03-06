@@ -1,5 +1,669 @@
 # Work Summary
 
+## 2026-03-05 — Castbar Spawn Fallback Narrowing (Post-Reload Validation) ✅
+
+**Context:** `/reload` validation confirmed castbars were stable, so the remaining spawn-time castbar workaround was reduced to a minimal safety path.
+
+**Changes Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua) in `SpawnFrames()`:
+   - Replaced the prior non-header `DisableElement("Castbar")` + `EnableElement("Castbar")` rebind loop with a narrow fallback that only calls `EnableElement("Castbar")` when the element is unexpectedly disabled.
+   - Kept header-unit exclusion (`party`/`raid`) intact.
+- Removed leftover spawn debug print in [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - deleted `print("SpawnFrames: Exposed _G.SimpleUnitFrames ...")`
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- ✅ Confirmed old workaround/debug strings no longer present
+- ✅ Narrow fallback path present and scoped
+
+---
+
+## 2026-03-05 — Threat Indicator Glow Cleanup & Persistence Fix ✅
+
+**Issue:** Party threat indicator glows were persisting after combat ended and not properly updating when threat switched between party members.
+- Red threat glow (border) was staying visible on frames after combat ended with no target
+- Threat indicator icon was not reliably showing on the correct party member when threat switched
+- Multiple glows could accumulate on the same frame without being properly cleaned up
+
+**Root Cause Analysis:**
+1. **Glow leak on updates:** `ApplyThreatGlow()` in [Core/IndicatorPoolManager.lua](Core/IndicatorPoolManager.lua) was acquiring a new glow frame every time threat updated without releasing any existing glow first. When threat Status changed (1→2→3), the old glows were orphaned and not cleaned up.
+2. **Feedback unit edge case:** In [Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua), when `feedbackUnit = "target"` on party frames and the target didn't exist (after combat ends, no target), the logic didn't explicitly clear threat status, sometimes leaving stale state.
+3. **Implicit fallback paths:** When feedback unit didn't exist, the code would fall through to a single-unit `UnitThreatSituation()` call instead of explicitly clearing threat, causing inconsistent behavior.
+
+**Fix Applied:**
+
+1. **Always Release Before Acquire** ([Core/IndicatorPoolManager.lua](Core/IndicatorPoolManager.lua)):
+   - Added explicit `self:Release(frame, POOL_TYPES.THREAT_GLOW)` at start of `ApplyThreatGlow()`
+   - Ensures old glow is cleaned up and returned to pool before acquiring new one
+   - Prevents glow frame leaks and orphaned visuals
+
+2. **Explicit Feedback Unit Validation** ([Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua)):
+   - Added explicit check for feedback unit existence: `local feedbackUnitExists = not feedbackUnit or feedbackUnit == frameUnit or unitExists(feedbackUnit)`
+   - When feedbackUnit doesn't exist (e.g., no target), explicitly set `status = nil` instead of falling through to implicit fallback
+   - This ensures threat is properly cleared when feedback unit is invalid, triggering glow release
+
+**Validation:**
+- ✅ Lua syntax/error check clean for both modified files
+- ✅ All glow releases now properly paired with acquisitions
+- ✅ Threat status explicitly cleared when feedback unit (target) doesn't exist
+
+**Expected Behavior:**
+- When threat updates on a party member, old glow releases before new glow applies (no leaks)
+- When combat ends with no target, threat glows immediately release
+- When threat switches between party members (3→0→3), glows cleanly transition
+- Glow icon always shows on the correct party member with full threat (status == 3)
+
+---
+
+## 2026-03-05 — CustomTrackers Auto-Learn Filtering & Delete All Entries ✅
+
+**Objective:** Enhanced CustomTrackers auto-learn system with intelligent spell filtering and bulk entry management.
+
+**Features Implemented:**
+
+1. **Auto-Learn Spell Filters** ([Modules/System/CustomTrackers.lua](Modules/System/CustomTrackers.lua)):
+   - `learnOnlyKnownSpells`: Only auto-learn spells the player has already learned (via `IsSpellKnownByPlayer()` check)
+   - `excludeNPCSpells`: Filter out NPC-only spells using `IsNPCSpell()` helper
+   - `includeItemSpells`: Control whether item spells from player inventory are auto-learned (default: enabled)
+
+2. **Delete All Entries Button** ([Modules/UI/OptionsV2/Builders/CustomTrackersBuilder.lua](Modules/UI/OptionsV2/Builders/CustomTrackersBuilder.lua)):
+   - Added button in Entries section to clear all spell/item entries from selected bar
+   - Button auto-disables when no bar selected or bar has no entries
+   - Iterates safely through entries to avoid table modification during iteration
+
+3. **Configuration UI** ([Modules/UI/OptionsV2/Builders/CustomTrackersBuilder.lua](Modules/UI/OptionsV2/Builders/CustomTrackersBuilder.lua)):
+   - Added 3 new checkboxes under "Manage" → "Learn Spells" section
+   - Options cascade-disable based on parent settings (only show when spell learning enabled)
+   - Controls are indented for visual hierarchy (4 spaces = sub-option layout)
+
+4. **Helper Functions** ([Modules/System/CustomTrackers.lua](Modules/System/CustomTrackers.lua)):
+   - `IsSpellKnownByPlayer(spellID)`: Checks if player has learned a spell via `IsSpellKnownOrOverridesKnown`/`IsPlayerSpell`/`IsSpellKnown` APIs
+   - `IsNPCSpell(spellID)`: Detects NPC-only spells by verifying they're not in player skill book
+
+5. **Config Defaults** ([SimpleUnitFrames.lua](SimpleUnitFrames.lua)):
+   - Added to profile.customTrackers.autoLearn:
+     - `learnOnlyKnownSpells = false`
+     - `excludeNPCSpells = false`
+     - `includeItemSpells = true`
+
+**Validation:**
+- ✅ Lua syntax/error check clean for all 3 modified files
+- ✅ Config defaults added and auto-initialized in GetAutoLearnConfig()
+- ✅ UI controls properly cascade-disable based on dependent settings
+
+**Expected Behavior:**
+- By default, all new players get current behavior (learn all spells/items)
+- When enabled, "Only Known Player Spells" prevents low-level/quest spells from cluttering tracker
+- "Exclude NPC-Only Spells" prevents unusable NPC abilities from auto-learning
+- "Include Item Spells" toggles whether trinket/consumable abilities are tracked
+
+---
+
+## 2026-03-05 — Party Threat Indicator Refresh/Reset Reliability ✅
+
+**Issue:** Party threat visuals were inconsistent in combat and could remain stale after combat.
+- Threat holder updates on party frames could lag unless retargeting occurred.
+- Red threat outline (glow) could remain stuck after combat.
+- Threat holder icon could fail to appear/hand off reliably during active threat changes.
+
+**Root Cause:**
+1. In [SimpleUnitFrames.lua](SimpleUnitFrames.lua), dirty-event routing for `UNIT_THREAT_SITUATION_UPDATE` / `UNIT_THREAT_LIST_UPDATE` updated `Health` only, but did not force-update the `ThreatIndicator` element.
+2. In [Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua), threat visuals depended on threat events only; missing lifecycle refresh triggers allowed stale glow/icon state when threat events were sparse (especially around combat state transitions).
+3. Target-feedback threat frames (party/raid using `feedbackUnit = "target"`) benefited from explicit refresh on target swaps.
+
+**API Verification (Blizzard Reference):**
+- Verified threat lifecycle/event handling against:
+   - [wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua](../wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Shared/CompactUnitFrame.lua)
+   - [wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Mainline/UnitFrame.lua](../wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Mainline/UnitFrame.lua)
+- Confirmed Blizzard updates aggro highlight from threat events and additional lifecycle events, and uses `UnitThreatSituation(feedbackUnit, unit)` for feedback-unit models.
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Dirty event handler now force-updates `ThreatIndicator` for `UNIT_THREAT_SITUATION_UPDATE` and `UNIT_THREAT_LIST_UPDATE` events.
+   - `RefreshAllTargetGlowIndicators()` now also force-updates threat indicators for target-feedback frames (`feedbackUnit == "target"`) on retarget.
+
+- Updated [Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua):
+   - Registered `PLAYER_REGEN_ENABLED` and `PLAYER_REGEN_DISABLED` to force refresh threat visuals on combat state transitions.
+   - Registered `PLAYER_TARGET_CHANGED` for target-feedback threat indicators to keep party/raid threat ownership in sync after retarget.
+   - Added matching unregister calls in `Disable()` for all new events.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua) and [Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua)
+- ⏳ In-game validation pending: verify party threat handoff without retarget dependency, and confirm threat glow clears reliably after combat end.
+
+---
+
+## 2026-03-05 — Party Frame Bootstrap Initialization ✅
+
+**Issue:** Party frames spawned with stale/blank health, power, name tags on login/reload, especially in dungeons. Values only populated after secondary trigger (heal cast, aura update, or forced refresh). Target/ToT frames had explicit bootstrap refresh handlers but party frames lacked equivalent.
+
+**Root Cause Analysis (High-Confidence):**
+1. **Anti-flicker wrapper suppression:** SimpleUnitFrames.lua #9046-9122 wraps oUF update methods to guard against frame flicker by suppressing full-refresh init paths (OnShow, OnAttributeChanged, PLAYER_ENTERING_WORLD, GROUP_ROSTER_UPDATE).
+2. **Custom token bypass:** Units/Party.lua #47-72 called `child:UpdateAllElements("GroupRosterUpdate")` with custom token. Anti-flicker wrapper treats unknown tokens as incremental-only path, bypassing full tag/element initialization.
+3. **Missing bootstrap pipeline:** Target/Focus have dedicated `OnPlayerTargetChanged()`/`OnPlayerFocusChanged()` handlers (#6918-7006) that force full element refresh. Party children lacked equivalent bootstrap.
+4. **Tag system gaps:** oUF tag event registration may not reach party frames on PLAYER_ENTERING_WORLD if filter requires unit parameter (PEW supplies none).
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua) #9061-9062:
+  - Added `"GROUP_ROSTER_UPDATE"` to `ShouldAllowFullRefreshPassthrough()` whitelist so GROUP_ROSTER_UPDATE events bypass anti-flicker guards and use full refresh path.
+
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua) #9317-9363:
+  - Added post-spawn bootstrap refresh for all party children after header creation (in oUF Factory callback).
+  - Mirrors Target/Focus bootstrap pattern: `UpdateFrameFromDirtyEvents()` with comprehensive event set (GROUP_ROSTER_UPDATE, UNIT_HEALTH, UNIT_MAXHEALTH, UNIT_POWER_UPDATE, UNIT_MAXPOWER, UNIT_NAME_UPDATE, UNIT_PORTRAIT_UPDATE, UNIT_AURA, UNIT_THREAT_SITUATION_UPDATE, UNIT_THREAT_LIST_UPDATE, UNIT_CLASSIFICATION_CHANGED, UNIT_RANGE, UNIT_ABSORB_AMOUNT_CHANGED, UNIT_HEAL_ABSORB_AMOUNT_CHANGED).
+  - Manual element force-updates: `UpdateTags()`, `HealthValue.UpdateTag()`, `ThreatIndicator.ForceUpdate()`, `UpdateAbsorbValue()`.
+
+- Updated [Units/Party.lua](Units/Party.lua) #71-72:
+  - Changed from hardcoded custom token `"GroupRosterUpdate"` to standard event name `event` variable.
+  - This allows the anti-flicker wrapper to recognize GROUP_ROSTER_UPDATE as a known event and route to full refresh.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua) and [Units/Party.lua](Units/Party.lua)
+- ⏳ In-game validation pending (test `/reload` in dungeon, verify all party bars show health/name/threat immediately without flicker, verify roster changes don't cause staleness regression)
+
+**Effect:** Party frames should now bootstrap with full element initialization values on spawn, matching Target/ToT behavior. Subsequent roster changes routed through anti-flicker passthrough path for consistent full-refresh semantics.
+
+---
+
+## 2026-03-05 — Threat Handoff Fix (Party/Feedback Unit) ✅
+
+**Issue:** Threat glow could stick on the previous unit and fail to hand off when full aggro moved to another party member. In some combat cases, party threat indicators did not deploy at all. After initial fix, oUF event dispatcher threw "attempt to call field '?' (a nil value)" when `UNIT_THREAT_LIST_UPDATE` fired for party frames.
+
+**Root Cause:** In [Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua), three issues combined:
+- event routing could miss feedback-unit (`target`) threat updates for party/raid frames,
+- threat status evaluation incorrectly suppressed player-controlled frame units (party/raid), preventing `UnitThreatSituation(feedbackUnit, frameUnit)` from resolving,
+- dual-unit event registration via `RegisterUnitEvent(event, unit1, unit2)` did not set event handler functions (`self[eventName]`) before registration, causing oUF's event dispatcher to call nil.
+
+**Fix Applied:**
+- Updated [Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua):
+  - Accept threat updates for either `frameUnit` or `feedbackUnit`.
+  - Register `UNIT_THREAT_*` with both `self.unit` and `feedbackUnit` when feedback mode is active.
+  - Set `self['UNIT_THREAT_SITUATION_UPDATE']` and `self['UNIT_THREAT_LIST_UPDATE']` to `Path` handler before calling `RegisterUnitEvent()` for dual-unit registration.
+  - Compute `UnitThreatSituation(feedbackUnit, frameUnit)` with stable frame context.
+
+**Additional Enhancement (Leader Icon Override):**
+- Updated [Core/IndicatorPoolManager.lua](Core/IndicatorPoolManager.lua):
+  - Threat glow now uses HIGH frame strata (up from MEDIUM minimum) to ensure visibility above OVERLAY textures like LeaderIndicator.
+  - Frame level increased from +10 to +50 relative to parent to override all indicator layers.
+  - Ensures threat glow is always visible even when party leader icon or raid markers are present.
+**Validation:**
+- ✅ Lua diagnostics clean for [Libraries/oUF/elements/threatindicator.lua](Libraries/oUF/elements/threatindicator.lua)
+- ⏳ In-game validation pending (aggro handoff between party members on same target)
+
+---
+
+## 2026-03-05 — Custom Trackers Timeout Guard (`script ran too long`) ✅
+
+**Issue:** `CustomTrackers.lua` hit `script ran too long` during startup refresh (`RefreshAll -> CreateBar -> UpdateBarIcons -> CreateTrackerIcon`).
+
+**Root Cause:** Bars with oversized/duplicate entry lists could trigger large synchronous icon rebuild work, causing Lua execution to exceed WoW's script time budget.
+
+**Fix Applied:**
+- Updated [Modules/System/CustomTrackers.lua](Modules/System/CustomTrackers.lua):
+   - Added `SanitizeBarEntries()` to normalize IDs, drop invalid entries, deduplicate by `type:id`, and cap icon rebuild input to `MAX_TRACKER_ENTRIES_PER_BAR` (256).
+   - `UpdateBarIcons()` now sanitizes `config.entries` before recreating icons.
+   - Added entry-limit guard in `AddEntry()` to prevent bars from growing beyond the cap.
+   - Added one-time user warning when a bar is truncated to avoid timeout regressions.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/System/CustomTrackers.lua](Modules/System/CustomTrackers.lua)
+- ⏳ In-game validation pending (reload + open Custom Trackers + verify bar icons render without timeout)
+
+---
+
+## 2026-03-05 — Threat Glow Visibility Hardening + Throttle Log De-Noise ✅
+
+**Issue:** Debug output showed repeated `UpdateSingleFrame: THROTTLED` lines (looked like a live failure), and threat glow overlays could inherit `LOW` strata from parent frames, reducing visibility confidence.
+
+**Root Cause:**
+- `UpdateSingleFrame()` logged every throttle hit for `player/target/tot` when refresh calls landed inside the 1s guard window.
+- `IndicatorPoolManager:ApplyThreatGlow()` always matched parent strata directly; if parent strata was low, glow layering could be less reliable in busy UI stacks.
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Added per-frame throttle-log cooldown (`frame.__sufLastThrottleLogAt`) so throttle diagnostics emit at most once every 2 seconds per frame.
+   - Clarified log text to `THROTTLED (rate-limited full refresh)` while preserving existing throttle behavior.
+- Updated [Core/IndicatorPoolManager.lua](Core/IndicatorPoolManager.lua):
+   - Added strata-priority normalization helper (`ResolveIndicatorStrata`) with Blizzard-valid strata ordering.
+   - Threat glow now applies with a minimum `MEDIUM` strata floor (while preserving parent strata when already higher).
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua) and [Core/IndicatorPoolManager.lua](Core/IndicatorPoolManager.lua)
+- ⏳ In-game validation pending (confirm threat glow visibility while target/focus swapping in combat)
+
+---
+
+## 2026-03-05 — Focus Frame Refresh Regression Fix ✅
+
+**Issue:** Focus frame could fail to refresh/update promptly on focus switches, likely due event-throttled incremental update paths.
+
+**Root Cause:** `PLAYER_FOCUS_CHANGED` was not explicitly handled like target switches. Anti-flicker wrappers routed many events through incremental dirty updates; for focus swaps this could skip immediate full visual refresh for bars/tags/portrait.
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Added `OnPlayerFocusChanged()` mirroring target-refresh behavior for focus frames (health/power/name/portrait/aura/threat/range/absorbs + tag updates)
+   - Registered `PLAYER_FOCUS_CHANGED` in `OnEnable()` to invoke `OnPlayerFocusChanged`
+   - Added login/reload bootstrap calls (`C_Timer.After` at 0s/0.25s/0.75s) to refresh focus visuals alongside target/tot
+   - Added `PLAYER_FOCUS_CHANGED` (and `PLAYER_TARGET_CHANGED`) to full-refresh passthrough guard so wrappers do not suppress those swap events
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- ⏳ In-game validation pending (set/clear/change focus repeatedly in combat + out of combat)
+
+---
+
+## 2026-03-05 — Delves Reload Follow-Up 6: SecureStateDriver Semantics + Header Show Recovery ✅
+
+**Issue:** Party header remained hidden with `exists=true`, `shown=false`, `children=0`, and `state=nil` even when `party1` existed.
+
+**Root Cause Findings:**
+- `state-visibility` is **not** a reliable runtime attribute for visibility state in Blizzard's `SecureStateDriver` implementation; the manager toggles `Show/Hide` + `statehidden` for `state-visibility` drivers.
+- Header logic was treating `state-visibility == nil` as missing driver and did not include a direct recovery path for `desiredState == "show"`.
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua) `ApplyVisibilityRules()`:
+   - removed reliance on `header:GetAttribute("state-visibility")` for driver-health checks
+   - added Delve follower override for party header driver (`headerDriver = "show"` in follower/walk-in context)
+   - resolves desired visibility using `SecureCmdOptionParse(headerDriver)`
+   - when desired state is `show`, clears stale `statehidden` and force-calls `header:Show()` via `QueueOrRun` recovery path
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- ✅ In-game validation passed (`/reload` in Delve follower context): `exists=true`, `shown=true`, `children=2`, `statehidden=nil`
+
+---
+
+## 2026-03-05 — Delves Reload Follow-Up 5: Header Visibility Driver Recovery + Follower Solo Guard ✅
+
+**Issue:** Header persisted as hidden with missing state driver (`state-visibility: nil`, `exists=true`, `shown=false`, `children=0`).
+
+**Root Cause:** Two edge cases combined:
+- header visibility driver could be skipped after transient failure because `__sufVisibilityDriver` cache prevented retry even when `state-visibility` remained unset
+- Delve follower/walk-in contexts can appear group-like for spawn gating but still have no standard party roster tokens, leaving header empty unless solo display is forced
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - `ApplyVisibilityRules()` now re-links missing header refs from globals (`SUF_Party`, `SUF_Raid`)
+   - visibility driver now reapplies whenever `state-visibility` is missing, even if cached driver string matches
+   - cache is only retained after QueueOrRun accepts the operation
+   - `ApplyPartyHeaderSettings()` now forces `showSolo` in Delve follower/walk-in contexts (`IsInDelveFollowerPartyContext()`)
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- ⏳ In-game validation pending (`/reload` in Delve follower context)
+
+---
+
+## 2026-03-05 — Delves Reload Follow-Up 4: Async Header Post-Spawn Visibility Fix ✅
+
+**Issue:** Party header existed but remained hidden after `/reload` (`Header exists: true`, `Children: 2`, `Visible: false`).
+
+**Root Cause:** `SpawnGroupHeaders()` ran `ApplyPartyHeaderSettings()` and `ApplyVisibilityRules()` immediately after `oUF:Factory(...)`, but the factory callback is deferred. Header setup ran before headers actually existed, so newly spawned headers missed visibility/driver registration.
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua) in `SpawnGroupHeaders()`:
+   - moved post-spawn setup (`ApplyPartyHeaderSettings`, `ApplyVisibilityRules`, plugin refresh scheduling, recovery stop check) into the `oUF:Factory` callback after builders run
+   - retained combat/edit-mode early-return safeguards and `allowGroupHeaders` reset
+
+**Validation:**
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- ⏳ In-game validation pending (`/reload` in Delve with NPC companion)
+
+---
+
+## 2026-03-05 — Delves Reload Follow-Up 3: Critical allowGroupHeaders Timing Fix ✅
+
+**Issue:** Party frames not spawning at all in Delves (and likely all group contexts) after previous fixes.
+
+**Root Cause:** Race condition in `SpawnGroupHeaders()` - the `allowGroupHeaders` flag was being set to `false` immediately after calling `oUF:Factory()`, but Factory callbacks execute asynchronously. By the time the party builder actually ran, `allowGroupHeaders` was already false, causing the builder to return early without spawning any frames.
+
+**Fix Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua) lines 9227-9251:
+  - **CRITICAL:** Moved `self.allowGroupHeaders = false` INSIDE the Factory callback
+  - Added `self.allowGroupHeaders = false` to early return path for combat lockdown
+  - Flag now remains true during builder execution, then disables afterward
+
+**Technical Details:**
+- `oUF:Factory(callback)` does NOT execute callback immediately - it's deferred
+- Previous bug: `allowGroupHeaders = true → Factory(queue callback) → allowGroupHeaders = false → [later] callback runs and sees false`
+- Fix: `allowGroupHeaders = true → Factory(queue callback) → [later] callback runs (sees true) → builders spawn → allowGroupHeaders = false`
+
+**Impact:**
+- This bug prevented ALL party/raid header spawning, not just in Delves
+- Previous unit token/aura fixes were correct but couldn't be validated because headers never spawned
+- Explains why debug command produced no output (header never existed)
+
+**Validation:**
+- ✅ Lua diagnostics clean
+- ⏳ In-game test required: `/reload` in Delve with NPC companion
+- ⏳ Debug check: `/run print(_G.SUF_Party and "EXISTS" or "MISSING")`
+
+---
+
+## 2026-03-05 — Delves Reload Follow-Up 2: Header Unit Token & Aura Visibility Hardening ✅
+
+**Issue:** Party frame body could remain effectively hidden while a single aura icon stayed visible/interactable after `/reload` in Delves.
+
+**Root Cause:** Header-spawned child frames could fall back to `player` unit assignment during `Style()` initialization when no secure unit attribute was ready yet. That stale token let aura visibility logic treat orphaned party children as valid.
+
+**Fix Applied:**
+- Updated header frame style initialization in [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+  - removed fallback `frame.unit = 'player'` for unresolved header children
+  - added `ResolveStyleUnitType(frame, unitToken)` to infer group type safely from parent/header context
+- Hardened aura visibility in [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+  - `ApplyMedia()` now evaluates current secure `unit` attribute + `UnitExists()` before showing aura containers
+  - when no valid unit exists, force-hides aura buttons in the element array to prevent ghost icons
+- Updated party header cleanup in [Units/Party.lua](Units/Party.lua) to prioritize secure attribute unit tokens over potentially stale `child.unit` values.
+
+**Files Modified:**
+- [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- [Units/Party.lua](Units/Party.lua)
+
+**Validation:**
+- ✅ Lua diagnostics clean for both modified files
+- ⏳ In-game validation pending (`/reload` in Delve with NPC companion)
+
+---
+
+## 2026-03-05 — Delves Reload Follow-Up: Party Header Recovery + Aura Ghost Cleanup ✅
+
+**Issue:** Party headers could still fail to appear after `/reload` in Delves when group state resolved late; occasional leftover/ghost aura visuals could remain on stale party children.
+
+**Fix Applied:**
+- Added bounded group-header recovery ticker in [SimpleUnitFrames.lua](SimpleUnitFrames.lua) that retries `TrySpawnGroupHeaders()` in instance contexts after login/roster updates.
+- Added helper predicates for Delve follower/walk-in context and safe instance detection (`IsInDelveFollowerPartyContext`, `IsInInstanceContext`).
+- Wired additional group-state triggers in `OnEnable()`:
+   - `SCENARIO_UPDATE`
+   - `PLAYER_DIFFICULTY_CHANGED`
+- Added cleanup lifecycle hooks:
+   - stop recovery ticker when party/raid headers are present
+   - stop/cancel ticker on disable and world-entry restart
+- Added roster-time aura cleanup in [Units/Party.lua](Units/Party.lua): when a party child no longer has a valid unit token, hide its aura container and child aura buttons before element refresh.
+
+**Files Modified:**
+- [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- [Units/Party.lua](Units/Party.lua)
+
+**Validation:**
+- ✅ Lua diagnostics clean for both modified files
+- ⏳ In-game validation pending (`/reload` in Delve with NPC companion)
+
+---
+
+## 2026-03-05 — OptionsV2 Sidebar Outline Loss After Category Click ✅
+
+**Issue:** Sidebar button boxes/outlines appeared on first load, then vanished after changing main categories (especially after nav rebuild paths).
+
+**Root Cause:** Newly created sidebar buttons did not always have a backdrop initialized. Color updates were called with `ensureBackdrop=false`, so border/background updates had no backdrop target.
+
+**Fix Applied:**
+- Updated sidebar/nav styling calls to always initialize backdrop when applying nav colors.
+- Changed nav color applications from `ensureBackdrop=false` to `ensureBackdrop=true` in:
+   - [Modules/UI/OptionsV2/Sidebar.lua](Modules/UI/OptionsV2/Sidebar.lua)
+   - [Modules/UI/OptionsV2/Layout.lua](Modules/UI/OptionsV2/Layout.lua)
+
+**Validation:**
+- ✅ Lua diagnostics clean for both modified files
+
+---
+
+## 2026-03-05 — OptionsV2 Selected Tab Highlight Persistence Fix ✅
+
+**Issue:** Sidebar selected rows briefly highlighted, then reverted to default styling after hover/leave interactions.
+
+**Root Cause:** Sidebar hover/leave handlers used a single pointer (`sidebar._currentTabButton`) and ignored actual per-button selection state, so selected rows could be repainted to default.
+
+**Fix Applied:**
+- Added per-button selection tracking (`button._isSelected`) in [Modules/UI/OptionsV2/Sidebar.lua](Modules/UI/OptionsV2/Sidebar.lua).
+- Updated hover/leave handlers to respect selected state and preserve `navSelected` style.
+- Updated `RefreshSelection()` in [Modules/UI/OptionsV2/Layout.lua](Modules/UI/OptionsV2/Layout.lua) to set `button._isSelected` every pass and refresh `navHost._currentTabButton`.
+- Removed temporary `print("SUF: ...")` debug logging from sidebar/layout navigation paths.
+
+**Files Modified:**
+- [Modules/UI/OptionsV2/Sidebar.lua](Modules/UI/OptionsV2/Sidebar.lua)
+- [Modules/UI/OptionsV2/Layout.lua](Modules/UI/OptionsV2/Layout.lua)
+
+**Validation:**
+- ✅ Lua diagnostics clean for both modified files
+
+---
+
+## 2026-03-05 — Delves Party Frame Reload Visibility Fix ✅
+
+**Issue:** In Delves/walk-in party contexts, SUF party headers could remain hidden after `/reload`, especially when an NPC companion was present but group state became available slightly after initial world load.
+
+**Root Cause:** Group-header spawn checks could run before instance/walk-in party state fully resolved, then never retry if no immediate roster event followed.
+
+**Fix Applied:**
+- Enhanced `IsInAnyPartyOrRaid()` detection in [SimpleUnitFrames.lua](SimpleUnitFrames.lua) to include:
+   - `GetNumSubgroupMembers()` fallback checks (home + instance category)
+   - walk-in / follower-party context via `C_PartyInfo.IsPartyWalkIn()` and `C_LFGInfo.IsInLFGFollowerDungeon()`
+- Added post-login/reload retry passes in `OnPlayerEnteringWorld()` at 1.5s and 3.0s to re-attempt `TrySpawnGroupHeaders()` when headers are still missing.
+
+**Files Modified:**
+- [SimpleUnitFrames.lua](SimpleUnitFrames.lua) — group detection + delayed group-header retries
+
+**Validation:**
+- ✅ Lua validation clean (`No errors found` for [SimpleUnitFrames.lua](SimpleUnitFrames.lua))
+- ⏳ In-game validation pending in Delves with NPC companion after `/reload`
+
+**Risk Level:** Low (targeted to group detection and spawn retry timing; no layout or combat-lockdown flow changes)
+
+---
+
+## 2026-03-05 — OptionsV2 Sidebar Regression Fix: Restored Grouped Navigation & Unit Subcategories ✅
+
+**Objective:** Fix OptionsV2 sidebar regression where tabs show but cannot switch categories; restore hierarchical navigation with group headers and unit subcategory rows.
+
+**Issues Addressed:**
+1. Sidebar tabs displayed flat list without grouping by category
+2. Tabs not organized by group (General, Units, Advanced)
+3. No expand/collapse functionality for groups
+4. Missing unit subcategory rows (General/Bars/Text/Indicators/etc)
+5. Click routing issues preventing page navigation
+6. Stale button registries not cleared on rebuild
+
+**Changes Applied:**
+
+1. **Theme.lua - Enhanced navState Initialization**
+   - Added default navState structure with expandedGroups tracking (line ~10-14)
+   - Stores expanded/collapsed state for each group header
+   - Tracks activeUnitSubtab selection per unit page
+   - Added CopyTableDeepLocal helper for safe table copying
+   - Updated EnsureOptionsV2Config to initialize nested config structures (lines ~89-96)
+
+2. **Layout.lua - Complete RebuildNav Rewrite for Grouped Hierarchy**
+   - Lines 535-707: Replaced flat sidebar with grouped navigation structure
+   - **Cleanup Logic:** Clear both `sidebarTabs` and `navHost.tabButtons` registries (lines 550-571)
+   - **Grouping:** Organize pages by group field (General, Units, Advanced) into pagesByGroup map
+   - **Group Headers:** Create collapsible header buttons with expand/collapse indicator (v/>) (lines 610-637)
+   - **Page Buttons:** Add page buttons nested under groups with "  " indent, only visible when group expanded (lines 640-656)
+   - **Unit Subcategories:** For unit pages only (player/target/tot/focus/pet), add subcategory rows (General/Bars/Castbar/Auras/Plugins/Advanced) with "    " indent (lines 659-697)
+   - **State Persistence:** Store expandedGroups and activeUnitSubtab in cfgState.navState
+   - **Closure Safety:** Properly capture variables (groupCapturedName, capturedPageKey, capturedSectionKey) to prevent reference issues
+
+3. **Layout.lua - Enhanced RefreshSelection for Hierarchical State Tracking**
+   - Lines 363-412: Rewritten to handle both page buttons and unit subtabs
+   - Reads activeUnitSubtab from cfgState.navState to determine current section
+   - Highlights active page button (matches frame.currentPage)
+   - Highlights active unit subtab (matches current page AND active section for that page)
+   - Falls back to "general" section if no active section stored
+   - Applies navSelected/navSelectedBorder colors to active buttons, navDefault for inactive
+
+**Technical Details:**
+- **Variable Shadowing Prevention:** No parameter shadowing; clear naming (pageButton vs page, subtabButton)
+- **Lua 5.1 Compatibility:** No goto, no // comments, standard control flow only
+- **Closure Handling:** Proper variable capture in nested loops prevents off-by-one errors
+- **Config Persistence:** Uses addon:EnsureOptionsV2Config() to store/retrieve navState across sessions
+- **Sidebar Component Integration:** Leverages existing Sidebar.lua AddSidebarTab and UpdateSidebarLayout functions
+
+**Files Modified:**
+- [Modules/UI/OptionsV2/Theme.lua](Modules/UI/OptionsV2/Theme.lua) — DEFAULT_OPTIONS_V2, EnsureOptionsV2Config
+- [Modules/UI/OptionsV2/Layout.lua](Modules/UI/OptionsV2/Layout.lua) — RebuildNav, RefreshSelection
+
+**Testing Checklist:**
+- [x] No Lua syntax errors (validated via get_errors)
+- [x] Parameter shadowing prevention (verified none introduced)
+- [x] Closure variable capture correct (proper groupCapturedName, capturedPageKey patterns)
+- [ ] Group headers display and expand/collapse works (requires in-game testing)
+- [ ] Unit subcategories display under unit pages (requires in-game testing)
+- [ ] Page navigation works on click (requires in-game testing)
+- [ ] Subtab selection persists across page changes (requires in-game testing)
+- [ ] Config state saves/restores correctly (requires in-game testing)
+
+**Risk Level:** MEDIUM
+- Regression potential: Sidebar might not render if navHost or OptionsV2 component unavailable
+- Config migration: Old flat navState won't break but won't restore group expand/collapse state
+- Performance: Additional loops for subcategory generation (negligible, hundreds of items max)
+
+**Status:** ✅ Implementation complete; code validates with no errors
+**Next Steps:** In-game testing to verify navigation flows, state persistence, and UI rendering
+
+## 2026-03-05 — Task 4.2 Phase 2: Bug Fixes & Compilation ✅
+
+**Objective:** Resolve Lua syntax errors and initialization issues discovered during first test load.
+
+**Fixes Applied:**
+
+1. **Layout.lua - Conditional Syntax Error (Line 544)**
+   - **Problem**: Lua compiler error "function arguments expected near 'then'" at line 544
+   - **Root Cause**: Line `if tab and tab:Hide then` was confusing the WoW Lua compiler (conditional with method access)
+   - **Fix**: Refactored to explicit nil checks before method calls
+     ```lua
+     -- OLD (problematic)
+     if tab and tab:Hide then
+         tab:Hide()
+         tab:SetParent(nil)
+     end
+     
+     -- NEW (fixed)
+     if tab then
+         if tab.Hide then
+             tab:Hide()
+         end
+         if tab.SetParent then
+             tab:SetParent(nil)
+         end
+     end
+     ```
+   - **Result**: ✅ Line compiles without syntax errors
+
+2. **ProfileMigrator.lua - CRITICAL: AceAddon Module Reference**
+   - **Problem**: Runtime error "attempt to call method 'InitializeProfileMigration' (a nil value)" at SimpleUnitFrames.lua:9809
+   - **Root Cause**: ProfileMigrator.lua was using `_G["SimpleUnitFrames"]` which doesn't work with AceAddon's internal registry
+   - **Fix**: Changed to proper AceAddon module accessor pattern:
+     ```lua
+     -- OLD (broken)
+     local addonName = "SimpleUnitFrames"
+     local addon = _G[addonName]
+     
+     -- NEW (fixed)
+     local AceAddon = LibStub("AceAddon-3.0")
+     local addon = AceAddon:GetAddon("SimpleUnitFrames")
+     ```
+   - **Why This Matters**: AceAddon maintains its own addon registry, not _G. Module files must use `AceAddon:GetAddon()` to access the addon object created by `AceAddon:NewAddon()` in the main file
+   - **Result**: ✅ All ProfileMigrator functions (RegisterProfileMigration, RunProfileMigrations, EnsureProfileDefaults, ValidateProfileIntegrity, InitializeProfileMigration) now properly attached to addon object
+
+3. **Layout.lua - OptionsV2 Namespace Import**
+   - Ensured `local OptionsV2 = addon.OptionsV2 or {}` at top of file for Sidebar component access
+   - Matches TOC load order (Sidebar.lua before Layout.lua)
+
+**Testing Status:**
+- ✅ **No Lua syntax errors** 
+- ✅ **No compilation warnings**
+- ✅ **ProfileMigrator functions properly registered**
+- ✅ **All three files (Layout.lua, Sidebar.lua, ProfileMigrator.lua) validated**
+
+**Files Changed:**
+- [Modules/UI/OptionsV2/Layout.lua](Modules/UI/OptionsV2/Layout.lua) - Fixed conditional (1 block, ~10 lines affected)
+- [Modules/System/ProfileMigrator.lua](Modules/System/ProfileMigrator.lua) - Fixed AceAddon reference (header, ~6 lines affected)
+
+**Validation Results:**
+```
+✅ No errors found in Layout.lua
+✅ No errors found in ProfileMigrator.lua
+✅ No errors found in Sidebar.lua
+✅ InitializeProfileMigration now callable
+```
+
+**Critical Learning:**
+WoW addon modules that use AceAddon-3.0 **must** use `LibStub("AceAddon-3.0"):GetAddon("AddonName")` to access the main addon object, not `_G["AddonName"]`. This pattern applies to all module files that need to register functions on the addon object.
+
+**Next Steps:**
+- Task 9: In-game loading and verification
+- Verify all 14 sidebar tabs render
+- Test page navigation and scroll behavior
+- Confirm ProfileMigration initializes without errors
+
+---
+
+## 2026-03-05 — Task 4.2 Phase 3: Defaults Parameter Fix ✅
+
+**Objective:** Resolve `defaults` nil value error in ProfileMigrator.lua
+
+**Problem:**
+Runtime error: `attempt to index local 'defaults' (a nil value)` at ProfileMigrator.lua:113
+- Call stack: EnsureProfileDefaults (line 113) ← InitializeProfileMigration (line 258) ← SimpleUnitFrames.lua OnInitialize (line 9809)
+- Root cause: `InitializeProfileMigration` tried to use `defaults` variable that didn't exist in ProfileMigrator.lua scope
+- `defaults` is a local variable in SimpleUnitFrames.lua, not accessible to other modules
+
+**Fix Applied:**
+1. **SimpleUnitFrames.lua (line ~9802):**
+   - Added `self.defaults = defaults` before creating AceDB instance
+   - Makes defaults table available to all addon modules via `self.defaults`
+   
+2. **ProfileMigrator.lua (lines 258, 261):**
+   - Changed `defaults` → `self.defaults` in both function calls:
+     - `self:EnsureProfileDefaults(self.db.profile, self.defaults)`
+     - `self:ValidateProfileIntegrity(self.db.profile, self.defaults)`
+
+**Why This Pattern:**
+- WoW addon best practice: Store shared data structures on addon object for module access
+- Avoids parameter passing through multiple function layers
+- Consistent with how `self.db` is accessed throughout codebase
+- No function signature changes needed
+
+**Files Changed:**
+- [SimpleUnitFrames.lua](SimpleUnitFrames.lua) - Store defaults on addon object (1 line added at line ~9802)
+- [Modules/System/ProfileMigrator.lua](Modules/System/ProfileMigrator.lua) - Use self.defaults (2 lines changed at lines 258, 261)
+
+**Validation:**
+```
+✅ No errors found in SimpleUnitFrames.lua
+✅ No errors found in ProfileMigrator.lua
+✅ Both functions now have access to defaults table
+```
+
+**Next Steps:**
+- Task 9: In-game loading and verification
+- Verify ProfileMigration completes without errors
+- Test sidebar rendering and navigation
+
+---
+
+## 2026-03-05 — Task 4.2 Phase 1: Vertical Sidebar Integration ✅
+
+**Objective:** Transform OptionsV2 from horizontal nav (280px navHost) to vertical sidebar (200px) based on QUI pattern. Supports flat 14-page navigation.
+
+**Files Modified:**
+- [Modules/UI/OptionsV2/Sidebar.lua](Modules/UI/OptionsV2/Sidebar.lua) - NEW (220 lines)
+- [Modules/UI/OptionsV2/Layout.lua](Modules/UI/OptionsV2/Layout.lua) - REFACTORED (655 lines, -63 net, ~300+ changed)
+- [SimpleUnitFrames.toc](SimpleUnitFrames.toc) - UPDATED (added Sidebar.lua load entry)
+
+**Architecture Changes:**
+- Replaced `navHost` CreateFrame (280px) + `navScroll` ScrollFrame + `navContent` + manual button creation
+- Now: `navHost = OptionsV2:CreateSidebar(frame)` (200px, maintained by component)
+- Content area expands from 860px to ~960px (200px sidebar + 8px margin)
+- Flat tab navigation (14 tabs, one per page) vs hierarchical groups
+- Each tab triggers page navigation via closure-based onSelect callback
+
+**Validation:**
+- ✅ No Lua syntax errors
+- ✅ Component API matches all Layout.lua calls
+- ✅ Proper callback signatures with closure-based page routing
+- ⏳ In-game testing: All 14 pages + scroll + window resize
+
+---
+
 ## 2026-03-04 — Task 3.1 Complete: Pixel-Perfect Scaling System ✅
 
 **Objective:** Implement pixel-perfect frame rendering ensuring clean borders and crisp textures at all UI scales (75%, 100%, 125%).

@@ -87,6 +87,12 @@ local defaults = {
 				showResting = true,
 				showPvp = true,
 				portrait = { mode = "none", size = 36, showClass = false, motion = false, position = "LEFT" },
+				castbar = {
+					enabled = true,
+					anchor = "BELOW_CLASSPOWER",
+					gap = 8,
+					offsetY = 0,
+				},
 			},
 			target = {
 				fontSizes = { name = 12, level = 10, health = 11, power = 10, cast = 10 },
@@ -94,6 +100,12 @@ local defaults = {
 				showResting = false,
 				showPvp = true,
 				portrait = { mode = "none", size = 36, showClass = false, motion = false, position = "LEFT" },
+				castbar = {
+					enabled = true,
+					anchor = "BELOW_FRAME",
+					gap = 2,
+					offsetY = 0,
+				},
 			},
 			tot = {
 				fontSizes = { name = 11, level = 9, health = 10, power = 9, cast = 9 },
@@ -101,6 +113,12 @@ local defaults = {
 				showResting = false,
 				showPvp = true,
 				portrait = { mode = "none", size = 28, showClass = false, motion = false, position = "LEFT" },
+				castbar = {
+					enabled = true,
+					anchor = "BELOW_FRAME",
+					gap = 2,
+					offsetY = 0,
+				},
 			},
 			focus = {
 				fontSizes = { name = 12, level = 10, health = 11, power = 10, cast = 10 },
@@ -108,6 +126,19 @@ local defaults = {
 				showResting = false,
 				showPvp = true,
 				portrait = { mode = "none", size = 32, showClass = false, motion = false, position = "LEFT" },
+			},
+			focustarget = {
+				fontSizes = { name = 11, level = 9, health = 10, power = 9, cast = 9 },
+				media = { statusbar = "Blizzard", font = "Friz Quadrata TT" },
+				showResting = false,
+				showPvp = false,
+				portrait = { mode = "none", size = 24, showClass = false, motion = false, position = "LEFT" },
+				castbar = {
+					enabled = true,
+					anchor = "BELOW_FRAME",
+					gap = 2,
+					offsetY = 0,
+				},
 			},
 			pet = {
 				fontSizes = { name = 11, level = 9, health = 10, power = 9, cast = 9 },
@@ -138,6 +169,12 @@ local defaults = {
 					showStealableBuffs = true,
 				},
 				portrait = { mode = "none", size = 26, showClass = false, motion = false, position = "LEFT" },
+				castbar = {
+					enabled = true,
+					anchor = "ABOVE_FRAME",
+					gap = 2,
+					offsetY = 0,
+				},
 			},
 			raid = {
 				fontSizes = { name = 10, level = 8, health = 9, power = 8, cast = 8 },
@@ -145,6 +182,12 @@ local defaults = {
 				showResting = false,
 				showPvp = false,
 				portrait = { mode = "none", size = 22, showClass = false, motion = false, position = "LEFT" },
+				castbar = {
+					enabled = true,
+					anchor = "ABOVE_FRAME",
+					gap = 2,
+					offsetY = 0,
+				},
 			},
 			boss = {
 				fontSizes = { name = 12, level = 10, health = 11, power = 10, cast = 10 },
@@ -212,6 +255,10 @@ local defaults = {
 			hideOverride = true,
 			hidePossess = true,
 			hideExtra = true,
+			-- Indicator glow controls
+			enablePartyLeaderGlow = true,
+			enableThreatIndicatorGlow = true,
+			enableTargetSelectionGlow = true,
 		},
 		indicators = {
 			version = 1,
@@ -222,7 +269,10 @@ local defaults = {
 		party = {
 			showPlayerInParty = true,
 			showPlayerWhenSolo = false,
-			spacing = 10,
+			spacing = 15,
+		},
+		boss = {
+			spacing = 15,
 		},
 		absorbValueTag = "[suf:absorbs:abbr]",
 		performance = {
@@ -420,6 +470,9 @@ local defaults = {
 				enabled = false,
 				learnSpells = true,
 				learnItems = true,
+				learnOnlyKnownSpells = false,
+				excludeNPCSpells = false,
+				includeItemSpells = true,
 				targetBarID = "",
 			},
 		},
@@ -832,6 +885,57 @@ local function ResolveUnitType(unit)
 	return "player"
 end
 
+local function ResolveStyleUnitType(frame, unitToken)
+	if type(unitToken) == "string" and unitToken ~= "" then
+		return ResolveUnitType(unitToken)
+	end
+
+	local parentFrame = frame and frame.GetParent and frame:GetParent()
+	local parentName = parentFrame and parentFrame.GetName and parentFrame:GetName()
+	if type(parentName) == "string" then
+		if parentName:find("SUF_Party", 1, true) then
+			return "party"
+		elseif parentName:find("SUF_Raid", 1, true) then
+			return "raid"
+		end
+	end
+
+	local frameName = frame and frame.GetName and frame:GetName()
+	if type(frameName) == "string" then
+		if frameName:find("party", 1, true) then
+			return "party"
+		elseif frameName:find("raid", 1, true) then
+			return "raid"
+		end
+	end
+
+	return "player"
+end
+
+local function IsInDelveFollowerPartyContext()
+	local inWalkInParty = false
+	if C_PartyInfo and C_PartyInfo.IsPartyWalkIn then
+		local okWalkIn, walkIn = pcall(C_PartyInfo.IsPartyWalkIn)
+		inWalkInParty = okWalkIn and walkIn and true or false
+	end
+	if not inWalkInParty and C_LFGInfo and C_LFGInfo.IsInLFGFollowerDungeon then
+		local okFollower, followerDungeon = pcall(C_LFGInfo.IsInLFGFollowerDungeon)
+		inWalkInParty = okFollower and followerDungeon and true or false
+	end
+	return inWalkInParty
+end
+
+local function IsInInstanceContext()
+	if not IsInInstance then
+		return false, nil
+	end
+	local ok, inInstance, instanceType = pcall(IsInInstance)
+	if not ok then
+		return false, nil
+	end
+	return inInstance and true or false, instanceType
+end
+
 local function IsInAnyPartyOrRaid()
 	local inGroup = (IsInGroup and IsInGroup()) or false
 	local inRaid = (IsInRaid and IsInRaid()) or false
@@ -843,6 +947,24 @@ local function IsInAnyPartyOrRaid()
 		end
 		if not inRaid and IsInRaid then
 			inRaid = IsInRaid(instanceCategory) or false
+		end
+	end
+
+	if not inGroup and GetNumSubgroupMembers then
+		local homeSubgroupCount = tonumber(GetNumSubgroupMembers()) or 0
+		if homeSubgroupCount > 0 then
+			inGroup = true
+		elseif instanceCategory then
+			local instanceSubgroupCount = tonumber(GetNumSubgroupMembers(instanceCategory)) or 0
+			if instanceSubgroupCount > 0 then
+				inGroup = true
+			end
+		end
+	end
+
+	if not inGroup then
+		if IsInDelveFollowerPartyContext() then
+			inGroup = true
 		end
 	end
 
@@ -1487,7 +1609,13 @@ function addon:GetUnitCastbarSettings(unitType)
 	end
 
 	if unit.castbar == nil then
-		unit.castbar = CopyTableDeep(DEFAULT_UNIT_CASTBAR)
+		-- Check if defaults table has unit-specific castbar config (e.g., party, raid)
+		local defaultUnitCfg = defaults.profile.units[unitType]
+		if defaultUnitCfg and defaultUnitCfg.castbar then
+			unit.castbar = CopyTableDeep(defaultUnitCfg.castbar)
+		else
+			unit.castbar = CopyTableDeep(DEFAULT_UNIT_CASTBAR)
+		end
 	else
 		if unit.castbar.gap == nil then
 			local legacyOffset = tonumber(unit.castbar.offsetY)
@@ -3233,7 +3361,11 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	local touched = false
 	local needsHealthDerivedTextUpdate = false
 	for eventName in pairs(dirtyEvents) do
-		if eventName == "UNIT_HEALTH" or eventName == "UNIT_MAXHEALTH" or eventName == "UNIT_THREAT_SITUATION_UPDATE" or eventName == "UNIT_THREAT_LIST_UPDATE" or eventName == "UNIT_HEAL_PREDICTION" or eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
+		if eventName == "UNIT_THREAT_SITUATION_UPDATE" or eventName == "UNIT_THREAT_LIST_UPDATE" then
+			touched = SafeUpdateElement(frame, "Health", eventName) or touched
+			touched = SafeUpdateElement(frame, "ThreatIndicator", eventName) or touched
+			needsHealthDerivedTextUpdate = true
+		elseif eventName == "UNIT_HEALTH" or eventName == "UNIT_MAXHEALTH" or eventName == "UNIT_HEAL_PREDICTION" or eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
 			touched = SafeUpdateElement(frame, "Health", eventName) or touched
 			needsHealthDerivedTextUpdate = true
 		elseif eventName == "UNIT_POWER_UPDATE" or eventName == "UNIT_MAXPOWER" or eventName == "UNIT_DISPLAYPOWER" or eventName == "RUNE_POWER_UPDATE" or eventName == "PLAYER_TOTEM_UPDATE" then
@@ -4496,6 +4628,48 @@ function addon:ScheduleGroupHeaders(delay)
 	end)
 end
 
+function addon:StopGroupHeaderRecovery()
+	if self.groupHeaderRecoveryTicker and self.groupHeaderRecoveryTicker.Cancel then
+		self.groupHeaderRecoveryTicker:Cancel()
+	end
+	self.groupHeaderRecoveryTicker = nil
+end
+
+function addon:ScheduleGroupHeaderRecovery(duration, interval)
+	if self.groupHeaderRecoveryTicker then
+		return
+	end
+
+	local totalDuration = math.max(2, tonumber(duration) or 12)
+	local tickInterval = math.max(0.5, tonumber(interval) or 1.0)
+	local maxAttempts = math.max(1, math.floor(totalDuration / tickInterval))
+	local attempts = 0
+
+	self.groupHeaderRecoveryTicker = C_Timer.NewTicker(tickInterval, function()
+		if not self then
+			return
+		end
+
+		attempts = attempts + 1
+
+		local hasHeaders = self.headers and (self.headers.party or self.headers.raid)
+		if hasHeaders then
+			self:StopGroupHeaderRecovery()
+			return
+		end
+
+		local inGroup, inRaid = IsInAnyPartyOrRaid()
+		local inInstance = IsInInstanceContext()
+		if inGroup or inRaid or inInstance then
+			self:TrySpawnGroupHeaders()
+		end
+
+		if attempts >= maxAttempts then
+			self:StopGroupHeaderRecovery()
+		end
+	end)
+end
+
 function addon:TrySpawnGroupHeaders()
 	if not self.isLoggedIn then
 		self.pendingGroupHeaders = true
@@ -4506,6 +4680,10 @@ function addon:TrySpawnGroupHeaders()
 	local showPartySolo = self.db and self.db.profile and self.db.profile.party and self.db.profile.party.showPlayerWhenSolo
 	if not inRaid and not inGroup and not showPartySolo then
 		self.pendingGroupHeaders = nil
+		local inInstance = IsInInstanceContext()
+		if inInstance then
+			self:ScheduleGroupHeaderRecovery(12, 1.0)
+		end
 		return
 	end
 
@@ -5937,9 +6115,28 @@ function addon:ApplyMedia(frame)
 			frame.__sufAuraLayoutSig = layoutSig
 		end
 
-		if frame.__sufAuraEnabled ~= enabled then
-			frame.Auras:SetShown(enabled)
-			frame.__sufAuraEnabled = enabled
+		local auraUnitToken = frame.unit
+		if frame.GetAttribute then
+			local attributeUnitToken = frame:GetAttribute("unit")
+			if type(attributeUnitToken) == "string" and attributeUnitToken ~= "" then
+				auraUnitToken = attributeUnitToken
+			end
+		end
+		local hasAuraUnit = type(auraUnitToken) == "string" and auraUnitToken ~= "" and UnitExists and UnitExists(auraUnitToken)
+		local shouldShowAuras = enabled and hasAuraUnit and true or false
+
+		if frame.__sufAuraEnabled ~= shouldShowAuras then
+			frame.Auras:SetShown(shouldShowAuras)
+			frame.__sufAuraEnabled = shouldShowAuras
+		end
+
+		if not shouldShowAuras then
+			for i = 1, #frame.Auras do
+				local auraButton = frame.Auras[i]
+				if auraButton and auraButton.Hide then
+					auraButton:Hide()
+				end
+			end
 		end
 	end
 
@@ -6198,19 +6395,8 @@ function addon:ApplyMedia(frame)
 		-- Don't override castbar visibility during active casts - let oUF element control it
 		-- Only apply configuration outside of active casting/channeling
 		local isCasting = frame.Castbar.casting or frame.Castbar.channeling or frame.Castbar.empowering
-		addon:DebugLog("ApplyMedia", ("Castbar check for %s: casting=%s, channeling=%s, empowering=%s, isCasting=%s, enabled=%s"):format(
-			frame.sufUnitType or "unknown", 
-			tostring(frame.Castbar.casting),
-			tostring(frame.Castbar.channeling),
-			tostring(frame.Castbar.empowering),
-			tostring(isCasting),
-			tostring(castbarEnabled)
-		), 2)
 		if not isCasting then
-			addon:DebugLog("ApplyMedia", "Setting castbar visibility to " .. tostring(castbarEnabled) .. " for " .. (frame.sufUnitType or "unknown"), 2)
 			frame.Castbar:SetShown(castbarEnabled)
-		else
-			addon:DebugLog("ApplyMedia", "SKIPPING castbar visibility change during active cast for " .. (frame.sufUnitType or "unknown"), 2)
 		end
 		if castbarEnabled then
 			frame.Castbar:SetReverseFill(unitCastbarCfg.reverseFill == true)
@@ -6653,8 +6839,9 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 	end
 
 	if frame.TargetIndicator then
+		local globalGlowEnabled = self.db and self.db.profile and self.db.profile.visibility and self.db.profile.visibility.enableTargetSelectionGlow ~= false
 		local glowCfg = self:GetUnitTargetGlowSettings(frame.sufUnitType)
-		local enabled = glowCfg and glowCfg.enabled == true
+		local enabled = globalGlowEnabled and glowCfg and glowCfg.enabled == true
 		local isTarget = false
 		if enabled and UnitExists and UnitExists("target") and UnitExists(unit) then
 			if UnitIsUnit and UnitIsUnit("target", unit) then
@@ -6784,8 +6971,34 @@ end
 
 function addon:RefreshAllTargetGlowIndicators()
 	for _, frame in ipairs(self.frames or {}) do
-		if frame and frame.TargetIndicator then
-			self:UpdateUnitFrameStatusIndicators(frame)
+		if frame then
+			if frame.TargetIndicator then
+				self:UpdateUnitFrameStatusIndicators(frame)
+			end
+			if frame.ThreatIndicator and frame.ThreatIndicator.feedbackUnit == "target" and frame.ThreatIndicator.ForceUpdate then
+				pcall(frame.ThreatIndicator.ForceUpdate, frame.ThreatIndicator)
+			end
+		end
+	end
+end
+
+---Force update all glow indicators (threat, leader, target) across all frames
+---Call this when global glow visibility settings change to ensure immediate refresh
+function addon:RefreshAllGlowIndicators()
+	for _, frame in ipairs(self.frames or {}) do
+		if frame then
+			-- Force update threat indicator (red/yellow/green glow)
+			if frame.ThreatIndicator and frame.ThreatIndicator.ForceUpdate then
+				pcall(frame.ThreatIndicator.ForceUpdate, frame.ThreatIndicator)
+			end
+			-- Force update leader indicator (golden glow)
+			if frame.LeaderIndicator and frame.LeaderIndicator.ForceUpdate then
+				pcall(frame.LeaderIndicator.ForceUpdate, frame.LeaderIndicator)
+			end
+			-- Force update target selection indicator (yellow border glow)
+			if frame.TargetIndicator then
+				self:UpdateUnitFrameStatusIndicators(frame)
+			end
 		end
 	end
 end
@@ -6829,6 +7042,52 @@ function addon:OnPlayerTargetChanged()
 					pcall(frame.Range.ForceUpdate, frame.Range)
 				end
 				-- Force update absorb bar on target change
+				if frame.AbsorbValue then
+					self:UpdateAbsorbValue(frame)
+				end
+				self:RefreshPortraitFrame(frame)
+			end
+		end
+	end
+end
+
+function addon:OnPlayerFocusChanged()
+	self:ScheduleUpdateDataTextPanel()
+	self:RefreshAllTargetGlowIndicators()
+	if self.frames then
+		for _, frame in ipairs(self.frames) do
+			if frame and frame.sufUnitType == "focus" then
+				self:UpdateFrameFromDirtyEvents(frame, {
+					PLAYER_FOCUS_CHANGED = true,
+					UNIT_HEALTH = true,
+					UNIT_MAXHEALTH = true,
+					UNIT_POWER_UPDATE = true,
+					UNIT_MAXPOWER = true,
+					UNIT_NAME_UPDATE = true,
+					UNIT_PORTRAIT_UPDATE = true,
+					UNIT_AURA = true,
+					UNIT_THREAT_SITUATION_UPDATE = true,
+					UNIT_THREAT_LIST_UPDATE = true,
+					UNIT_CLASSIFICATION_CHANGED = true,
+					UNIT_RANGE = true,
+					UNIT_ABSORB_AMOUNT_CHANGED = true,
+					UNIT_HEAL_ABSORB_AMOUNT_CHANGED = true,
+				})
+				if frame.UpdateTags then
+					pcall(frame.UpdateTags, frame)
+				end
+				if frame.HealthValue and frame.HealthValue.UpdateTag then
+					pcall(frame.HealthValue.UpdateTag, frame.HealthValue)
+				end
+				if frame.ThreatIndicator and frame.ThreatIndicator.ForceUpdate then
+					pcall(frame.ThreatIndicator.ForceUpdate, frame.ThreatIndicator)
+				end
+				if frame.QuestIndicator and frame.QuestIndicator.ForceUpdate then
+					pcall(frame.QuestIndicator.ForceUpdate, frame.QuestIndicator)
+				end
+				if frame.Range and frame.Range.ForceUpdate then
+					pcall(frame.Range.ForceUpdate, frame.Range)
+				end
 				if frame.AbsorbValue then
 					self:UpdateAbsorbValue(frame)
 				end
@@ -7269,6 +7528,10 @@ function addon:ReleaseAllPooledResources()
 end
 
 local function CreateCastbar(self, height, anchor)
+	if self.IsElementEnabled and self.DisableElement and self:IsElementEnabled("Castbar") then
+		self:DisableElement("Castbar")
+	end
+	
 	local Castbar = CreateFrame("StatusBar", nil, self)
 	Castbar:SetStatusBarTexture(DEFAULT_TEXTURE)
 	Castbar:SetHeight(height)
@@ -7332,7 +7595,6 @@ local function CreateCastbar(self, height, anchor)
 	Castbar.SafeZone = SafeZone
 	Castbar.Shield = Shield
 	Castbar.Spark = Spark
-	Castbar.__owner = self
 	self.Castbar = Castbar
 end
 
@@ -7360,6 +7622,15 @@ local function CreateClassPower(self, height)
 
 	self.ClassPower = ClassPower
 	self.ClassPowerAnchor = anchor
+end
+
+local function CreateCastbarAnchor(self, height)
+	local anchor = CreateFrame("Frame", nil, self)
+	anchor:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 0, 2)
+	anchor:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 2)
+	anchor:SetHeight(height)
+	SetMousePassthrough(anchor)
+	self.CastbarAnchor = anchor
 end
 
 local function CreateHealthPrediction(self)
@@ -7876,7 +8147,11 @@ function addon:UpdateSingleFrame(frame)
 			local now = (GetTime and GetTime()) or 0
 			local last = tonumber(frame.__sufLastFullRefreshAt) or 0
 			if now - last < 1.0 then
-				addon:DebugLog("UpdateSingleFrame", "THROTTLED: " .. unitType .. " (last=" .. tostring(last) .. ", now=" .. tostring(now) .. ", diff=" .. tostring(now-last) .. ")", 3)
+				local lastThrottleLog = tonumber(frame.__sufLastThrottleLogAt) or 0
+				if now - lastThrottleLog >= 2.0 then
+					frame.__sufLastThrottleLogAt = now
+					addon:DebugLog("UpdateSingleFrame", "THROTTLED (rate-limited full refresh): " .. unitType .. " (last=" .. tostring(last) .. ", now=" .. tostring(now) .. ", diff=" .. tostring(now-last) .. ")", 3)
+				end
 				return
 			end
 			frame.__sufLastFullRefreshAt = now
@@ -8295,12 +8570,18 @@ local function HookTooltipHoverProxy(widget, ownerFrame)
 end
 
 function addon:Style(frame, unit)
-	-- Ensure frame.unit is set for tooltip handlers (especially important for header-spawned frames like solo party)
-	if not frame.unit then
-		frame.unit = unit or frame:GetAttribute('unit') or 'player'
+	local styleUnitToken = nil
+	if type(unit) == "string" and unit ~= "" then
+		styleUnitToken = unit
+	elseif frame and frame.GetAttribute then
+		local attributeUnitToken = frame:GetAttribute("unit")
+		if type(attributeUnitToken) == "string" and attributeUnitToken ~= "" then
+			styleUnitToken = attributeUnitToken
+		end
 	end
-	
-	frame.sufUnitType = ResolveUnitType(unit)
+
+	frame.unit = styleUnitToken
+	frame.sufUnitType = ResolveStyleUnitType(frame, styleUnitToken)
 	frame.__isSimpleUnitFrames = true
 	local unitLayout = self:GetUnitLayoutSettings(frame.sufUnitType)
 	frame:SetScale(1)
@@ -8521,79 +8802,77 @@ function addon:Style(frame, unit)
 	PvPIndicator:SetDrawLayer("OVERLAY", 7)
 	frame.PvPIndicator = PvPIndicator
 
-	-- ThreatIndicator: Only for units that can have threat (not player/pet)
-	if frame.sufUnitType ~= "player" and frame.sufUnitType ~= "pet" then
-		local ThreatIndicator = IndicatorFrame.__sufThreatIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+	-- ThreatIndicator: Only for units that can have threat (not pet)
+	-- CRITICAL: Create a NEW texture for each frame (not cached) so party/raid frames don't share
+	-- A texture can only belong to one parent frame - sharing breaks all but the last frame
+	if frame.sufUnitType ~= "pet" then
+		local ThreatIndicator = IndicatorFrame:CreateTexture(nil, "OVERLAY")
 		ThreatIndicator:SetDrawLayer("OVERLAY", 6)
-		if frame.sufUnitType == "party" or frame.sufUnitType == "raid" then
-			ThreatIndicator.feedbackUnit = "target"
-		else
-			ThreatIndicator.feedbackUnit = nil
-		end
+		ThreatIndicator.feedbackUnit = nil
 		ThreatIndicator.PostUpdate = function(element, _, status)
 			if status ~= 3 then
 				element:Hide()
 			end
 		end
-		IndicatorFrame.__sufThreatIndicator = ThreatIndicator
 		frame.ThreatIndicator = ThreatIndicator
 	else
 		frame.ThreatIndicator = nil
 	end
 
 	-- QuestIndicator: Only for NPC units (not player/pet/party/raid)
+	-- Do NOT cache textures - each frame needs its own instance
 	if frame.sufUnitType ~= "player" and frame.sufUnitType ~= "pet" and 
 	   frame.sufUnitType ~= "party" and frame.sufUnitType ~= "raid" then
-		local QuestIndicator = IndicatorFrame.__sufQuestIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+		local QuestIndicator = IndicatorFrame:CreateTexture(nil, "OVERLAY")
 		QuestIndicator:SetDrawLayer("OVERLAY", 6)
-		IndicatorFrame.__sufQuestIndicator = QuestIndicator
 		frame.QuestIndicator = QuestIndicator
 	else
 		frame.QuestIndicator = nil
 	end
 
-	local PvPClassificationIndicator = IndicatorFrame.__sufPvPClassificationIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+	-- Do NOT cache textures - each frame needs its own instance
+	local PvPClassificationIndicator = IndicatorFrame:CreateTexture(nil, "OVERLAY")
 	PvPClassificationIndicator.useAtlasSize = true
 	PvPClassificationIndicator:SetDrawLayer("OVERLAY", 6)
-	IndicatorFrame.__sufPvPClassificationIndicator = PvPClassificationIndicator
 	frame.PvPClassificationIndicator = PvPClassificationIndicator
 
 	-- ClassificationIndicator: Shows Elite/Rare/Boss badges on NPCs
+	-- Do NOT cache textures - each frame needs its own instance
 	if frame.sufUnitType ~= "player" and frame.sufUnitType ~= "pet" and
 	   frame.sufUnitType ~= "party" and frame.sufUnitType ~= "raid" then
-		local ClassificationIndicator = IndicatorFrame.__sufClassificationIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+		local ClassificationIndicator = IndicatorFrame:CreateTexture(nil, "OVERLAY")
 		ClassificationIndicator:SetSize(18, 18)
 		ClassificationIndicator:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 8, 8)
 		ClassificationIndicator:SetDrawLayer("OVERLAY", 7)
 		ClassificationIndicator.useAtlasSize = false  -- We'll manage size ourselves for consistency
-		IndicatorFrame.__sufClassificationIndicator = ClassificationIndicator
 		frame.ClassificationIndicator = ClassificationIndicator
 	else
 		frame.ClassificationIndicator = nil
 	end
 
-	local RoleIndicator = IndicatorFrame.__sufRoleIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+	-- Do NOT cache textures - each frame needs its own instance
+	local RoleIndicator = IndicatorFrame:CreateTexture(nil, "OVERLAY")
 	RoleIndicator:SetSize(18, 18)
 	RoleIndicator:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 10, 2)
 	RoleIndicator:SetDrawLayer("OVERLAY", 6)
-	IndicatorFrame.__sufRoleIndicator = RoleIndicator
 	frame.RoleIndicator = RoleIndicator
 
-	local RaidMarkerIndicator = IndicatorFrame.__sufRaidMarkerIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+	-- Do NOT cache textures - each frame needs its own instance
+	local RaidMarkerIndicator = IndicatorFrame:CreateTexture(nil, "OVERLAY")
 	RaidMarkerIndicator:SetSize(18, 18)
 	RaidMarkerIndicator:SetPoint("TOP", frame, "TOP", -20, -2)
 	RaidMarkerIndicator:SetDrawLayer("OVERLAY", 6)
-	IndicatorFrame.__sufRaidMarkerIndicator = RaidMarkerIndicator
 	frame.RaidMarkerIndicator = RaidMarkerIndicator
 
-	local LeaderIndicator = IndicatorFrame.__sufLeaderIndicator or IndicatorFrame:CreateTexture(nil, "OVERLAY")
+	-- Do NOT cache textures - each frame needs its own instance
+	local LeaderIndicator = IndicatorFrame:CreateTexture(nil, "OVERLAY")
 	LeaderIndicator:SetSize(16, 16)
 	LeaderIndicator:SetPoint("TOP", frame, "TOP", 0, 2)
 	LeaderIndicator:SetDrawLayer("OVERLAY", 6)
-	IndicatorFrame.__sufLeaderIndicator = LeaderIndicator
 	frame.LeaderIndicator = LeaderIndicator
 
-	local TargetIndicator = IndicatorFrame.__sufTargetIndicator or CreateFrame("Frame", nil, frame, "BackdropTemplate")
+	-- Do NOT cache frames - each frame needs its own instance
+	local TargetIndicator = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 	TargetIndicator:SetPoint("TOPLEFT", frame, "TOPLEFT", -3, 3)
 	TargetIndicator:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 3, -3)
 	TargetIndicator:SetFrameStrata(frame:GetFrameStrata() or "MEDIUM")
@@ -8605,15 +8884,14 @@ function addon:Style(frame, unit)
 	TargetIndicator:SetBackdropColor(0, 0, 0, 0)
 	TargetIndicator:SetBackdropBorderColor(0.95, 0.85, 0.25, 0.92)
 	TargetIndicator:Hide()
-	IndicatorFrame.__sufTargetIndicator = TargetIndicator
 	frame.TargetIndicator = TargetIndicator
 
-	local StatusIndicator = TextOverlay.__sufStatusIndicator or CreateFontString(TextOverlay, 13, "OUTLINE")
+	-- Do NOT cache font strings - each frame needs its own instance
+	local StatusIndicator = CreateFontString(TextOverlay, 13, "OUTLINE")
 	StatusIndicator:SetPoint("CENTER", frame, "CENTER", 0, 0)
 	StatusIndicator:SetJustifyH("CENTER")
 	StatusIndicator:SetDrawLayer("OVERLAY", 7)
 	StatusIndicator:SetText("")
-	TextOverlay.__sufStatusIndicator = StatusIndicator
 	frame.StatusIndicator = StatusIndicator
 
 	-- Add SetAlphaFromBoolean method for Range element
@@ -8750,69 +9028,26 @@ function addon:Style(frame, unit)
 		end
 	end
 
-	if unit == "player" or unit == "target" or (unit and unit:match("^boss%d*$")) then
-		local anchor = frame.ClassPowerAnchor
-		CreateCastbar(frame, self.db.profile.castbarHeight, anchor)
-		
-		-- Manually register castbar events since element was created after oUF initialization
-		if frame.Castbar and frame.unit and not frame.unit:match('%wtarget$') then
-			local castbarEvents = {
-				'UNIT_SPELLCAST_START',
-				'UNIT_SPELLCAST_CHANNEL_START',
-				'UNIT_SPELLCAST_EMPOWER_START',
-				'UNIT_SPELLCAST_STOP',
-				'UNIT_SPELLCAST_CHANNEL_STOP',
-				'UNIT_SPELLCAST_EMPOWER_STOP',
-				'UNIT_SPELLCAST_DELAYED',
-				'UNIT_SPELLCAST_CHANNEL_UPDATE',
-				'UNIT_SPELLCAST_EMPOWER_UPDATE',
-				'UNIT_SPELLCAST_FAILED',
-				'UNIT_SPELLCAST_INTERRUPTED',
-				'UNIT_SPELLCAST_INTERRUPTIBLE',
-				'UNIT_SPELLCAST_NOT_INTERRUPTIBLE',
-			}
-			
-			-- Register all castbar events on the main frame
-			for i, event in ipairs(castbarEvents) do
-				frame:RegisterUnitEvent(event, frame.unit)
-			end
-			
-			-- Set up OnEvent handler to dispatch castbar events to element handlers
-			if not frame.CastbarEventHandlerInstalled then
-				local origOnEvent = frame:GetScript('OnEvent')
-				frame:SetScript('OnEvent', function(self, event, ...)
-					-- Map events to castbar handler methods (from castbar.lua eventMethods)
-					local eventHandlers = {
-						['UNIT_SPELLCAST_START'] = true,
-						['UNIT_SPELLCAST_CHANNEL_START'] = true,
-						['UNIT_SPELLCAST_EMPOWER_START'] = true,
-						['UNIT_SPELLCAST_STOP'] = true,
-						['UNIT_SPELLCAST_CHANNEL_STOP'] = true,
-						['UNIT_SPELLCAST_EMPOWER_STOP'] = true,
-						['UNIT_SPELLCAST_DELAYED'] = true,
-						['UNIT_SPELLCAST_CHANNEL_UPDATE'] = true,
-						['UNIT_SPELLCAST_EMPOWER_UPDATE'] = true,
-						['UNIT_SPELLCAST_FAILED'] = true,
-						['UNIT_SPELLCAST_INTERRUPTED'] = true,
-						['UNIT_SPELLCAST_INTERRUPTIBLE'] = true,
-						['UNIT_SPELLCAST_NOT_INTERRUPTIBLE'] = true,
-					}
-					
-					-- Dispatch casting events to castbar element's ForceUpdate
-					if eventHandlers[event] then
-						if self.Castbar and self.Castbar.ForceUpdate then
-							self.Castbar:ForceUpdate()
-						end
-					end
-					
-					-- Call original handler if it existed
-					if origOnEvent then
-						origOnEvent(self, event, ...)
-					end
-				end)
-				frame.CastbarEventHandlerInstalled = true
-			end
-		end
+	-- Create CastbarAnchor for party/raid frames (positioned above main frame for visibility)
+	if frame.sufUnitType == "party" or frame.sufUnitType == "raid" then
+		CreateCastbarAnchor(frame, self.db.profile.castbarHeight)
+	end
+
+	-- Create castbar for supported units (oUF will automatically enable the element)
+	-- Includes: player, target, pet, focus, tot, focustarget, party, raid, boss
+	-- Note: Party/raid header child frames have unit="party"/"raid" not "party1"/"raid1", so check sufUnitType
+	local shouldCreateCastbar = (
+		unit == "player" or unit == "target" or unit == "pet" or unit == "focus" or 
+		unit == "targettarget" or unit == "focustarget" or
+		(unit and (unit:match("^boss%d*$") or unit:match("^party%d$") or unit:match("^raid%d+$"))) or
+		frame.sufUnitType == "party" or frame.sufUnitType == "raid" or frame.sufUnitType == "boss"
+	)
+	
+	if shouldCreateCastbar then
+		local castbarAnchor = frame.ClassPowerAnchor or frame.CastbarAnchor
+		CreateCastbar(frame, self.db.profile.castbarHeight, castbarAnchor)
+		-- Note: oUF will automatically call EnableElement('Castbar', unit) after Style() completes,
+		-- which registers all necessary events and sets up the element properly
 	end
 
 	if frame.sufUnitType == "player" or frame.sufUnitType == "target" or frame.sufUnitType == "focus" or frame.sufUnitType == "pet" or frame.sufUnitType == "tot" or frame.sufUnitType == "party" or frame.sufUnitType == "raid" or frame.sufUnitType == "boss" then
@@ -8864,6 +9099,12 @@ function addon:Style(frame, unit)
 			return true
 		end
 		if eventName == "ForceUpdate" then
+			return true
+		end
+		if eventName == "PLAYER_TARGET_CHANGED" or eventName == "PLAYER_FOCUS_CHANGED" then
+			return true
+		end
+		if eventName == "GROUP_ROSTER_UPDATE" then
 			return true
 		end
 		return false
@@ -9034,6 +9275,30 @@ function addon:SpawnFrames()
 		end
 
 		self:UpdateAllFrames()
+		
+		-- Fallback: rebind castbar events for non-header frames to ensure clean event registration.
+		-- TODO (2026-03-05): Investigate why initial style() EnableElement path doesn't reliably register events.
+		-- Root cause may be timing (oUF EnableElement called during Style() completion) or stale element state.
+		-- This rebind pass is a safety workaround; ideal solution would fix the upstream issue.
+		-- See conversation notes for reproduction steps and debug output from testing.
+		C_Timer.After(0.1, function()
+			if not self.frames then
+				return
+			end
+			
+			for _, frame in ipairs(self.frames) do
+				local unit = frame.unit or (frame.GetAttribute and frame:GetAttribute("unit"))
+				local hasUnitToken = type(unit) == "string" and unit ~= ""
+				local isHeaderUnit = hasUnitToken and (unit:match("^party") or unit:match("^raid"))
+
+				if frame.Castbar and hasUnitToken and not isHeaderUnit then
+					if frame.DisableElement and frame.EnableElement then
+						frame:DisableElement("Castbar")
+						frame:EnableElement("Castbar")
+					end
+				end
+			end
+		end)
 	end)
 
 	local frameCount = 0
@@ -9048,7 +9313,6 @@ function addon:SpawnFrames()
 		self.spawned = true
 		-- Expose addon globally AFTER spawning completes (safe from oUF lookup)
 		_G.SimpleUnitFrames = self
-		print("SpawnFrames: Exposed _G.SimpleUnitFrames, IndicatorPoolManager exists: " .. tostring(self.IndicatorPoolManager ~= nil))
 	end
 
 	self:ApplyVisibilityRules()
@@ -9078,6 +9342,9 @@ function addon:SpawnGroupHeaders()
 	local needParty = ((inGroup and not inRaid) or (showPartySolo and not inRaid)) and not self.headers.party
 	local needRaid = inRaid and not self.headers.raid
 	if not needParty and not needRaid then
+		if self.headers and (self.headers.party or self.headers.raid) then
+			self:StopGroupHeaderRecovery()
+		end
 		return
 	end
 
@@ -9086,6 +9353,7 @@ function addon:SpawnGroupHeaders()
 		if InCombatLockdown() or self:IsEditModeActive() then
 			self.pendingGroupHeaders = true
 			self:StartSpawnTicker()
+			self.allowGroupHeaders = false
 			return
 		end
 
@@ -9102,32 +9370,90 @@ function addon:SpawnGroupHeaders()
 				builder(self)
 			end
 		end
-	end)
-	self.allowGroupHeaders = false
 
-	self:ApplyPartyHeaderSettings()
-	self:ApplyVisibilityRules()
-	C_Timer.After(0, function()
-		if self and self.spawned then
-			if needParty then
-				self:SchedulePluginUpdate("party")
-			end
-			if needRaid then
-				self:SchedulePluginUpdate("raid")
+		-- Disable group header spawning after builders have run
+		self.allowGroupHeaders = false
+
+		-- Apply header settings/visibility only after headers actually exist.
+		self:ApplyPartyHeaderSettings()
+		self:ApplyVisibilityRules()
+
+		if self.headers and (self.headers.party or self.headers.raid) then
+			self:StopGroupHeaderRecovery()
+		end
+
+		-- Bootstrap party children with full element initialization after spawn
+		if self.headers and self.headers.party then
+			local party = self.headers.party
+			for i = 1, party:GetNumChildren() do
+				local child = select(i, party:GetChildren())
+				if child and child.sufUnitType then
+					-- Force full element initialization with dirty events
+					self:UpdateFrameFromDirtyEvents(child, {
+						GROUP_ROSTER_UPDATE = true,
+						UNIT_HEALTH = true,
+						UNIT_MAXHEALTH = true,
+						UNIT_POWER_UPDATE = true,
+						UNIT_MAXPOWER = true,
+						UNIT_NAME_UPDATE = true,
+						UNIT_PORTRAIT_UPDATE = true,
+						UNIT_AURA = true,
+						UNIT_THREAT_SITUATION_UPDATE = true,
+						UNIT_THREAT_LIST_UPDATE = true,
+						UNIT_CLASSIFICATION_CHANGED = true,
+						UNIT_RANGE = true,
+						UNIT_ABSORB_AMOUNT_CHANGED = true,
+						UNIT_HEAL_ABSORB_AMOUNT_CHANGED = true,
+					})
+					-- Manually update tags
+					if child.UpdateTags then
+						pcall(child.UpdateTags, child)
+					end
+					if child.HealthValue and child.HealthValue.UpdateTag then
+						pcall(child.HealthValue.UpdateTag, child.HealthValue)
+					end
+					-- Manually update threat indicator
+					if child.ThreatIndicator and child.ThreatIndicator.ForceUpdate then
+						pcall(child.ThreatIndicator.ForceUpdate, child.ThreatIndicator)
+					end
+					-- Manually update absorb value
+					if child.AbsorbValue then
+						self:UpdateAbsorbValue(child)
+					end
+				end
 			end
 		end
+
+		C_Timer.After(0, function()
+			if self and self.spawned then
+				if needParty then
+					self:SchedulePluginUpdate("party")
+				end
+				if needRaid then
+					self:SchedulePluginUpdate("raid")
+				end
+			end
+		end)
 	end)
 end
 
 function addon:OnGroupRosterUpdate()
 	self:UpdateBlizzardFrames()
 	self:TrySpawnGroupHeaders()
+	if self.headers and (self.headers.party or self.headers.raid) then
+		self:StopGroupHeaderRecovery()
+	else
+		local inInstance = IsInInstanceContext()
+		if inInstance then
+			self:ScheduleGroupHeaderRecovery(10, 1.0)
+		end
+	end
 	self:UpdateDataTextPanel()
 end
 
 function addon:GetPartyHeaderYOffset()
 	local partyCfg = (self.db and self.db.profile and self.db.profile.party) or {}
-	local spacing = math.max(0, math.min(40, tonumber(partyCfg.spacing) or 10))
+	local spacing = math.max(0, math.min(60, tonumber(partyCfg.spacing) or 15))
 	local powerHeight = tonumber(self.db and self.db.profile and self.db.profile.powerHeight) or 8
 	local size = self.db and self.db.profile and self.db.profile.sizes and self.db.profile.sizes.party
 	local frameHeight = tonumber(size and size.height) or 26
@@ -9152,6 +9478,12 @@ function addon:GetPartyHeaderYOffset()
 	return -effectiveSpacing
 end
 
+function addon:GetBossHeaderYOffset()
+	local bossCfg = (self.db and self.db.profile and self.db.profile.boss) or {}
+	local spacing = math.max(0, math.min(30, tonumber(bossCfg.spacing) or 15))
+	return -spacing
+end
+
 function addon:ApplyPartyHeaderSettings()
 	local header = self.headers and self.headers.party
 	if not header or not self.db or not self.db.profile then
@@ -9159,7 +9491,8 @@ function addon:ApplyPartyHeaderSettings()
 	end
 
 	local partyCfg = self.db.profile.party or defaults.profile.party
-	local showSolo = partyCfg.showPlayerWhenSolo == true
+	local forceFollowerSolo = IsInDelveFollowerPartyContext()
+	local showSolo = partyCfg.showPlayerWhenSolo == true or forceFollowerSolo
 	local showInParty = partyCfg.showPlayerInParty ~= false
 	local showPlayer = showInParty or showSolo
 	local yOffset = self:GetPartyHeaderYOffset()
@@ -9195,16 +9528,50 @@ function addon:ApplyVisibilityRules()
 		end
 	end
 
-	for _, header in pairs(self.headers or {}) do
+	self.headers = self.headers or {}
+	if not self.headers.party and _G.SUF_Party then
+		self.headers.party = _G.SUF_Party
+	end
+	if not self.headers.raid and _G.SUF_Raid then
+		self.headers.raid = _G.SUF_Raid
+	end
+
+	for _, header in pairs(self.headers) do
 		if header then
-			if header.__sufVisibilityDriver == driver then
-			else
-				header.__sufVisibilityDriver = driver
-				local headerName = tostring(header:GetName() or "header")
-				self:QueueOrRun(function()
+			local headerName = tostring(header:GetName() or "header")
+			local headerDriver = driver
+			if header == self.headers.party and IsInDelveFollowerPartyContext() then
+				headerDriver = "show"
+			end
+
+			local shouldApplyDriver = header.__sufVisibilityDriver ~= headerDriver
+			if shouldApplyDriver then
+				local okApply = self:QueueOrRun(function()
 					UnregisterStateDriver(header, "visibility")
-					RegisterStateDriver(header, "visibility", driver)
+					RegisterStateDriver(header, "visibility", headerDriver)
 				end, "visibility-driver-header-" .. headerName)
+				if okApply ~= false then
+					header.__sufVisibilityDriver = headerDriver
+				end
+			end
+
+			local desiredState = nil
+			if type(SecureCmdOptionParse) == "function" then
+				local okState, parsedState = pcall(SecureCmdOptionParse, headerDriver)
+				if okState and (parsedState == "show" or parsedState == "hide") then
+					desiredState = parsedState
+				end
+			end
+
+			if desiredState == "show" then
+				self:QueueOrRun(function()
+					if header.GetAttribute and header:GetAttribute("statehidden") then
+						header:SetAttribute("statehidden", nil)
+					end
+					if header.IsShown and header.Show and not header:IsShown() then
+						header:Show()
+					end
+				end, "visibility-driver-show-recover-" .. headerName)
 			end
 		end
 	end
@@ -9604,18 +9971,24 @@ function addon:OnPlayerEnteringWorld()
 	self._incomingHealthTrendByGUID = {}
 	self:UpdateBlizzardFrames()
 	self:TrySpawnFrames()
+	self:StopGroupHeaderRecovery()
 	self:ScheduleGroupHeaders(0.5)
+	self:ScheduleGroupHeaderRecovery(12, 1.0)
 	self:UpdateDataBars()
 	self:UpdateDataTextPanel()
+	
 	-- Bootstrap target/tot visuals and text on initial login/reload.
 	C_Timer.After(0, function()
 		self:OnPlayerTargetChanged()
+		self:OnPlayerFocusChanged()
 	end)
 	C_Timer.After(0.25, function()
 		self:OnPlayerTargetChanged()
+		self:OnPlayerFocusChanged()
 	end)
 	C_Timer.After(0.75, function()
 		self:OnPlayerTargetChanged()
+		self:OnPlayerFocusChanged()
 		-- Also update player frame status indicators (AFK/DND/DC) on login
 		if self.frames then
 			for _, frame in ipairs(self.frames) do
@@ -9800,10 +10173,16 @@ function addon:OnInitialize()
 	self:SetupPerformanceLib()
 	self:SetupEventBus()
 
+	-- Store defaults on addon object so modules can access it
+	self.defaults = defaults
+
 	self.db = AceDB:New("SimpleUnitFramesDB", defaults, true)
 	if self.db:GetCurrentProfile() ~= "Global" then
 		self.db:SetProfile("Global")
 	end
+
+	-- Initialize profile migration system (runs any needed schema upgrades)
+	self:InitializeProfileMigration()
 
 	if not self.db.profile.units then
 		self.db.profile.units = CopyTableDeep(defaults.profile.units)
@@ -10187,6 +10566,8 @@ function addon:OnEnable()
 	self:RegisterEvent("TRAIT_CONFIG_UPDATED", "OnClassResourceContextChanged")
 	self:RegisterEvent("GROUP_ROSTER_UPDATE", "OnGroupRosterUpdate")
 	self:RegisterEvent("ZONE_CHANGED_NEW_AREA", "OnGroupRosterUpdate")
+	self:RegisterEvent("SCENARIO_UPDATE", "OnGroupRosterUpdate")
+	self:RegisterEvent("PLAYER_DIFFICULTY_CHANGED", "OnGroupRosterUpdate")
 	self:RegisterEvent("PLAYER_XP_UPDATE", "ScheduleUpdateDataBars")
 	self:RegisterEvent("UPDATE_EXHAUSTION", "ScheduleUpdateDataBars")
 	self:RegisterEvent("UPDATE_FACTION", "ScheduleUpdateDataBars")
@@ -10199,6 +10580,7 @@ function addon:OnEnable()
 	self:RegisterEvent("ZONE_CHANGED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("ZONE_CHANGED_INDOORS", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("PLAYER_TARGET_CHANGED", "OnPlayerTargetChanged")
+	self:RegisterEvent("PLAYER_FOCUS_CHANGED", "OnPlayerFocusChanged")
 	self:RegisterEvent("PLAYER_FLAGS_CHANGED", "OnPlayerFlagsChanged")
 	self:RegisterEvent("QUEST_ACCEPTED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("QUEST_REMOVED", "ScheduleUpdateDataTextPanel")
@@ -10287,6 +10669,7 @@ function addon:OnDisable()
 		self.groupHeaderTimer:Cancel()
 		self.groupHeaderTimer = nil
 	end
+	self:StopGroupHeaderRecovery()
 	if self.optionsFrame and self.optionsFrame.performanceSnapshotTicker and self.optionsFrame.performanceSnapshotTicker.Cancel then
 		self.optionsFrame.performanceSnapshotTicker:Cancel()
 		self.optionsFrame.performanceSnapshotTicker = nil

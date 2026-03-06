@@ -70,8 +70,10 @@ local function Update(self, event)
 		element:Show()
 		
 		-- Apply visual leader highlight effect using ObjectPool
+		-- Check global glow visibility setting before applying
 		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
+		local glowEnabled = addon and addon.db and addon.db.profile and addon.db.profile.visibility and addon.db.profile.visibility.enablePartyLeaderGlow ~= false
+		if addon and addon.IndicatorPoolManager and glowEnabled then
 			addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 1, 0.5, 0.6)  -- Golden glow for leader
 		end
 	else

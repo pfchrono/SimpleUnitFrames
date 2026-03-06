@@ -34,16 +34,17 @@ registry.boss = function(self)
 		end
 	end
 
+	local bossSpacing = self:GetBossHeaderYOffset()
 	if _G.BossTargetFrameContainer then
 		bossFrames[1]:ClearAllPoints()
 		bossFrames[1]:SetPoint("TOPLEFT", _G.BossTargetFrameContainer, "TOPLEFT")
 		for index = 2, #bossFrames do
-			bossFrames[index]:SetPoint("TOPLEFT", bossFrames[index - 1], "BOTTOMLEFT", 0, -8)
+			bossFrames[index]:SetPoint("TOPLEFT", bossFrames[index - 1], "BOTTOMLEFT", 0, bossSpacing)
 		end
 	else
 		bossFrames[1]:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 800, -300)
 		for index = 2, #bossFrames do
-			bossFrames[index]:SetPoint("TOPLEFT", bossFrames[index - 1], "BOTTOMLEFT", 0, -8)
+			bossFrames[index]:SetPoint("TOPLEFT", bossFrames[index - 1], "BOTTOMLEFT", 0, bossSpacing)
 		end
 	end
 end

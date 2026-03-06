@@ -228,6 +228,27 @@ local function BuildCustomTrackersPageSpec()
 			set = function(v) SetAutoLearnField("learnItems", v and true or false) end,
 		},
 		{
+			type = "check",
+			label = "    Only Known Player Spells",
+			disabled = function() return GetAutoLearnField("enabled", false) ~= true or GetAutoLearnField("learnSpells", true) ~= true end,
+			get = function() return GetAutoLearnField("learnOnlyKnownSpells", false) end,
+			set = function(v) SetAutoLearnField("learnOnlyKnownSpells", v and true or false) end,
+		},
+		{
+			type = "check",
+			label = "    Exclude NPC-Only Spells",
+			disabled = function() return GetAutoLearnField("enabled", false) ~= true or GetAutoLearnField("learnSpells", true) ~= true end,
+			get = function() return GetAutoLearnField("excludeNPCSpells", false) end,
+			set = function(v) SetAutoLearnField("excludeNPCSpells", v and true or false) end,
+		},
+		{
+			type = "check",
+			label = "    Include Item Spells from Inventory",
+			disabled = function() return GetAutoLearnField("enabled", false) ~= true or GetAutoLearnField("learnSpells", true) ~= true end,
+			get = function() return GetAutoLearnField("includeItemSpells", true) end,
+			set = function(v) SetAutoLearnField("includeItemSpells", v and true or false) end,
+		},
+		{
 			type = "dropdown",
 			label = "  Auto-Learn Destination Bar",
 			disabled = function() return GetAutoLearnField("enabled", false) ~= true end,
@@ -1008,6 +1029,36 @@ local function BuildCustomTrackersPageSpec()
 					ctState.moveIndex = idx + 1
 					RefreshPage()
 				end
+			end,
+		},
+		{
+			type = "button",
+			label = "Delete All Entries",
+			disabled = function()
+				local b = GetSelectedBar()
+				return not b or not b.entries or #b.entries == 0
+			end,
+			onClick = function()
+				local b = GetSelectedBar()
+				if not b or not b.entries then return end
+
+				-- Create a copy of entries to iterate over (since we're modifying the original)
+				local entriesToDelete = {}
+				for i = 1, #b.entries do
+					entriesToDelete[i] = {
+						type = b.entries[i].type,
+						id = b.entries[i].id,
+					}
+				end
+
+				-- Remove all entries
+				if CT then
+					for _, entry in ipairs(entriesToDelete) do
+						CT:RemoveEntry(b.id, entry.type, entry.id)
+					end
+				end
+
+				RefreshPage()
 			end,
 		},
 	}

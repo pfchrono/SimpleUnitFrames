@@ -25,6 +25,7 @@ addon.CustomTrackers = CT
 -- CONSTANTS
 ---------------------------------------------------------------------------
 local BASE_CROP = 0.08
+local MAX_TRACKER_ENTRIES_PER_BAR = 256
 
 local HOUSING_INSTANCE_TYPES = {
     ["neighborhood"] = true,
@@ -56,6 +57,9 @@ local function GetAutoLearnConfig()
     if cfg.enabled == nil then cfg.enabled = false end
     if cfg.learnSpells == nil then cfg.learnSpells = true end
     if cfg.learnItems == nil then cfg.learnItems = true end
+    if cfg.learnOnlyKnownSpells == nil then cfg.learnOnlyKnownSpells = false end
+    if cfg.excludeNPCSpells == nil then cfg.excludeNPCSpells = false end
+    if cfg.includeItemSpells == nil then cfg.includeItemSpells = true end
     if cfg.targetBarID == nil then cfg.targetBarID = "" end
     return cfg
 end
@@ -196,6 +200,33 @@ local function IsSpellUsable(spellID)
     return IsSpellKnown(spellID)
 end
 
+local function IsSpellKnownByPlayer(spellID)
+    if not spellID or spellID <= 0 then return false end
+    if IsSpellKnownOrOverridesKnown then
+        return IsSpellKnownOrOverridesKnown(spellID)
+    elseif IsPlayerSpell then
+        return IsPlayerSpell(spellID)
+    end
+    return IsSpellKnown(spellID)
+end
+
+local function IsNPCSpell(spellID)
+    if not spellID or spellID <= 0 then return false end
+    local spellInfo = C_Spell.GetSpellInfo(spellID)
+    if not spellInfo then return true end
+    -- Check if spell has any useful info; if not, it might be NPC-only
+    -- NPC spells typically don't show in player skill books
+    if not IsSpellKnownByPlayer(spellID) then
+        -- Only consider it a true NPC spell if it has no learned status at all
+        if IsPlayerSpell then
+            return not IsPlayerSpell(spellID)
+        elseif IsSpellKnown then
+            return not IsSpellKnown(spellID)
+        end
+    end
+    return false
+end
+
 local function BuildBarLookup()
     local db = GetDB()
     local bars = (db and db.bars) or {}
@@ -221,6 +252,49 @@ local function EntryIDsEqual(leftID, rightID)
     local left = NormalizeEntryID(leftID)
     local right = NormalizeEntryID(rightID)
     return left == right
+end
+
+local function SanitizeBarEntries(entries)
+    if type(entries) ~= "table" then
+        return {}, false, false
+    end
+
+    local beforeCount = #entries
+    if beforeCount == 0 then
+        return entries, false, false
+    end
+
+    local sanitized = {}
+    local seen = {}
+    local truncated = false
+
+    for i = 1, beforeCount do
+        local entry = entries[i]
+        local entryType = entry and entry.type
+        local normalizedID = entry and NormalizeEntryID(entry.id)
+
+        if (entryType == "spell" or entryType == "item") and normalizedID and normalizedID > 0 then
+            local key = entryType .. ":" .. tostring(normalizedID)
+            if not seen[key] then
+                seen[key] = true
+                entry.id = normalizedID
+                sanitized[#sanitized + 1] = entry
+                if #sanitized >= MAX_TRACKER_ENTRIES_PER_BAR then
+                    if i < beforeCount then
+                        truncated = true
+                    end
+                    break
+                end
+            end
+        end
+    end
+
+    local changed = (#sanitized ~= beforeCount) or truncated
+    if not changed then
+        return entries, false, false
+    end
+
+    return sanitized, true, truncated
 end
 
 function CT:IsEntryTracked(entryType, entryID, barID)
@@ -317,6 +391,23 @@ function CT:TryAutoLearnEntry(entryType, entryID, sourceLabel)
     if entryType == "spell" and cfg.learnSpells ~= true then return false end
     if entryType == "item" and cfg.learnItems ~= true then return false end
     if not entryID or entryID <= 0 then return false end
+
+    -- Apply spell filters
+    if entryType == "spell" then
+        -- Filter: Only learn spells player already knows
+        if cfg.learnOnlyKnownSpells and not IsSpellKnownByPlayer(entryID) then
+            return false
+        end
+        -- Filter: Exclude NPC-only spells
+        if cfg.excludeNPCSpells and IsNPCSpell(entryID) then
+            return false
+        end
+    end
+
+    -- For item spells, check if we should include them
+    if entryType == "item" and not cfg.includeItemSpells then
+        return false
+    end
 
     local barID = self:GetAutoLearnTargetBarID()
     if not barID then return false end
@@ -997,6 +1088,25 @@ function CT:UpdateBarIcons(bar)
     local config = bar.config
     local entries = config.entries or {}
 
+    local sanitizedEntries, changedEntries, wasTruncated = SanitizeBarEntries(entries)
+    if changedEntries then
+        config.entries = sanitizedEntries
+        entries = sanitizedEntries
+        if addon and addon.DebugLog then
+            addon:DebugLog(
+                "CustomTrackers",
+                "Sanitized entries for " .. tostring(bar.barID) .. ": " .. tostring(#(entries or {})) .. " kept (max " .. tostring(MAX_TRACKER_ENTRIES_PER_BAR) .. ")",
+                2
+            )
+        end
+        if wasTruncated and addon and addon.Print and not bar.__sufEntriesTruncatedNotified then
+            bar.__sufEntriesTruncatedNotified = true
+            addon:Print("SimpleUnitFrames: Custom Tracker '" .. tostring(bar.barID) .. "' has more than " .. tostring(MAX_TRACKER_ENTRIES_PER_BAR) .. " entries. Extra entries were skipped to prevent UI timeouts.")
+        end
+    else
+        bar.__sufEntriesTruncatedNotified = nil
+    end
+
     for _, icon in ipairs(bar.icons or {}) do
         icon:Hide()
         icon:SetParent(nil)
@@ -1511,6 +1621,14 @@ function CT:AddEntry(barID, entryType, entryID)
             end
 
             local newEntry = { type = entryType, id = normalizedID }
+
+            if #barConfig.entries >= MAX_TRACKER_ENTRIES_PER_BAR then
+                if addon and addon.Print then
+                    addon:Print("SimpleUnitFrames: Custom Tracker '" .. tostring(barID) .. "' reached the entry limit (" .. tostring(MAX_TRACKER_ENTRIES_PER_BAR) .. "). Remove old entries before adding more.")
+                end
+                return false
+            end
+
             barConfig.entries[#barConfig.entries + 1] = newEntry
 
             local activeBar = self.activeBars[barID]

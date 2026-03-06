@@ -84,6 +84,34 @@ local POOL_CONFIGS = {
     },
 }
 
+local STRATA_PRIORITY = {
+    BACKGROUND = 1,
+    LOW = 2,
+    MEDIUM = 3,
+    HIGH = 4,
+    DIALOG = 5,
+    FULLSCREEN = 6,
+    FULLSCREEN_DIALOG = 7,
+    TOOLTIP = 8,
+}
+
+local function ResolveIndicatorStrata(parentStrata, minimumStrata)
+    local normalizedParent = parentStrata
+    local normalizedMinimum = minimumStrata
+
+    if type(normalizedParent) ~= "string" or not STRATA_PRIORITY[normalizedParent] then
+        normalizedParent = "MEDIUM"
+    end
+    if type(normalizedMinimum) ~= "string" or not STRATA_PRIORITY[normalizedMinimum] then
+        normalizedMinimum = "MEDIUM"
+    end
+
+    if STRATA_PRIORITY[normalizedParent] < STRATA_PRIORITY[normalizedMinimum] then
+        return normalizedMinimum
+    end
+    return normalizedParent
+end
+
 -- =========================================================================
 -- Initialization
 -- =========================================================================
@@ -272,6 +300,9 @@ function IndicatorPoolManager:ApplyThreatGlow(frame, threatLevel)
         {1, 0.2, 0.2},      -- High threat: red
     }
     
+    -- Always release any existing glow first to prevent orphans and ensure clean update
+    self:Release(frame, POOL_TYPES.THREAT_GLOW)
+    
     local glow = self:Acquire(POOL_TYPES.THREAT_GLOW, frame, "CENTER", "CENTER")
     local color = threatColors[threatLevel] or {1, 1, 1}
     
@@ -290,9 +321,11 @@ function IndicatorPoolManager:ApplyThreatGlow(frame, threatLevel)
     glow:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 3, -3)
     glow:SetSize(parentWidth + 6, parentHeight + 6)  -- Explicit size for backdrop rendering
     
-    -- Set frame strata and level to ensure visibility (matching SUF's TargetIndicator pattern)
-    glow:SetFrameStrata(frame:GetFrameStrata() or "MEDIUM")
-    glow:SetFrameLevel((frame:GetFrameLevel() or 1) + 10)  -- High level to ensure visibility
+    -- Set frame strata and level to ensure visibility above all indicators (leader, raid marker, etc.)
+    -- Use HIGH strata when threat is active to override all parent-frame textures (OVERLAY draw layer)
+    local glowStrata = ResolveIndicatorStrata(frame:GetFrameStrata(), "HIGH")
+    glow:SetFrameStrata(glowStrata)
+    glow:SetFrameLevel((frame:GetFrameLevel() or 1) + 50)  -- Very high level to override leader/raid indicators
     glow:Show()
     
     -- Force frame layout update

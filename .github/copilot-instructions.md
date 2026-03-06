@@ -8,14 +8,14 @@
 **CRITICAL: Always verify WoW APIs against the local wow-ui-source repository before planning or implementing any code changes.**
 
 ### Before Any Code Planning or Changes:
-1. **Check Local Reference:** Review the latest API implementation in `d:\Games\World of Warcraft\_retail_\Interface\_Working\wow-ui-source`
+1. **Check Local Reference:** Review the latest API implementation in `b:\Games\World of Warcraft\_retail_\Interface\_Working\wow-ui-source`
    - File path: `wow-ui-source/Interface/AddOns/Blizzard_*/` (Blizzard reference UI code)
    - Verify C_* namespace functions, widget types, and event payloads
    - Look for undocumented parameters, return values, or behavioral changes
 
 2. **Update Repository if Outdated:**
    - Run: `/run SUF.DebugOutput:Output("APICheck", "Checking wow-ui-source for updates...", 1)`
-   - Navigate to: `d:\Games\World of Warcraft\_retail_\Interface\_Working\wow-ui-source`
+   - Navigate to: `b:\Games\World of Warcraft\_retail_\Interface\_Working\wow-ui-source`
    - Check git status: `git status`
    - Get latest: `git fetch origin && git pull` (uses branch: live)
    - Verify update: `git log --oneline -5` (should show current date if updated)
@@ -87,18 +87,71 @@
   - **Why:** Shadowing causes runtime errors when code expects the original parameter type (e.g., `unit:match()` fails if `unit` is now a table)
   - **Example Fix:** Phase 3 fixed variable shadowing in `Style()` function (line 7860) - renamed `unit` → `unitConfig` to preserve the string parameter for boss frame pattern matching
   - **Validation:** Search for `local <paramName>` inside functions that already have `<paramName>` as a parameter
+- **Module Addon Access Pattern (Critical):**
+  - ✅ **DO:** Resolve addon instances in module files via AceAddon: `local addon = LibStub("AceAddon-3.0"):GetAddon("SimpleUnitFrames", true)`
+  - ❌ **DON'T:** Use `_G["SimpleUnitFrames"]` as the primary module lookup path
+  - **Why:** AceAddon maintains its own registry; `_G` lookup caused nil method errors during ProfileMigrator initialization
+  - **Shared Defaults Pattern:** Expose core defaults on addon object (`self.defaults = defaults` in `OnInitialize`) and use `self.defaults` in modules
+- **oUF Element Initialization (Critical Pattern):**
+  - ⚠️ **NEVER manually register events for oUF elements** in the `Style()` function
+  - ❌ **BROKEN PATTERN:** Manually calling `frame:RegisterUnitEvent()` or wrapping `frame:SetScript('OnEvent', ...)` for oUF elements (castbar, auras, health prediction, etc.)
+  - ✅ **CORRECT PATTERN:** Create element structure in `Style()`, set properties, then **let oUF handle event registration automatically**
+  - **Why:** oUF automatically calls `EnableElement()` for all elements after `Style()` completes (see Libraries/oUF/ouf.lua lines 320-331). Each element's Enable function registers the necessary events internally. Manual event registration conflicts with this automatic system, causing elements to malfunction—events fire multiple times, handlers conflict, or elements don't update properly.
+  - **Example (Castbar):**
+    ```lua
+    -- ✅ CORRECT: Create element, let oUF handle events
+    local Castbar = CreateFrame("StatusBar", nil, frame)
+    Castbar:SetHeight(height)
+    -- ... set other properties ...
+    frame.Castbar = Castbar
+    -- oUF will automatically call EnableElement('Castbar', unit) after Style()
+    
+    -- ❌ WRONG: Manual event registration
+    frame:RegisterUnitEvent('UNIT_SPELLCAST_START', unit)
+    frame:RegisterUnitEvent('UNIT_SPELLCAST_STOP', unit)
+    -- This conflicts with oUF's automatic system!
+    ```
+  - **Root Cause (2026-03-05):** Party/raid/ToT castbars not showing despite being created. Manual event registration in Style() was conflicting with oUF's automatic EnableElement() calls, preventing proper element initialization.
+  - **Elements Affected:** Castbar, Auras, Health Prediction, Power Prediction, ClassPower, Runes, Stagger, Portrait, RaidDebuffs—any oUF element with an Enable/Disable lifecycle
+  - **oUF Architecture:** After spawning frames, oUF iterates all registered elements and calls `object:EnableElement(element, objectUnit)` which internally calls the element's Enable function (e.g., castbar.lua Enable() registers UNIT_SPELLCAST_* events using Private.SmartRegisterUnitEvent)
+  - **Validation:** Search for `RegisterUnitEvent\|RegisterEvent` in Style() function—if targeting oUF elements, remove and let oUF handle it
+- **oUF Castbar Event Registration (Spawn-Time Rebind Pattern - 2026-03-05):**
+  - ⚠️ **DISCOVERED ISSUE:** Initial oUF element EnableElement() call does not always reliably register castbar events on first spawn
+  - **Symptom:** Player castbar (and party/raid castbars) fail to display cast/channel events after `/reload`, despite castbar element being created and enabled
+  - **Root Cause Analysis:** 
+    - After `Style()` completes, oUF automatically calls `EnableElement()` for all elements (ouf.lua lines 320-331)
+    - The element's Enable() function is responsible for registering events (e.g., castbar.lua Enable() calls SmartRegisterUnitEvent)
+    - **Problem:** Initial enable-state may be stale or event registration may be lost due to timing/frame lifecycle issues
+    - **Failed Optimization Attempt (2026-03-05):** Tried to narrow workaround to `if not frame:IsElementEnabled("Castbar")` condition - **this ALWAYS fails** because element is already enabled by oUF after Style() completes
+  - **Workaround (Active Solution):** Use a 0.1s timer to force disable→enable cycle on non-header castbars after spawn
+    - Disable element: `frame:DisableElement("Castbar")` - clears stale state
+    - Re-enable element: `frame:EnableElement("Castbar")` - forces complete event re-registration
+    - Pattern: Only apply to non-header frames (party/raid frames rely on header system)
+    - Location: [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines 9279-9294 in SpawnFrames()
+  - **Why Disable→Enable Works:** Forces the element's entire lifecycle to reset from scratch:
+    - DisableElement triggers OnHide callback + event cleanup
+    - EnableElement triggers OnShow callback + SmartRegisterUnitEvent re-registration
+    - Fresh event handlers guarantee UNIT_SPELLCAST_* events are wired to this specific frame
+  - **TODO (Future Investigation):** Determine root cause of initial EnableElement unreliability
+    - Possible causes: Frame timing relative to event system initialization, oUF element initialization order, stale enabled-state on element object
+    - See conversation context on branch claude/bold-bell for debug logs and testing notes
+    - If root cause fixed, disable→enable cycle can be removed (currently safety workaround)
+  - **Do NOT Attempt:** Optimizing this to `if not frame:IsElementEnabled("Castbar")` - condition will always be false after Style() completes
 
 ## Architecture
 - **SimpleUnitFrames Core Structure:**
-  - **SimpleUnitFrames.lua (8219 lines):** Main addon core with AceAddon initialization, defaults, profile management, unit configuration accessors, custom oUF tags, performance integration hooks
+  - **SimpleUnitFrames.lua (10670+ lines):** Main addon core with AceAddon initialization, defaults, profile management, unit configuration accessors, custom oUF tags, performance integration hooks, castbar initialization for all unit types
+  - **Modules/System/ProfileMigrator.lua (398 lines):** Profile schema versioning (v3), migration registry, backwards compatibility system with rollback safety
   - **Modules/System/:** Core system modules
     - FrameIndex.lua: Frame indexing by unit and type
+    - ProfileMigrator.lua: Profile schema migration + integrity checks (legacy profile upgrade safety)
     - Movers.lua: Frame positioning and movement system
     - FrameDrag.lua: Drag-and-drop frame positioning
     - Enhancements.lua: UI enhancements (sticky windows, transliteration, animations)
     - Commands.lua: Slash command handlers (/suf, /SUFperf, /SUFdebug)
     - Launcher.lua: Addon initialization orchestration
   - **Modules/UI/:** Configuration and debug UI
+    - OptionsV2/Sidebar.lua (178 lines): Vertical sidebar component with grouped tabs, expand/collapse logic, hierarchical page/section navigation (200px width, 14 main pages, unit subcategories)
     - OptionsWindow.lua (3537+ lines): Main options window with tab navigation, search, module copy/reset, profile management
     - OptionsTabs.lua: Tab definitions and metadata
     - OptionsWidgets.lua: AceGUI widget helpers (Check, Slider, Color, Dropdown)
@@ -127,6 +180,37 @@
   - Units spawned via oUF in Units/ directory (Player.lua, Target.lua, Pet.lua, Focus.lua, Tot.lua, Party.lua, Raid.lua, Boss.lua)
   - Unit builders registered via `addon:RegisterUnitBuilder(unitType, builder)` pattern
   - Frame anchoring uses `addon:HookAnchor(frame, "BlizzardFrameName")` to preserve Edit Mode integration
+- **Target/Focus Swap Refresh Pattern (Anti-Flicker Safe):**
+  - With anti-flicker wrappers enabled, do not rely solely on unknown event incremental paths for swap events
+  - Register explicit handlers for `PLAYER_TARGET_CHANGED` and `PLAYER_FOCUS_CHANGED` that refresh affected frames (tags, portrait, absorb, threat/range)
+  - Keep swap events in full-refresh passthrough allowlist (`ShouldAllowFullRefreshPassthrough`) to avoid stale visual state on rapid retarget/focus changes
+- **Group Header Spawn/Visibility Timing (Critical `/reload` Delve Pattern):**
+  - ⚠️ `oUF:Factory(...)` callbacks are deferred; treat all header-dependent work as async
+  - Keep `allowGroupHeaders = true` until the Factory callback finishes builder execution; only reset inside callback/early-return branches
+  - Apply `ApplyPartyHeaderSettings()` and `ApplyVisibilityRules()` **inside** the Factory callback after party/raid headers are created
+  - Visibility cache is not authoritative alone: if `header:GetAttribute("state-visibility")` is nil, force re-register `RegisterStateDriver(header, "visibility", driver)` even when cached driver string matches
+  - Re-link missing header references from globals (`_G.SUF_Party`, `_G.SUF_Raid`) before visibility-driver application when `self.headers` is stale
+  - Delve follower/walk-in contexts may require solo fallback: use `C_PartyInfo.IsPartyWalkIn()` / `C_LFGInfo.IsInLFGFollowerDungeon()` (pcall-guarded) and force `showSolo` for party headers
+  - Use bounded recovery ticker retries (`TrySpawnGroupHeaders`) for late-resolving instance/group state after login/reload
+  - **Recovery Pattern:** `ScheduleGroupHeaderRecovery(duration, interval)` with max attempts checking for header existence, returns if found or timeout reached
+- **OptionsV2 Sidebar Regression Prevention:**
+  - Always call `ApplySUFBackdropColors(..., true)` for dynamically created nav/sidebar buttons (ensure backdrop exists)
+  - Track selection state per-button (`button._isSelected`) and preserve selected styling in hover/leave handlers
+  - On nav rebuild, clear both local tab arrays and component registries (`sidebarTabs` + `navHost.tabButtons`) to avoid stale references and broken click routing
+  - **Sidebar Component:** [Modules/UI/OptionsV2/Sidebar.lua](../Modules/UI/OptionsV2/Sidebar.lua) (200px width, grouped tabs with expand/collapse, unit subcategories)
+  - **RebuildNav Pattern:** Organize pages by group field → create group headers (v/>) → add page buttons (indented) → add unit subtabs (double-indented) → `UpdateSidebarLayout()` for positioning
+  - **State Persistence:** Store expandedGroups, activeUnitSubtab in cfgState.navState; restore on page rebuild
+  - **Closure Safety:** Capture variables properly (groupCapturedName, capturedPageKey) to prevent reference issues in nested loops
+- **Profile Migration Safety Pattern:**
+  - **Location:** [Modules/System/ProfileMigrator.lua](../Modules/System/ProfileMigrator.lua) (398 lines)
+  - **Schema System:** Version 3 (v1 base, v2 added party/raid castbar, v3 added player/target castbar)
+  - **Initialize:** `InitializeProfileMigration()` called in `OnInitialize()` after DB creation
+  - **Migration Registry:** RegisterProfileMigration(fromVersion, toVersion, migrationFunc) with pcall() safety
+  - **Rollback Safety:** Migration failure preserves mover positions, resets other profile data
+  - **Future Migrations:** Add register calls after database creation for new schema changes
+  - **Example:** v2→v3 adds castbar.lua config for player/target/tot/focustarget/pet units
+  - **Validation:** `ValidateProfileIntegrity()` checks for data corruption, auto-repairs known issues
+  - **Best Practice:** Always increment schema version before making breaking profile changes, register migration before deploy
 - **Protected Operations System (Combat Lockdown):**
   - Core: [Core/ProtectedOperations.lua](../Core/ProtectedOperations.lua) — Centralized queue system with automatic flush
   - **Early Initialization:** Addon aliases (`addon:QueueOrRun`, `addon:FlushProtectedOperations`) registered immediately at module load to prevent nil errors during early frame spawning
@@ -151,6 +235,19 @@
   - Frames tracked in `addon.frames[]` array
   - Frame event index maintained by [Modules/System/FrameIndex.lua](../Modules/System/FrameIndex.lua) with `EnsureFrameEventIndex()` (byUnit, byType, all)
   - Invalidate cache after frame operations via `InvalidateFrameEventIndex()`
+- **Texture and Frame Object Instantiation (Critical Pattern):**
+  - ⚠️ **CRITICAL BUG RISK:** Frame and texture objects in WoW can only belong to one parent frame at a time; they cannot be reparented dynamically
+  - ❌ **NEVER cache textures/frames via stored references:** `IndicatorFrame.__sufThreatIndicator = ThreatIndicator` or `TextOverlay.__sufStatusIndicator = StatusIndicator`
+  - ❌ **BROKEN PATTERN:** `local ThreatIndicator = IndicatorFrame.__sufThreatIndicator or CreateTexture(...)`—the cached object will be reparented to the last frame, breaking all prior frames
+  - ✅ **CORRECT PATTERN:** Create fresh texture/frame for each unit frame: `local ThreatIndicator = IndicatorFrame:CreateTexture(...)` (no caching, no stored reference)
+  - **Impact:** Party/raid frames share a header-spawned parent frame, so any cached textures/frames assigned to multiple children break all but the last child. Individual frames (Target, ToT) appear to work because they're initialized sequentially and the bug only manifests visually on subsequent frames.
+  - **Affected Indicators (fixed):** ThreatIndicator, QuestIndicator, RoleIndicator, RaidMarkerIndicator, LeaderIndicator, PvPClassificationIndicator, ClassificationIndicator, TargetIndicator, StatusIndicator
+  - **Future Indicator Rules:**
+    - Each indicator texture/frame MUST be created fresh in Style() for every frame
+    - Never use IndicatorFrame.__suf* or TextOverlay.__suf* caching patterns
+    - Exception: `CreateFontString()` and `CreateTexture()` handle parent reparenting gracefully, so fresh creation works; avoid pooling unless using explicit pool manager
+  - **Where to Fix:** SimpleUnitFrames.lua Style() function (~line 8700-8850) where all indicators are initialized
+  - **Historical Note:** Phase 4 (2026-03-05) discovered party threat indicators weren't showing while ToT worked—root cause was shared ThreatIndicator texture. All 9 indicator types fixed to create per-frame instances. See commit message for context.
 - **Custom oUF Tags:**
   - Registered in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) `RegisterCustomTags()` function (lines ~1800-1850)
   - Tags: `[suf:absorbs]`, `[suf:incoming]`, `[suf:ehp]`, `[suf:missinghp]`, `[suf:missingpp]`, `[suf:status]`, `[suf:health:percent-with-absorbs]`, `[suf:name]`
@@ -159,6 +256,14 @@
   - LibSharedMedia (LSM) integration for textures and fonts
   - Accessors: `addon:GetStatusbarTexture()`, `addon:GetFont()`, `addon:GetUnitStatusbarTexture(unitType)`
   - Profile settings: `db.profile.media.statusbar`, `db.profile.media.font`
+- **Castbar Bootable For All Unit Types (Phase 4+ Feature):**
+  - **Unit Coverage:** Castbars now created for player, target, pet, focus, tot, focustarget, party, raid, and boss frames
+  - **Configuration:** `profile.units.*.castbar` table with unit-specific anchor configs (BELOW_CLASSPOWER, BELOW_FRAME, ABOVE_FRAME)
+  - **Implementation:** [SimpleUnitFrames.lua](../SimpleUnitFrames.lua) lines 7595-7623 (CreateCastbar), 9028-9051 (shouldCreateCastbar logic), 9275-9299 (spawn-time disable→enable workaround)
+  - **Disable→Enable Rebind Pattern:** Critical workaround for oUF element lifecycle timing (documented extensively in copilot-instructions.md oUF Castbar Event Registration section)
+  - **Migration:** ProfileMigrator.lua (v2→v3) ensures existing profiles receive castbar configs for newly supported units
+  - **Status:** ✅ Implemented (all castbar-capable frames), TODO: Root-cause investigation of EnableElement timing
+  
 - **ColorCurve Integration (Phase 3 - WoW 12.0.0+ Secret Value Safety):**
   - **Smooth Health Gradients:** Config-driven smooth color transitions (red→yellow→green) via oUF's ColorMixin
   - **Configuration:** `profile.units.*.health.smooth` (default: false), `health.curvePoints` table defines gradient stops
@@ -198,6 +303,7 @@
   - TARGET, PET, FOCUS, TARGETTARGET, FOCUSTARGET: Exist via oUF:Spawn but hidden when units not present
   - Use RegisterUnitWatch to auto show/hide conditional frames
   - Validation: Check frame exists but don't require IsVisible() for conditional frames
+  - Party/Raid headers can exist but stay hidden/empty when secure state drivers are missing or group state resolves late; validate `state-visibility`, child count, and unit attributes (not just existence)
   - **Frame access patterns:**
     - Array storage: `addon.frames[]` (indexed, iterate via `ipairs(addon.frames)`)
     - Global names: `_G["SUF_Player"]`, `_G["SUF_Target"]`, `_G["SUF_Pet"]`, etc. (oUF spawn names)
@@ -217,6 +323,21 @@
   - **Release Planning:** Version bump workflow, changelog templates, commit message templates
   - **Cross-References:** Links to relevant sections in PHASE3_COLORCURVE_PLAN.md, WORK_SUMMARY.md, API_VALIDATION_REPORT.md
   - **Update Pattern:** After completing implementation work, update TODO.md with next steps and validation requirements
+
+- **CustomTrackers Entry Limits & Filtering (Phase 4+):**
+  - **Entry Limit:** MAX_TRACKER_ENTRIES_PER_BAR = 256 to prevent script-timeout on startup/reload
+  - **Sanitization:** `SanitizeBarEntries()` normalizes IDs, drops invalid entries, deduplicates by type:id, caps at 256 entries
+  - **AddEntry Guard:** Checks bar count before adding new entry, prevents bars from exceeding limit
+  - **Spell Filters (Auto-Learn):**
+    - `learnOnlyKnownSpells`: Only auto-learn spells player has learned via `IsSpellKnownByPlayer()`
+    - `excludeNPCSpells`: Filter out NPC-only spells using `IsNPCSpell()` helper
+    - `includeItemSpells`: Control whether item spells from inventory are auto-learned (default: enabled)
+  - **Helper Functions:**
+    - `IsSpellKnownByPlayer(spellID)`: Checks if player learned via IsSpellKnownOrOverridesKnown/IsPlayerSpell/IsSpellKnown
+    - `IsNPCSpell(spellID)`: Detects NPC-only spells by verifying they're not in player skill book
+  - **Configuration:** Added to profile.customTrackers.autoLearn with defaults in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua)
+  - **UI Controls:** Three new cascade-disabled checkboxes in OptionsV2 under "Manage" → "Learn Spells" section
+  - **Expected Behavior:** Users can toggle filters to control what gets auto-tracked, preventing clutter from quest/low-level spells
 
 ## Integration Points
 - oUF for frame spawning and colors (see [Libraries/oUF](../Libraries/oUF) and Units/ directory).
@@ -361,7 +482,7 @@ If SUF needs to provide UI overrides for protected frames (e.g., custom button t
 2. OR integrate via secure theming system (Masque skinsets) that doesn't modify frame logic
 3. OR use the 4 patterns above religiously, tested in 5-player dungeons (where secret values are active)
 
-See [SECURE_FRAME_SAFETY_CHECKLIST.md](../docs/SECURE_FRAME_SAFETY_CHECKLIST.md) for verification points and debugging workflow.
+See [WORK_SUMMARY.md](../WORK_SUMMARY.md) for the latest secure-frame regressions, validation notes, and mitigation patterns.
 
 - **Protected Operations System (Unified Combat Lockdown Handling):**
   - **Location:** [Core/ProtectedOperations.lua](../Core/ProtectedOperations.lua) (event-driven queue system with early init)

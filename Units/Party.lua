@@ -50,19 +50,38 @@ registry.party = function(self)
 			-- Force update all elements (including tags) on all child frames
 			for i = 1, self:GetNumChildren() do
 				local child = select(i, self:GetChildren())
+				local childUnit = child and ((child.GetAttribute and child:GetAttribute("unit")) or child.unit)
+				local hasUnit = childUnit and UnitExists and UnitExists(childUnit)
+				if child and child.Auras then
+					if hasUnit then
+						child.Auras:Show()
+					else
+						child.Auras:Hide()
+						if child.Auras.GetNumChildren and child.Auras.GetChildren then
+							for auraIndex = 1, child.Auras:GetNumChildren() do
+								local auraButton = select(auraIndex, child.Auras:GetChildren())
+								if auraButton and auraButton.Hide then
+									auraButton:Hide()
+								end
+							end
+						end
+					end
+				end
 				if child and child.UpdateAllElements then
-					child:UpdateAllElements("GroupRosterUpdate")
+					-- Use GROUP_ROSTER_UPDATE event (standard event name) instead of custom token
+					-- This allows the anti-flicker wrapper to recognize it as a known event
+					child:UpdateAllElements(event)
 				end
 			end
 		end
 	end)
-	
+
 	-- Initial registration of party frames for hover casting
 	C_Timer.After(0.1, function()
 		if owner.ClickCastingSystem and owner.ClickCastingSystem.RegisterFrame then
 			for i = 1, party:GetNumChildren() do
 				local child = select(i, party:GetChildren())
-				local childUnit = child and (child.unit or (child.GetAttribute and child:GetAttribute("unit")))
+				local childUnit = child and ((child.GetAttribute and child:GetAttribute("unit")) or child.unit)
 				if child and childUnit and not child.__sufClickCastingRegistered then
 					owner.ClickCastingSystem:RegisterFrame(child, childUnit)
 				end

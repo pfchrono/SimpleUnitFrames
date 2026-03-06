@@ -16,7 +16,11 @@
 --- for a given frame, calculated as: 768 / (physicalScreenHeight * effectiveScale)
 
 local ADDON_NAME, ns = ...
-local addon = LibStub("AceAddon-3.0"):GetAddon("SimpleUnitFrames")
+local addon = LibStub("AceAddon-3.0"):GetAddon("SimpleUnitFrames", true)
+
+if not addon then
+	return
+end
 
 -- PERF LOCALS
 local floor = math.floor

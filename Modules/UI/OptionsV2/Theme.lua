@@ -10,6 +10,15 @@ local DEFAULT_OPTIONS_V2 = {
 	theme = {
 		preset = "classic",
 	},
+	navState = {
+		expandedGroups = {
+			["General"] = true,
+			["Units"] = true,
+			["Advanced"] = false,
+		},
+		expandedPages = {},  -- Track which unit pages have expanded subtabs
+		activeUnitSubtab = {},
+	},
 }
 
 local THEME_PRESETS = {
@@ -60,6 +69,17 @@ local THEME_PRESETS = {
 	},
 }
 
+local function CopyTableDeepLocal(source)
+	if type(source) ~= "table" then
+		return source
+	end
+	local out = {}
+	for key, value in pairs(source) do
+		out[key] = CopyTableDeepLocal(value)
+	end
+	return out
+end
+
 function addon:EnsureOptionsV2Config()
 	self.db = self.db or {}
 	self.db.profile = self.db.profile or {}
@@ -77,6 +97,15 @@ function addon:EnsureOptionsV2Config()
 		cfg.theme.preset = DEFAULT_OPTIONS_V2.theme.preset
 	end
 	cfg.navState = cfg.navState or {}
+	if type(cfg.navState.expandedGroups) ~= "table" then
+		cfg.navState.expandedGroups = CopyTableDeepLocal(DEFAULT_OPTIONS_V2.navState.expandedGroups)
+	end
+	if type(cfg.navState.expandedPages) ~= "table" then
+		cfg.navState.expandedPages = {}
+	end
+	if type(cfg.navState.activeUnitSubtab) ~= "table" then
+		cfg.navState.activeUnitSubtab = {}
+	end
 	cfg.sectionState = cfg.sectionState or {}
 	return cfg
 end

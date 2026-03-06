@@ -4,6 +4,7 @@ if not addon then
 	return
 end
 
+local OptionsV2 = addon.OptionsV2 or {}
 local core = addon._core or {}
 local BANNER_PATH = "Interface\\AddOns\\SimpleUnitFrames\\Media\\SUFBanner"
 local ICON_PATH = core.ICON_PATH or "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -211,13 +212,9 @@ function addon:CreateOptionsV2Window()
 	searchStatus:SetText("")
 	searchStatus:SetTextColor(style.textMuted[1], style.textMuted[2], style.textMuted[3])
 
-	local navHost = CreateFrame("Frame", nil, frame, "BackdropTemplate")
+	local navHost = OptionsV2:CreateSidebar(frame)
 	navHost:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -8)
 	navHost:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, 10)
-	navHost:SetWidth(280)
-	if self.ApplySUFBackdropColors then
-		self:ApplySUFBackdropColors(navHost, style.panelBg, style.panelBorder, true)
-	end
 
 	local contentHost = CreateFrame("Frame", nil, frame, "BackdropTemplate")
 	contentHost:SetPoint("TOPLEFT", navHost, "TOPRIGHT", 8, 0)
@@ -225,14 +222,6 @@ function addon:CreateOptionsV2Window()
 	if self.ApplySUFBackdropColors then
 		self:ApplySUFBackdropColors(contentHost, style.panelBg, style.panelBorder, true)
 	end
-
-	local navScroll = CreateFrame("ScrollFrame", nil, navHost, "UIPanelScrollFrameTemplate")
-	navScroll:SetPoint("TOPLEFT", navHost, "TOPLEFT", 8, -8)
-	navScroll:SetPoint("BOTTOMRIGHT", navHost, "BOTTOMRIGHT", -28, 8)
-	navScroll:EnableMouseWheel(true)
-	local navContent = CreateFrame("Frame", nil, navScroll)
-	navContent:SetSize(1, 1)
-	navScroll:SetScrollChild(navContent)
 
 	local pageScroll = CreateFrame("ScrollFrame", nil, contentHost, "UIPanelScrollFrameTemplate")
 	pageScroll:SetPoint("TOPLEFT", contentHost, "TOPLEFT", 8, -8)
@@ -294,8 +283,11 @@ function addon:CreateOptionsV2Window()
 		if searchBox.SetTextColor then
 			searchBox:SetTextColor(style.accent[1], style.accent[2], style.accent[3], 1)
 		end
-		ApplyScrollBarStyle(navScroll)
 		ApplyScrollBarStyle(pageScroll)
+		-- Apply sidebar style via Sidebar component's internal scroll bar
+		if navHost and navHost.scroll then
+			ApplyScrollBarStyle(navHost.scroll)
+		end
 	end
 
 	local function HookMouseWheel(scroll)
@@ -309,23 +301,17 @@ function addon:CreateOptionsV2Window()
 			end
 		end)
 	end
-	HookMouseWheel(navScroll)
 	HookMouseWheel(pageScroll)
+	-- Hook sidebar scroll via component reference
+	if navHost and navHost.scroll then
+		HookMouseWheel(navHost.scroll)
+	end
 	ApplyTemplateChrome()
 
 	local pages = self:GetOptionsV2Pages()
 	local groups = self:GetOptionsV2Groups()
 	local pageByKey = BuildPageIndex(pages)
-	local navButtons = {}
 	local cfgState = addon:EnsureOptionsV2Config()
-	cfgState.navState = cfgState.navState or {}
-	if cfgState.navStateInitialized ~= true then
-		for i = 1, #groups do
-			local g = groups[i]
-			cfgState.navState[g] = (g == "General")
-		end
-		cfgState.navStateInitialized = true
-	end
 
 	local function StopAutoRefresh()
 		if frame._sufV2AutoRefreshTicker and frame._sufV2AutoRefreshTicker.Cancel then
@@ -361,24 +347,75 @@ function addon:CreateOptionsV2Window()
 		end
 		if self.ApplySUFBackdropColors then
 			if selected then
-				self:ApplySUFBackdropColors(button, style.navSelected, style.navSelectedBorder, false)
-				if button._text then
-					button._text:SetTextColor(style.accent[1], style.accent[2], style.accent[3])
+				self:ApplySUFBackdropColors(button, style.navSelected, style.navSelectedBorder, true)
+				local textFrame = button._text or button.text
+				if textFrame then
+					textFrame:SetTextColor(style.accent[1], style.accent[2], style.accent[3])
 				end
 			else
-				self:ApplySUFBackdropColors(button, style.navDefault, style.navDefaultBorder, false)
-				if button._text then
-					button._text:SetTextColor(style.textMuted[1], style.textMuted[2], style.textMuted[3])
+				self:ApplySUFBackdropColors(button, style.navDefault, style.navDefaultBorder, true)
+				local textFrame = button._text or button.text
+				if textFrame then
+					textFrame:SetTextColor(style.textMuted[1], style.textMuted[2], style.textMuted[3])
 				end
 			end
 		end
 	end
 
 	local function RefreshSelection()
-		for i = 1, #navButtons do
-			local button = navButtons[i]
-			if button and button._pageKey then
-				SetButtonState(button, frame.currentPage == button._pageKey)
+		-- Find which page button corresponds to the current page and highlight it
+		-- Also highlight the active unit subtab if applicable
+		local activeUnitSubtab = (cfgState.navState and cfgState.navState.activeUnitSubtab) or {}
+
+		if navHost and navHost.tabButtons then
+			navHost._currentTabButton = nil
+			for buttonIdx = 1, #navHost.tabButtons do
+				local button = navHost.tabButtons[buttonIdx]
+				if button then
+					local isActive = false
+					local isSubtab = button._isSubtab
+					
+					if button._pageKey then
+						-- This is a page button or subtab
+						if isSubtab then
+							-- Subtab: active if parent page matches current page AND section matches active section for that page
+							if button._pageKey == frame.currentPage then
+								local activeSectionForPage = activeUnitSubtab[button._pageKey] or "general"
+								if button._sectionKey == activeSectionForPage then
+									isActive = true
+								end
+							end
+						else
+							-- Page button: active if it matches current page
+							if button._pageKey == frame.currentPage then
+								isActive = true
+							end
+						end
+					end
+
+					button._isSelected = isActive and true or false
+					if isActive and not navHost._currentTabButton then
+						navHost._currentTabButton = button
+					end
+					
+					if isActive then
+						if self.ApplySUFBackdropColors then
+							self:ApplySUFBackdropColors(button, style.navSelected, style.navSelectedBorder, true)
+							local textFrame = button._text or button.text
+							if textFrame then
+								textFrame:SetTextColor(style.accent[1], style.accent[2], style.accent[3])
+							end
+						end
+					else
+						if self.ApplySUFBackdropColors then
+							self:ApplySUFBackdropColors(button, style.navDefault, style.navDefaultBorder, true)
+							local textFrame = button._text or button.text
+							if textFrame then
+								textFrame:SetTextColor(style.textMuted[1], style.textMuted[2], style.textMuted[3])
+							end
+						end
+					end
+				end
 			end
 		end
 	end
@@ -547,95 +584,194 @@ function addon:CreateOptionsV2Window()
 		RefreshSelection()
 	end
 
+	local sidebarTabs = {}
+
 	local function RebuildNav()
-		for i = 1, #navButtons do
-			local btn = navButtons[i]
-			btn:Hide()
-			btn:SetParent(nil)
+		-- Clear existing sidebar tabs and registry
+		for i = 1, #sidebarTabs do
+			local tab = sidebarTabs[i]
+			if tab then
+				if tab.Hide then
+					tab:Hide()
+				end
+				if tab.SetParent then
+					tab:SetParent(nil)
+				end
+			end
 		end
-		wipe(navButtons)
-
-		local y = -4
-		local width = math.max(180, math.floor(navScroll:GetWidth() - 10))
-		navContent:SetWidth(width)
-		for g = 1, #groups do
-			local group = groups[g]
-			local expanded = cfgState.navState[group]
-			if expanded == nil then
-				expanded = (group == "General")
-				cfgState.navState[group] = expanded
-			end
-
-			local groupBtn = CreateFrame("Button", nil, navContent, "BackdropTemplate")
-			groupBtn:SetPoint("TOPLEFT", navContent, "TOPLEFT", 0, y)
-			groupBtn:SetSize(width, 22)
-			groupBtn:SetBackdrop({
-				bgFile = "Interface\\Buttons\\WHITE8x8",
-				edgeFile = "Interface\\Buttons\\WHITE8x8",
-				edgeSize = 1,
-			})
-			if self.ApplySUFBackdropColors then
-				self:ApplySUFBackdropColors(groupBtn, style.navDefault, style.navDefaultBorder, false)
-			end
-			local gfs = groupBtn:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-			gfs:SetPoint("LEFT", groupBtn, "LEFT", 6, 0)
-			gfs:SetText((expanded and "[-] " or "[+] ") .. tostring(group))
-			gfs:SetTextColor(style.accent[1], style.accent[2], style.accent[3])
-			groupBtn:SetScript("OnClick", function()
-				cfgState.navState[group] = not (cfgState.navState[group] == true)
-				RebuildNav()
-			end)
-			navButtons[#navButtons + 1] = groupBtn
-			y = y - 24
-
-			if expanded then
-				for i = 1, #pages do
-					local page = pages[i]
-					if page.group == group then
-						local btn = CreateFrame("Button", nil, navContent, "BackdropTemplate")
-						btn:SetPoint("TOPLEFT", navContent, "TOPLEFT", 8, y)
-						btn:SetSize(width - 8, 22)
-						btn:SetBackdrop({
-							bgFile = "Interface\\Buttons\\WHITE8x8",
-							edgeFile = "Interface\\Buttons\\WHITE8x8",
-							edgeSize = 1,
-						})
-						if self.ApplySUFBackdropColors then
-							self:ApplySUFBackdropColors(btn, style.navDefault, style.navDefaultBorder, false)
-						end
-
-						local fs = btn:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-						fs:SetPoint("LEFT", btn, "LEFT", 8, 0)
-						fs:SetText(page.label)
-						btn._text = fs
-						btn._pageKey = page.key
-						btn:SetScript("OnClick", function()
-							frame:SetPage(page.key)
-						end)
-						btn:SetScript("OnEnter", function(selfButton)
-							if frame.currentPage ~= selfButton._pageKey and addon.ApplySUFBackdropColors then
-								addon:ApplySUFBackdropColors(selfButton, style.navHover, style.navHoverBorder, false)
-							end
-						end)
-						btn:SetScript("OnLeave", function(selfButton)
-							SetButtonState(selfButton, frame.currentPage == selfButton._pageKey)
-						end)
-
-						navButtons[#navButtons + 1] = btn
-						y = y - 24
+		wipe(sidebarTabs)
+		
+		-- Also clear the sidebar component's button registry
+		if navHost and navHost.tabButtons then
+			for i = 1, #navHost.tabButtons do
+				local button = navHost.tabButtons[i]
+				if button then
+					if button.Hide then
+						button:Hide()
+					end
+					if button.SetParent then
+						button:SetParent(nil)
 					end
 				end
 			end
-			y = y - 6
+			wipe(navHost.tabButtons)
 		end
-		navContent:SetHeight(math.max(1, -y + 8))
+
+		local sectionNav = addon:GetOptionsUnitSectionNav()
+		local groupOrder = addon:GetOptionsV2Groups() or { "General", "Units", "Advanced" }
+		local navState = cfgState.navState or {}
+		local expandedGroups = navState.expandedGroups or {}
+		local activeUnitSubtab = navState.activeUnitSubtab or {}
+		local expandedPages = navState.expandedPages or {}  -- Track which pages have subtabs expanded
+
+		-- Group pages by their group field
+		local pagesByGroup = {}
+		for groupIdx = 1, #groupOrder do
+			local groupName = groupOrder[groupIdx]
+			pagesByGroup[groupName] = {}
+		end
+		
+		for pageIdx = 1, #pages do
+			local page = pages[pageIdx]
+			if page.group and pagesByGroup[page.group] then
+				pagesByGroup[page.group][#pagesByGroup[page.group] + 1] = page
+			end
+		end
+
+		local tabIndex = 0
+
+		-- Build grouped navigation
+		for groupIdx = 1, #groupOrder do
+			local groupName = groupOrder[groupIdx]
+			local groupPages = pagesByGroup[groupName] or {}
+			if #groupPages > 0 then
+				tabIndex = tabIndex + 1
+				-- Default to collapsed unless explicitly expanded
+				local isExpanded = expandedGroups[groupName] == true
+
+				-- Create group header with expand/collapse indicator
+				local groupCapturedName = groupName
+				local onClickGroupHeader = function()
+				expandedGroups[groupCapturedName] = not expandedGroups[groupCapturedName]
+				cfgState.navState = cfgState.navState or {}
+				cfgState.navState.expandedGroups = expandedGroups
+				RebuildNav()
+			end
+			
+			local groupHeaderButton = OptionsV2:AddSidebarTab(navHost, tabIndex, groupName, onClickGroupHeader)
+				if groupHeaderButton then
+					groupHeaderButton._isGroupHeader = true
+					groupHeaderButton._groupName = groupName
+					groupHeaderButton._isExpanded = isExpanded
+					local textFrame = groupHeaderButton._text or groupHeaderButton.text
+					if textFrame then
+						textFrame:SetTextColor(style.accent[1], style.accent[2], style.accent[3])
+					end
+					if groupHeaderButton.caret then
+						groupHeaderButton.caret:SetText(isExpanded and "v" or ">")
+					end
+					sidebarTabs[tabIndex] = groupHeaderButton
+				end
+
+				-- Add page buttons under this group (only if expanded)
+				if isExpanded then
+					for pageIdx = 1, #groupPages do
+						local page = groupPages[pageIdx]
+						local pageKey = page.key
+						
+						tabIndex = tabIndex + 1
+						local capturedPageKey = pageKey
+						local capturedGroupName = groupName
+						
+						-- Check if this page has subtabs (only Units pages besides party/raid/boss have subtabs)
+						local hasSubtabs = (capturedGroupName == "Units" and pageKey ~= "party" and pageKey ~= "raid" and pageKey ~= "boss")
+						local pageIsExpanded = expandedPages[pageKey] or false
+						
+						local onSelectPage = function()
+							-- Navigate to the page
+							frame:SetPage(capturedPageKey)
+						end
+						
+						-- Caret click handler for pages with subtabs
+						local onCaretClick = nil
+						if hasSubtabs then
+							onCaretClick = function()
+								expandedPages[capturedPageKey] = not expandedPages[capturedPageKey]
+								cfgState.navState = cfgState.navState or {}
+								cfgState.navState.expandedPages = expandedPages
+								RebuildNav()
+							end
+						end
+						
+						local pageButton = OptionsV2:AddSidebarTab(navHost, tabIndex, "  " .. page.label, onSelectPage, onCaretClick)
+						if pageButton then
+							pageButton._pageKey = pageKey
+							pageButton._isPageButton = true
+							pageButton._parentGroup = groupName
+							pageButton._hasSubtabs = hasSubtabs
+							pageButton._isExpanded = pageIsExpanded
+							if hasSubtabs and pageIsExpanded then
+								for sectionIdx = 1, #sectionNav do
+									local section = sectionNav[sectionIdx]
+									local sectionKey = section.key
+									local isActive = activeUnitSubtab[pageKey] == sectionKey or (sectionIdx == 1 and not activeUnitSubtab[pageKey])
+
+									tabIndex = tabIndex + 1
+									local capturedPageKey_Sub = pageKey
+									local capturedSectionKey = sectionKey
+									local onSelectSection = function()
+										activeUnitSubtab[capturedPageKey_Sub] = capturedSectionKey
+										cfgState.navState = cfgState.navState or {}
+										cfgState.navState.activeUnitSubtab = activeUnitSubtab
+										-- Call spec setter for active section first
+										local spec = addon:GetOptionsV2PageSpec(capturedPageKey_Sub)
+										if spec and type(spec.setActiveSection) == "function" then
+											pcall(spec.setActiveSection, capturedSectionKey)
+										end
+										-- Notify page to set active section
+										if frame._activeUnitSection then
+											frame._activeUnitSection[capturedPageKey_Sub] = capturedSectionKey
+										end
+										-- Now set page with section already selected
+										frame:SetPage(capturedPageKey_Sub)
+									end
+									
+									local subtabButton = OptionsV2:AddSidebarTab(navHost, tabIndex, "    " .. section.label, onSelectSection)
+									if subtabButton then
+										subtabButton._isSubtab = true
+										subtabButton._sectionKey = sectionKey
+										subtabButton._pageKey = capturedPageKey_Sub
+										subtabButton._parentPage = pageKey
+										if isActive then
+											if addon.ApplySUFBackdropColors then
+												addon:ApplySUFBackdropColors(subtabButton, style.navSelected, style.navSelectedBorder, true)
+											end
+											local textFrame = subtabButton._text or subtabButton.text
+											if textFrame then
+												textFrame:SetTextColor(style.accent[1], style.accent[2], style.accent[3])
+											end
+										end
+										sidebarTabs[tabIndex] = subtabButton
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+		end
+
+		OptionsV2:UpdateSidebarLayout(navHost)
 		RefreshSelection()
 	end
 	frame.RebuildNav = RebuildNav
 
 	frame:SetScript("OnSizeChanged", function()
 		RebuildNav()
-		local width = math.max(780, math.floor(pageScroll:GetWidth() - 8))
+		-- Calculate content width based on available space (sidebar is 200px + 8px margin = 208px)
+		local sidebarWidth = 208
+		local availableWidth = frame:GetWidth() - sidebarWidth - 28 - 10 -- Subtract scrollbar and margins
+		local width = math.max(780, math.floor(availableWidth))
 		pageContent:SetWidth(width)
 		if frame.currentPage then
 			frame:SetPage(frame.currentPage)

@@ -35,9 +35,12 @@ local Private = oUF.Private
 local unitExists = Private.unitExists
 
 local function Update(self, event, unit)
-	if(unit ~= self.unit) then return end
-
 	local element = self.ThreatIndicator
+	local frameUnit = self.unit
+	local feedbackUnit = element.feedbackUnit or frameUnit
+
+	if(unit and unit ~= frameUnit and unit ~= feedbackUnit) then return end
+
 	--[[ Callback: ThreatIndicator:PreUpdate(unit)
 	Called before the element has been updated.
 
@@ -45,20 +48,22 @@ local function Update(self, event, unit)
 	* unit - the unit for which the update has been triggered (string)
 	--]]
 	if(element.PreUpdate) then element:PreUpdate(unit) end
+	unit = unit or feedbackUnit
 
-	local feedbackUnit = element.feedbackUnit
-	unit = unit or self.unit
-
-	-- Don't show threat indicator for player units
-	local isPlayer = UnitIsPlayer(unit)
-	
 	local status
-	-- BUG: Non-existent '*target' or '*pet' units cause UnitThreatSituation() errors
-	if(not isPlayer and unitExists(unit)) then
-		if(feedbackUnit and feedbackUnit ~= unit and unitExists(feedbackUnit)) then
-			status = UnitThreatSituation(feedbackUnit, unit)
+	-- Non-existent '*target' or '*pet' units can cause UnitThreatSituation() errors.
+	if(unitExists(frameUnit)) then
+		-- If using feedback unit (e.g., "target" for party frames), verify it exists before querying
+		local feedbackUnitExists = not feedbackUnit or feedbackUnit == frameUnit or unitExists(feedbackUnit)
+		
+		if(feedbackUnit and feedbackUnit ~= frameUnit and feedbackUnitExists) then
+			status = UnitThreatSituation(feedbackUnit, frameUnit)
+		elseif feedbackUnit and feedbackUnit ~= frameUnit and not feedbackUnitExists then
+			-- Feedback unit (e.g., target) doesn't exist - threat is irrelevant
+			-- Force threat to 0 by not setting status at all
+			status = nil
 		else
-			status = UnitThreatSituation(unit)
+			status = UnitThreatSituation(frameUnit)
 		end
 	end
 
@@ -66,8 +71,8 @@ local function Update(self, event, unit)
 	local addon = _G.SimpleUnitFrames
 	if addon and addon.DebugLog then
 		addon:DebugLog("ThreatIndicator", 
-			string.format("Threat update: frame=%s, unit=%s, isPlayer=%s, feedbackUnit=%s, status=%s", 
-				self:GetName() or "unnamed", unit, tostring(isPlayer), tostring(feedbackUnit), tostring(status)), 3)
+			string.format("Threat update: frame=%s, unit=%s, frameUnit=%s, feedbackUnit=%s, status=%s", 
+				self:GetName() or "unnamed", tostring(unit), tostring(frameUnit), tostring(feedbackUnit), tostring(status)), 3)
 	end
 
 	local color
@@ -80,13 +85,21 @@ local function Update(self, event, unit)
 
 		element:Show()
 		
-		-- Apply visual threat glow effect using ObjectPool
+		-- Apply visual threat glow effect using ObjectPool only for full threat.
 		-- Note: Pass self (the parent frame), not element (the texture)
-		if addon and addon.IndicatorPoolManager then
+		-- Check global glow visibility setting before applying
+		local glowEnabled = addon and addon.db and addon.db.profile and addon.db.profile.visibility and addon.db.profile.visibility.enableThreatIndicatorGlow ~= false
+		if addon and addon.IndicatorPoolManager and status == 3 and glowEnabled then
 			addon.IndicatorPoolManager:ApplyThreatGlow(self, status)
 			if addon.DebugLog then
 				addon:DebugLog("ThreatIndicator", string.format("Applied threat glow for %s (unit=%s, status=%d, frame=%s)", 
 					self:GetName() or "unnamed", unit, status, tostring(self)), 3)
+			end
+		elseif addon and addon.IndicatorPoolManager then
+			addon.IndicatorPoolManager:Release(self, "threat_glow")
+			if addon.DebugLog then
+				addon:DebugLog("ThreatIndicator", string.format("Released threat glow (status=%s) for %s (unit=%s)", 
+					tostring(status), self:GetName() or "unnamed", unit), 3)
 			end
 		end
 	else
@@ -136,8 +149,28 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_SITUATION_UPDATE', self.unit, Path)
-		Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_LIST_UPDATE', self.unit, Path)
+		local feedbackUnit = element.feedbackUnit
+		if(feedbackUnit and feedbackUnit ~= self.unit and self.RegisterUnitEvent and self.unit) then
+			-- For party/raid frames with feedbackUnit (target), register for events from both units
+			-- Must set event handler on frame before registering events
+			self['UNIT_THREAT_SITUATION_UPDATE'] = Path
+			self['UNIT_THREAT_LIST_UPDATE'] = Path
+			self:RegisterUnitEvent('UNIT_THREAT_SITUATION_UPDATE', self.unit, feedbackUnit)
+			self:RegisterUnitEvent('UNIT_THREAT_LIST_UPDATE', self.unit, feedbackUnit)
+		else
+			-- Standard single-unit registration
+			Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_SITUATION_UPDATE', self.unit, Path)
+			Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_LIST_UPDATE', self.unit, Path)
+		end
+
+		-- Keep threat visuals synchronized across combat state changes.
+		self:RegisterEvent('PLAYER_REGEN_ENABLED', Path, true)
+		self:RegisterEvent('PLAYER_REGEN_DISABLED', Path, true)
+
+		-- Party/raid threat indicators using target feedback need refresh on retarget.
+		if feedbackUnit == 'target' then
+			self:RegisterEvent('PLAYER_TARGET_CHANGED', Path, true)
+		end
 
 		if(element:IsObjectType('Texture') and not element:GetTexture()) then
 			element:SetTexture([[Interface\RAIDFRAME\UI-RaidFrame-Threat]])
@@ -154,6 +187,9 @@ local function Disable(self)
 
 		self:UnregisterEvent('UNIT_THREAT_SITUATION_UPDATE', Path)
 		self:UnregisterEvent('UNIT_THREAT_LIST_UPDATE', Path)
+		self:UnregisterEvent('PLAYER_REGEN_ENABLED', Path)
+		self:UnregisterEvent('PLAYER_REGEN_DISABLED', Path)
+		self:UnregisterEvent('PLAYER_TARGET_CHANGED', Path)
 	end
 end
 

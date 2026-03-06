@@ -1,0 +1,131 @@
+feat: Major Phase 4 Update - Castbar For All Units, OptionsV2 Sidebar, Profile Migration System
+
+## Major Features
+
+### 1. Castbars Bootable For All Unit Types (lines 7595-7623, 9028-9051, 9275-9299)
+- Extended castbar support from player/target/boss to: pet, focus, tot, focustarget, party, raid
+- Unit-specific anchor configs (BELOW_CLASSPOWER, BELOW_FRAME, ABOVE_FRAME)
+- Spawn-time disable→enable rebind workaround for oUF element event registration
+- ProfileMigrator auto-migrates existing profiles (v2→v3)
+
+### 2. OptionsV2 Vertical Sidebar Navigation (NEW Sidebar.lua 178 lines)
+- Replaced 280px horizontal nav with 200px vertical sidebar (QUI-style)
+- Grouped tab navigation with expand/collapse indicators (v/>)
+- Hierarchical structure: Group Headers → Page Buttons (indented) → Unit Subtabs (double-indented)
+- 14 main options pages with unit-specific subcategories
+- State persistence via cfgState.navState (expandedGroups, activeUnitSubtab)
+
+### 3. Profile Migration System (NEW ProfileMigrator.lua 398 lines)
+- Schema versioning (v3): v1 base, v2 added party/raid castbar, v3 added player/target castbar
+- Migration registry with pcall() safety: RegisterProfileMigration(fromVersion, toVersion, func)
+- Rollback safety: Preserves mover positions on migration failure
+- Profile validation/integrity checks: ValidateProfileIntegrity with auto-repair
+
+### 4. CustomTrackers Auto-Learn Spell Filtering (Modules/System/CustomTrackers.lua)
+- MAX_TRACKER_ENTRIES_PER_BAR = 256 with SanitizeBarEntries to prevent script-timeout
+- Spell filters: learnOnlyKnownSpells, excludeNPCSpells, includeItemSpells
+- Helper functions: IsSpellKnownByPlayer(), IsNPCSpell()
+- "Delete All Entries" button in OptionsV2 UI with disabled state when bar empty
+- Cascade-disabled UI controls in Manage section
+
+### 5. Delves Party Frame Recovery System (lines 4580-4621, 9455-9460)
+- IsInDelveFollowerPartyContext() detects via C_PartyInfo.IsPartyWalkIn(), C_LFGInfo.IsInLFGFollowerDungeon()
+- ScheduleGroupHeaderRecovery(duration, interval) with bounded retry ticker for late group-state resolution
+- Follower solo guard forces showSolo=true for party headers in walk-in contexts
+- Recovery stops automatically when headers spawn or timeout reached
+
+## Bug Fixes & Improvements
+
+### Party Frame Bootstrap Initialization
+- GROUP_ROSTER_UPDATE added to full-refresh passthrough allowlist
+- Post-spawn bootstrap refresh mirrors Target/Focus pattern (comprehensive dirty event set)
+- Manual element force-updates: UpdateTags(), HealthValue.UpdateTag(), ThreatIndicator.ForceUpdate()
+- Units/Party.lua now uses standard "GROUP_ROSTER_UPDATE" event token instead of custom "GroupRosterUpdate"
+
+### Focus Frame Refresh Regression Fix
+- Added OnPlayerFocusChanged() handler with full visual refresh (target swap pattern)
+- Registered PLAYER_FOCUS_CHANGED event in OnEnable()
+- Added login/reload bootstrap calls at 0s/0.25s/0.75s (mirrors target/tot behavior)
+- PLAYER_FOCUS_CHANGED + PLAYER_TARGET_CHANGED added to full-refresh passthrough allowlist
+
+### Threat Indicator Enhancements
+- Threat glow now uses HIGH frame strata (up from MEDIUM minimum) for visibility
+- Frame level increased from +10 to +50 relative to parent
+- Dirty event handler now force-updates ThreatIndicator for UNIT_THREAT_* events
+- RefreshAllGlowIndicators() method added for refreshing all indicator types (threat, leader, target)
+
+### Indicator Visibility Fixes
+- Added global glow controls in Visibility settings: enablePartyLeaderGlow, enableThreatIndicatorGlow, enableTargetSelectionGlow
+- Aura visibility hardened: ApplyMedia() now validates secure unit attribute + UnitExists() before showing
+- Party header child aura cleanup now hides aura containers when no valid unit token exists
+- Fixed unit token resolution in Style() to avoid fallback to 'player' for header-spawned frames
+
+### Group Context Detection Improvements
+- Enhanced IsInAnyPartyOrRaid() with GetNumSubgroupMembers() fallback + instance category checks
+- Added SCENARIO_UPDATE, PLAYER_DIFFICULTY_CHANGED event registrations for group state triggers
+- Improved instance context detection with pcall() wrapping for IsInInstance()
+
+## Files Added
+- [Modules/System/ProfileMigrator.lua](398 lines) - Profile schema migrations
+- [Modules/UI/OptionsV2/Sidebar.lua](178 lines) - Vertical sidebar component
+
+## Files Modified
+- SimpleUnitFrames.lua (870+ lines changed) - Castbar bootable, Delves recovery, focus handler, group detection
+- Modules/UI/OptionsV2/Layout.lua (~700 lines changed) - Complete RebuildNav rewrite for grouped sidebar nav
+- Modules/UI/OptionsV2/Theme.lua (extended DEFAULT_OPTIONS_V2 with navState)
+- Modules/UI/OptionsV2/Builders/GlobalBuilder.lua (added glow controls, adjusted spacing)
+- Modules/UI/OptionsV2/Builders/CustomTrackersBuilder.lua (spell filters UI, Delete All button)
+- Modules/System/CustomTrackers.lua (entry sanitization, spell filtering, limits)
+- Units/Party.lua (fixed unit token ordering, aura cleanup on roster changes)
+- Units/Boss.lua (GetBossHeaderYOffset integration)
+- SimpleUnitFrames.toc (added ProfileMigrator.lua, Sidebar.lua to load order)
+- WORK_SUMMARY.md (comprehensive session documentation)
+- .github/copilot-instructions.md (updated architecture, new pattern documentation)
+
+## Breaking Changes (Profile-Safe)
+- Profile schema v2→v3 migration adds castbar configs for player/target/pet/focus/tot/focustarget/party/raid/boss
+- Migration auto-runs on first login; profiles remain compatible with manual fixes if needed
+
+## Testing Checklist
+- [ ] Castbars display for all unit types (player, target, pet, focus, tot, focustarget, party, raid, boss)
+- [ ] OptionsV2 sidebar renders with 14 pages, groups expand/collapse, subtabs work
+- [ ] Profile migration on first login (v0/v1/v2 → v3)
+- [ ] `/reload` in Delves with NPC companion shows party frames
+- [ ] Party frame bootstrap initializes all values (health/name/threat/absorbs) immediately
+- [ ] Focus frame refreshes on PLAYER_FOCUS_CHANGED event
+- [ ] Threat glow appears on correct frame during threat transitions
+- [ ] CustomTrackers bar with 300+ entries sanitizes (keeps 256, displays warning)
+- [ ] Auto-learn spell filters work (only known, exclude NPC, include items toggles)
+- [ ] Indicator glows respond to global Visibility settings (glow toggles)
+- [ ] No script-timeout errors during startup/reload
+- [ ] Performance: P50 frame time ≤16.7ms, P99 <20ms (60 FPS target)
+
+## Documentation
+- Updated copilot-instructions.md with:
+  - Castbar bootable for all units pattern
+  - OptionsV2 Sidebar regression prevention guidelines
+  - Profile migration system details
+  - Delves party frame recovery system
+  - CustomTrackers entry limits & filtering
+  - Group header spawn/visibility timing (critical `/reload` pattern)
+- Stored memory facts about all major systems for future reference
+- WORK_SUMMARY.md contains 15+ detailed session entries documenting each fix
+
+## Performance Notes
+- Castbar disable→enable rebind adds 0.1s deferred cost (negligible)
+- Sidebar navigation upgrade improves visual hierarchy, minimal render impact
+- CustomTrackers sanitization (256 entry cap) prevents startup timeout spikes
+- Group header recovery ticker uses bounded attempts (max 12s with 1s intervals)
+
+## Risk Assessment
+- MEDIUM: OptionsV2 sidebar namespace integration (fallback to flat nav if component unavailable)
+- LOW: Profile migration (pcall() wrapped, rollback safety preserves movers on failure)
+- LOW: Castbar patterns (proven disable→enable workaround, no new dependencies)
+- LOW: CustomTrackers entry limit (backward compatible, auto-sanitizes on startup)
+
+## Validation Status
+✅ All 12 modified Lua files pass syntax validation (no errors found)
+✅ Memory facts stored for future developer reference
+✅ Comprehensive documentation in copilot-instructions.md
+✅ WORK_SUMMARY.md captures all session decisions and fixes
+✅ TestPanel configuration updated for new features

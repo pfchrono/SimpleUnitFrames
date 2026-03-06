@@ -201,6 +201,7 @@ end
 
 local function CastStart(self, event, unit)
 	local element = self.Castbar
+	
 	if(not (element.ShouldShow or ShouldShow) (element, unit)) then
 		return
 	end
@@ -585,12 +586,9 @@ local eventMethods = {
 
 local function Enable(self, unit)
 	local element = self.Castbar
-	local addon = _G.SimpleUnitFrames
-	if addon and addon.DebugLog then
-		addon:DebugLog("castbar.Enable", "Called: unit=" .. tostring(unit) .. " hasElement=" .. tostring(element ~= nil) .. " matches=%wtarget$=" .. tostring(unit and unit:match('%wtarget$') or false), 2)
-	end
 	
-	if(element and unit and not unit:match('%wtarget$')) then
+	-- Enable castbar for all units (modern WoW supports casting info for *target units)
+	if(element and unit) then
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
