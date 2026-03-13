@@ -1451,6 +1451,7 @@ function addon:RefreshDataTextButtonTooltip(button)
 	local sourceName = button.sourceName or button.slot or "DataText"
 
 	GameTooltip:SetOwner(button, "ANCHOR_BOTTOMRIGHT")
+	GameTooltip:ClearLines()
 
 	if sourceType == "ldb" then
 		if sourceObj and type(sourceObj.OnTooltipShow) == "function" then
@@ -1483,8 +1484,12 @@ local function CreateDataTextButton(panel, slot)
 	button:SetSize(120, 18)
 	button:RegisterForClicks("AnyUp")
 	button.text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
+	button.text:SetPoint("LEFT", button, "LEFT", 2, 0)
+	button.text:SetPoint("RIGHT", button, "RIGHT", -2, 0)
 	button.text:SetJustifyH("CENTER")
+	if button.text.SetWordWrap then
+		button.text:SetWordWrap(false)
+	end
 	button:SetScript("OnEnter", function(widget)
 		local root = widget:GetParent()
 		if root then
@@ -1658,6 +1663,9 @@ function addon:UpdateDataTextPanel()
 		if button then
 			button:ClearAllPoints()
 			button:SetSize(buttonWidth, buttonHeight)
+			if button.text and button.text.SetWidth then
+				button.text:SetWidth(math.max(8, buttonWidth - 4))
+			end
 			button:SetPoint("CENTER", panel, "CENTER", GetDataTextButtonOffset(i, #activeSlotOrder, buttonWidth, buttonGap), 0)
 			button:Show()
 		end

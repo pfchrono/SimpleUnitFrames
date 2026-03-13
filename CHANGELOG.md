@@ -1,3 +1,38 @@
+## [1.33.0] - 2026-03-12
+
+### Added
+- DataText expansion and polish release:
+  - 7-slot layout support (`outerLeft`, `farLeft`, `left`, `center`, `right`, `farRight`, `outerRight`)
+  - Per-slot LDB display modes (`AUTO`, `TEXT`, `ICON`, `ICON_TEXT`)
+  - Spec and LootSpec datatext providers with corrected specialization resolution
+  - Enhanced `Currencies` and `Reputation` providers with databar parity, friendship/renown/paragon support, and improved tooltips
+- Low-risk non-unit coalescer pilot:
+  - shared `SPELL_UPDATE_COOLDOWN` + `SPELL_UPDATE_CHARGES` bucket
+  - debounced `BAG_UPDATE` bucket
+  - `/suf coalescer` and `/suf coalescer reset` diagnostics
+
+### Changed
+- DataText panel defaults and controls:
+  - default panel height increased to `40`
+  - panel width can now scale to full screen width with runtime clamping
+  - DataText source controls moved higher in both OptionsV2 and legacy options
+- DataText LDB behavior:
+  - improved fallback text composition for icon/label/value brokers
+  - added tooltip fallback rendering, hover refresh, and click dispatch parity with common LDB displays
+
+### Fixed
+- Prevent stale or duplicated datatext tooltip content by clearing `GameTooltip` before rebuild
+- Constrain datatext label rendering within slot width to reduce bleed/overlap in dense layouts
+- Fix Spec/LootSpec provider crashes by avoiding missing `C_SpecializationInfo.GetSpecializationInfoByID` calls and resolving active spec via specialization index APIs
+
+### Validated
+- DataText Step 3, Step 5, Step 5b, and Step 5c all passed in-game validation
+- Low-risk coalescer pilot validated in dungeon gameplay:
+  - `SPELL_UPDATE_COOLDOWN+SPELL_UPDATE_CHARGES 6002 -> 2700` (~55.0% reduction)
+  - `BAG_UPDATE 38 -> 21` (~44.7% reduction)
+
+---
+
 ## [1.32.0] - 2026-03-05
 
 ### Added

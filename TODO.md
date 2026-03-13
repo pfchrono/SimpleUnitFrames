@@ -1,14 +1,14 @@
 # TODO.md - SUF Enhancement Implementation Roadmap
 
-**Last Updated:** 2026-03-10
-**Current Phase:** DataText Enhancement Track — Step 5 Implemented ✅
-**Status:** Expanded datatext 7-slot layout + LDB integration shipped; validation pending ⏳
+**Last Updated:** 2026-03-12
+**Current Phase:** Step 6 — Final Documentation + Release Validation Pass
+**Status:** Step 6 documentation/release validation complete; release commit/publish flow in progress ⏳
 
 ---
 
 ## PERFORMANCE COALESCER PILOT (2026-03-10)
 
-**Status:** ✅ IMPLEMENTED | ⏳ DUNGEON VALIDATION PENDING
+**Status:** ✅ VALIDATED (2026-03-12)
 
 **Implemented in code:**
 - Added shared spell bucket in performance routing:
@@ -20,12 +20,17 @@
    - `/suf coalescer`
 
 **Validation checklist (single dungeon run):**
-- [ ] Before entering dungeon: run `/suf coalescer reset`
-- [ ] Complete one dungeon run with performance integration enabled
-- [ ] After run: run `/suf coalescer`
-- [ ] Confirm spell bucket shows reduced `raw -> dispatched`
-- [ ] Confirm bag debounce shows reduced `raw -> dispatched`
-- [ ] Confirm CustomTracker bars still update correctly for cooldown/charges/bag-driven changes
+- [x] Before entering dungeon: run `/suf coalescer reset`
+- [x] Complete one dungeon run with performance integration enabled
+- [x] After run: run `/suf coalescer`
+- [x] Confirm spell bucket shows reduced `raw -> dispatched`
+- [x] Confirm bag debounce shows reduced `raw -> dispatched`
+- [x] Confirm CustomTracker bars still update correctly for cooldown/charges/bag-driven changes
+
+**Observed result (2026-03-12):**
+- `/suf coalescer` reported: `SPELL_UPDATE_COOLDOWN+SPELL_UPDATE_CHARGES 6002 -> 2700` (~55.0% reduction)
+- `/suf coalescer` reported: `BAG_UPDATE 38 -> 21` (~44.7% reduction)
+- CustomTracker bars updated correctly for cooldown, charges, and bag-driven changes during the run.
 
 **Next if validation passes:**
 - Expand coalescer coverage to the next safest non-unit buckets only (incremental rollout).
@@ -36,7 +41,7 @@
 
 ### Step 5c: Extended Layout & GUI Ordering (7-slot / full-width / taller)
 
-**Status:** ✅ IMPLEMENTED (2026-03-10) | ⏳ VALIDATION PENDING
+**Status:** ✅ VALIDATED (2026-03-12)
 
 **Implemented in code:**
 - Added 7-slot DataText layout (`outerLeft`, `farLeft`, `left`, `center`, `right`, `farRight`, `outerRight`)
@@ -46,16 +51,19 @@
 - Moved DataText dropdown controls higher in both OptionsV2 and legacy GUI sections
 
 **Step 5c Validation Checklist:**
-- [ ] Switch to `7 Slots (Extended)` and verify all seven entries render without overlap
-- [ ] Verify `Outer Left` / `Outer Right` source dropdowns enable only in 7-slot layout
-- [ ] Verify DataText width can be adjusted to full screen width and clamps correctly
-- [ ] Verify default/new profile DataText height starts at 40px
-- [ ] Verify LDB display mode per-slot (`AUTO/TEXT/ICON/ICON_TEXT`) renders as expected
-- [ ] Verify dropdown ordering in GUI matches updated top-priority control flow
+- [x] Switch to `7 Slots (Extended)` and verify all seven entries render without overlap
+- [x] Verify `Outer Left` / `Outer Right` source dropdowns enable only in 7-slot layout
+- [x] Verify DataText width can be adjusted to full screen width and clamps correctly
+- [x] Verify default/new profile DataText height starts at 40px
+- [x] Verify LDB display mode per-slot (`AUTO/TEXT/ICON/ICON_TEXT`) renders as expected
+- [x] Verify dropdown ordering in GUI matches updated top-priority control flow
+
+**Observed result (2026-03-12):**
+- Full Step 5c validation passed in-game with no reported problems.
 
 ### Step 5b: LDB Tooltip + Click Integration (HidingBar-style)
 
-**Status:** ✅ IMPLEMENTED (2026-03-10) | ⏳ VALIDATION PENDING
+**Status:** ✅ VALIDATED (2026-03-12)
 
 **Implemented in code:**
 - Enhanced LDB text rendering in DataText buttons:
@@ -73,19 +81,22 @@
    - active tooltip refreshes while hovered on relevant key changes
 
 **Step 5b Validation Checklist:**
-- [ ] Test with an LDB launcher addon (icon/label only) and verify click opens expected panel
-- [ ] Test with an LDB data source addon (`text` updates) and verify DataText updates without waiting for ticker cycle
-- [ ] Verify tooltip fallback renders when broker has no `OnTooltipShow`
-- [ ] Verify broker-provided tooltip still works when `OnTooltipShow` exists
-- [ ] Verify broker `OnEnter`/`OnLeave` paths do not break tooltip lifecycle
-- [ ] Verify middle/right click dispatch for LDB sources registered for those buttons
+- [x] Test with an LDB launcher addon (icon/label only) and verify click opens expected panel
+- [x] Test with an LDB data source addon (`text` updates) and verify DataText updates without waiting for ticker cycle
+- [x] Verify tooltip fallback renders when broker has no `OnTooltipShow`
+- [x] Verify broker-provided tooltip still works when `OnTooltipShow` exists
+- [x] Verify broker `OnEnter`/`OnLeave` paths do not break tooltip lifecycle
+- [x] Verify middle/right click dispatch for LDB sources registered for those buttons
+
+**Observed result (2026-03-12):**
+- Full Step 5b validation passed in-game; LDB tooltip and click behavior showed and worked correctly.
 
 **Next after Step 5b validation:**
 - Fold any addon-specific click edge cases into a tiny compatibility shim (only if needed).
 
 ### Step 3: High-Value Provider Upgrades
 
-**Status:** ✅ IMPLEMENTED (2026-03-05) | ⏳ VALIDATION PENDING
+**Status:** ✅ VALIDATED (2026-03-12)
 
 **Implemented in code:**
 - Upgraded builtin `Currencies` datatext provider with cap-aware formatting and weekly progress tooltip rows.
@@ -102,18 +113,21 @@
    - `MAJOR_FACTION_UNLOCKED`
 
 **Step 3 Validation Checklist:**
-- [ ] Select `Currencies` in a DataText slot and verify cap + weekly rows in tooltip
-- [ ] Select `Reputation` in a DataText slot and verify normal standing/progress display
-- [ ] Verify friendship faction watched display (rank text + progress handling)
-- [ ] Verify major faction watched display (renown styling/progress)
-- [ ] Verify paragon watched display and pending reward indicator (`!` + tooltip line)
-- [ ] Verify reputation databar tooltip matches datatext standing/progress state
-- [ ] Verify left-click actions (`TokenFrame` for currencies, `ReputationFrame` for reputation)
-- [ ] Verify event-driven updates after rep/currency changes without requiring UI reload
+- [x] Select `Currencies` in a DataText slot and verify cap + weekly rows in tooltip
+- [x] Select `Reputation` in a DataText slot and verify normal standing/progress display
+- [x] Verify friendship faction watched display (rank text + progress handling)
+- [x] Verify major faction watched display (renown styling/progress)
+- [x] Verify paragon watched display and pending reward indicator (`!` + tooltip line)
+- [x] Verify reputation databar tooltip matches datatext standing/progress state
+- [x] Verify left-click actions (`TokenFrame` for currencies, `ReputationFrame` for reputation)
+- [x] Verify event-driven updates after rep/currency changes without requiring UI reload
+
+**Observed result (2026-03-12):**
+- Full Step 3 validation passed in-game; the upgraded provider and databar behavior showed and worked correctly.
 
 ### Step 5: Panel Layout Expansion (optional)
 
-**Status:** ✅ IMPLEMENTED (2026-03-05) | ⏳ VALIDATION PENDING
+**Status:** ✅ VALIDATED (2026-03-12)
 
 **Implemented in code:**
 - Added configurable datatext slot layout (`3` classic / `5` expanded) with profile key `datatext.panel.slotCount`.
@@ -122,15 +136,37 @@
 - Added configuration controls in both OptionsV2 and legacy OptionsWindow for layout + far slot source assignment.
 
 **Step 5 Validation Checklist:**
-- [ ] Switch to `5 Slots (Expanded)` and verify five datatext fields render with no overlap at default width
-- [ ] Verify `farLeft` and `farRight` source dropdowns become enabled only in 5-slot layout
-- [ ] Verify switching back to `3 Slots (Classic)` hides far slots and preserves left/center/right content
-- [ ] Verify drag/edit mode still works for the panel in both layouts
-- [ ] Verify tooltip/click behavior still works for all visible slots (builtin/custom/LDB)
-- [ ] Verify `System` and `LDB:*` slot assignments persist and render correctly after `/reload` and fresh login (no reselect required)
+- [x] Switch to `5 Slots (Expanded)` and verify five datatext fields render with no overlap at default width
+- [x] Verify `farLeft` and `farRight` source dropdowns become enabled only in 5-slot layout
+- [x] Verify switching back to `3 Slots (Classic)` hides far slots and preserves left/center/right content
+- [x] Verify drag/edit mode still works for the panel in both layouts
+- [x] Verify tooltip/click behavior still works for all visible slots (builtin/custom/LDB)
+- [x] Verify `System` and `LDB:*` slot assignments persist and render correctly after `/reload` and fresh login (no reselect required)
+
+**Observed result (2026-03-12):**
+- Full Step 5 validation passed in-game; the panel layout expansion and related databar/datatext behavior showed and worked correctly.
 
 **Next after Step 3 + Step 5 validation:**
 - Step 6: Final documentation + release validation pass
+
+### Step 6: Final Documentation + Release Validation Pass
+
+**Status:** 🟡 IN PROGRESS (2026-03-12)
+
+**Completed at kickoff:**
+- [x] Refresh [CHANGELOG.md](CHANGELOG.md) for `1.33.0` with validated DataText and coalescer work
+- [x] Refresh [README.md](README.md) recent updates, commands, and feature summary for the current validated feature set
+
+**Remaining Step 6 checklist:**
+- [x] Do a final release-metadata consistency pass (`SimpleUnitFrames.toc`, changelog version, README release references)
+- [x] Draft the final release summary / publish notes for the validated DataText and coalescer work
+- [x] Decide whether coalescer expansion is release-blocking or deferred to the next work cycle
+- [x] Confirm no additional documentation updates are needed before packaging/release prep
+
+**Step 6 result (2026-03-12):**
+- `SimpleUnitFrames.toc` (`1.33.0.31226`), [CHANGELOG.md](CHANGELOG.md), and [README.md](README.md) are aligned on `1.33.0` release metadata.
+- Final publish notes drafted in `RELEASE_NOTES_v1.33.0.md`.
+- Validated low-risk coalescer work is included in this release scope; broader next-bucket expansion is deferred to follow-up work.
 
 ---
 

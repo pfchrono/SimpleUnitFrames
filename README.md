@@ -6,14 +6,16 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 
 ## Recent Updates
 
-### v1.26.0 - DirtyFlagManager Integration (March 2, 2026)
-- **Intelligent Frame Batching** — DirtyFlagManager integration achieves **69.6% event coalescing efficiency** with zero dropped frames
-- **Smart Priority System** — Automatic frame update prioritization (CRITICAL/HIGH/MEDIUM/LOW) based on unit importance
-- **Performance Breakthrough** — 16.66ms average frame time (60 FPS), P99=28ms, with 1,963 events batched per session
-- **Event Expansion** — Added 14 new events to batching pipeline (13 UNIT_SPELLCAST_* events + UNIT_AURA)
-- **Top Event Reductions** — UNIT_HEALTH 78%, UNIT_POWER 72%, UNIT_AURA 54%, UNIT_ABSORB 76%, THREAT 73%
+### v1.33.0 - DataText Expansion + Coalescer Pilot (March 12, 2026)
+- **Expanded DataText Layouts** — Validated 3-slot, 5-slot, and 7-slot modes with full-width panel clamping and 40px default height
+- **LDB Integration Upgrade** — Validated tooltip fallback, broker tooltip support, click dispatch parity, live text refresh, and per-slot icon/text display modes
+- **Provider Upgrade Pass** — `Currencies`, `Reputation`, `Spec`, and `LootSpec` paths hardened and validated with databar parity
+- **Low-Risk Coalescer Pilot** — `SPELL_UPDATE_COOLDOWN` + `SPELL_UPDATE_CHARGES` shared bucket and `BAG_UPDATE` debounce validated in dungeon gameplay
+- **Coalescer Results** — Spell bucket reduced `6002 -> 2700` (~55.0%), `BAG_UPDATE` reduced `38 -> 21` (~44.7%)
 
 ### Previous Updates
+- **Castbar Coverage Expansion** — Castbars enabled across more unit types with profile migration support and spawn-time reliability fixes
+- **Glow Style Expansion** — Added PIXEL/AUTOCAST/BUTTON/BORDER style controls for castbar, raid debuff, and target glow paths
 - **Blizzard Frame Integration** — Per-frame hide controls for default unit frames with Edit Mode visibility toggle and global options
 - **Health Color Hardening** — Threat/reaction/class colors now safe against WoW 12.0.0+ secret value restrictions
 - **Data Text/Bars System** — New draggable data bar framework with Shift+click-restricted drag handles, XP/Reputation fade controls, and dynamic repositioning
@@ -59,6 +61,9 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
   - Real-time performance dashboard (`/sufperf`)
   - Timeline profiling with bottleneck analysis (`/SUFprofile`)
   - ML-based priority optimization (learns from gameplay patterns)
+- **Low-Risk Coalescer Diagnostics** — Built-in counters for staged non-unit coalescer rollout:
+  - `/suf coalescer` prints raw vs dispatched counts
+  - `/suf coalescer reset` clears counters before a validation run
 - **Relevance Filtering** — Smart event queueing reduces unnecessary event pressure during combat
 - **Diagnostics Panel** — Real-time logs with system filters, debug channels, and exportable data
 
@@ -66,7 +71,7 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 - **Draggable Data Bars** — Repositionable bars for XP, reputation, and custom data displays
 - **Shift+Click Drag Handles** — Drag handles restricted to Shift+click for accidental protection
 - **XP/Reputation Control** — Per-bar visibility and fade behavior tied to data bar settings
-- **Customizable Text** — Data text system with multiple text display options
+- **Customizable Text** — Data text system with 3/5/7 slot layouts, per-slot broker display modes, and provider parity between panel and databar tooltips
 
 ### Options & Configuration
 - **Unified Options Window** — Tabbed interface with search v2 (relevance scoring, grouped results, keyboard navigation)
@@ -102,6 +107,8 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 | `/libperf` | Alias to `/sufperf` |
 | `/SUFprotected` | Show protected operations queue stats |
 | `/suf perflib` | Toggle performance dashboard via `/suf` command router |
+| `/suf coalescer` | Print low-risk coalescer counters (raw vs dispatched) |
+| `/suf coalescer reset` | Reset low-risk coalescer counters before a test run |
 
 ### Version Bump Workflow
 Use the helper script to maintain version format `1.<majorX>.<smallX>.<mdyy>`:

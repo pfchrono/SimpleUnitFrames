@@ -1,5 +1,87 @@
 # Work Summary
 
+## 2026-03-12 — Step 6 Documentation + Release Prep Kickoff ✅
+
+**Objective:** Start Step 6 by aligning release-facing documentation with the validated DataText enhancement track and low-risk coalescer pilot.
+
+**Changes Applied:**
+- Updated [CHANGELOG.md](CHANGELOG.md):
+   - Added `1.33.0` entry summarizing DataText layout/provider/LDB work, tooltip hardening, and low-risk coalescer pilot results.
+- Updated [README.md](README.md):
+   - Refreshed the "Recent Updates" section to reflect `v1.33.0` instead of older `v1.26.0` messaging.
+   - Added coalescer diagnostics commands and current DataText feature coverage to user-facing documentation.
+   - Updated feature summary text so release-facing docs match the validated in-game state.
+
+**Validation:**
+- ✅ `CHANGELOG.md` now reflects the current `1.33.0` feature set tracked in [SimpleUnitFrames.toc](SimpleUnitFrames.toc).
+- ✅ `README.md` recent updates and commands now reflect current validated features rather than older release highlights.
+- ✅ Final release-metadata consistency pass completed across [SimpleUnitFrames.toc](SimpleUnitFrames.toc), [CHANGELOG.md](CHANGELOG.md), and [README.md](README.md).
+- ✅ Final publish notes drafted in `RELEASE_NOTES_v1.33.0.md`.
+- ✅ Release scope decision made: validated low-risk coalescer work ships in this release; broader expansion is deferred.
+
+**Risk Level:** LOW
+- Changes are documentation-only and do not affect runtime behavior.
+
+## 2026-03-12 — Step 6 Release Notes Finalization ✅
+
+**Objective:** Finish the documentation side of Step 6 so release metadata, scope, and publish notes are consistent before commit/push/publish.
+
+**Validation:**
+- ✅ `SimpleUnitFrames.toc` release version prefix matches `1.33.0` in [CHANGELOG.md](CHANGELOG.md) and [README.md](README.md).
+- ✅ `RELEASE_NOTES_v1.33.0.md` drafted for publish flow consumption.
+- ✅ Low-risk coalescer pilot explicitly included in the release scope.
+
+**Risk Level:** LOW
+- Documentation/release metadata only.
+
+**Next Steps:**
+- Commit release-prep changes.
+- Push branch updates.
+- Run the release build/publish scripts.
+
+## 2026-03-12 — DataText Validation Hardening + Coalescer Pilot Validation ✅
+
+**Objective:** Reduce remaining risk in the pending DataText validation pass and record the completed dungeon validation result for the low-risk coalescer pilot.
+
+**Changes Applied:**
+- Updated [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua):
+   - DataText button labels are now constrained to slot width during layout updates.
+   - DataText labels now use left/right anchors with word-wrap disabled to reduce visible bleed between adjacent slots in 7-slot mode.
+   - `RefreshDataTextButtonTooltip()` now clears `GameTooltip` before rebuilding content, preventing stale/duplicated LDB tooltip rows during hovered live updates.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
+- ✅ User-reported dungeon coalescer counters showed real reduction:
+   - `SPELL_UPDATE_COOLDOWN+SPELL_UPDATE_CHARGES 6002 -> 2700` (~55.0% reduction)
+   - `BAG_UPDATE 38 -> 21` (~44.7% reduction)
+- ✅ CustomTracker bars were confirmed to update correctly for cooldown, charges, and bag-driven changes during the same run.
+- ✅ DataText Step 5c was confirmed working in-game with no reported problems.
+- ✅ DataText Step 5b was confirmed working in-game with no reported problems.
+- ✅ DataText Step 3 provider/databar validation was confirmed working in-game with no reported problems.
+- ✅ DataText Step 5 panel layout/reload validation was confirmed working in-game with no reported problems.
+
+**Risk Level:** LOW
+- The code change is isolated to DataText presentation/tooltip refresh paths.
+- The low-risk coalescer pilot is now numerically and functionally validated for the implemented buckets.
+
+**Next Steps:**
+- Expand only to the next safest non-unit bucket.
+- Proceed to Step 6 final documentation + release validation pass.
+
+## 2026-03-12 — DataText Step 3 Provider/Databar Validation ✅
+
+**Objective:** Confirm that the upgraded `Currencies` and `Reputation` provider paths, plus their shared databar presentation logic, behave correctly in-game.
+
+**Validation:**
+- ✅ `Currencies` provider showed expected cap/weekly tooltip information.
+- ✅ `Reputation` provider showed expected watched-faction state and progress.
+- ✅ Friendship, major faction, and paragon states behaved correctly.
+- ✅ Reputation databar tooltip matched the datatext state.
+- ✅ Left-click actions and event-driven refresh behavior worked correctly.
+
+**Risk Level:** LOW
+- The provider upgrade paths are now validated in-game for both datatext and databar behavior.
+
 ## 2026-03-10 — DataText Spec Provider Crash Fix (nil GetSpecializationInfoByID) ✅
 
 **Objective:** Resolve runtime spam/crash in DataText Spec/LootSpec providers:
@@ -75,9 +157,9 @@
    - [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
    - [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua)
    - [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua)
-- ⏳ In-game validation pending (7-slot rendering, full-width panel behavior, dropdown ordering UX)
+- ✅ In-game validation passed (2026-03-12): 7-slot rendering, full-width width clamp behavior, per-slot display modes, default 40px height, and GUI ordering all worked with no reported problems.
 
-**Risk Level:** LOW-MEDIUM
+**Risk Level:** LOW
 - Scope is isolated to DataText defaults/layout/options.
 - Backward compatibility preserved: profiles still operate in 3-slot mode unless changed.
 
@@ -118,9 +200,9 @@
 - ✅ Lua diagnostics clean for [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
 - ✅ Existing `LibDataBroker_DataObjectCreated` callback path preserved
 - ✅ LDB click dispatch now matches common display addon pattern (`OnClick(frame, button)`)
-- ⏳ In-game validation pending with representative LDB addons (launcher + data-source variants)
+- ✅ In-game validation passed (2026-03-12) with representative LDB behavior: tooltip fallback, broker-provided tooltips, click dispatch, hover callbacks, and live text updates all worked correctly.
 
-**Risk Level:** LOW-MEDIUM
+**Risk Level:** LOW
 - Scoped to DataText/LDB integration path only.
 - Behavior changes for LDB click and tooltip flow are additive with fallback compatibility.
 
@@ -351,13 +433,12 @@
 - ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
 - ✅ Lua diagnostics clean for [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua)
 - ✅ Lua diagnostics clean for [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua)
-- ⏳ In-game validation pending (5-slot spacing/behavior, slot toggle persistence, drag interactions)
+- ✅ In-game validation passed (2026-03-12): 5-slot spacing/behavior, slot toggle persistence, drag interactions, and `System`/`LDB:*` assignment persistence all worked correctly.
 
-**Risk Level:** LOW-MEDIUM
+**Risk Level:** LOW
 - Changes are isolated to datatext layout/configuration paths, with defaults preserving existing 3-slot behavior unless user opts into 5-slot layout.
 
 **Next Steps:**
-- Execute Step 3 and Step 5 in-game validation checklist in [TODO.md](TODO.md)
 - Proceed to Step 6 (final docs + release validation pass)
 
 ---
