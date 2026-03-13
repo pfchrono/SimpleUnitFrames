@@ -1,5 +1,54 @@
 # Work Summary
 
+## 2026-03-12 — TODO Backlog Prune + Backup ✅
+
+**Objective:** Remove completed roadmap entries from the active TODO while preserving the full historical task log for reference.
+
+**Changes Applied:**
+- Created [TODO_BACKUP.md](TODO_BACKUP.md) as a full backup of the pre-pruned roadmap.
+- Rewrote [TODO.md](TODO.md) into a compact open-backlog file containing only active follow-up work, validation debt, optional enhancements, and deferred features.
+
+**Validation:**
+- ✅ Full historical roadmap preserved in [TODO_BACKUP.md](TODO_BACKUP.md).
+- ✅ Active [TODO.md](TODO.md) now contains only open items.
+
+**Risk Level:** LOW
+- Documentation/task-tracking cleanup only.
+
+## 2026-03-12 — Shaman Totems In-Game Validation ✅
+
+**Objective:** Confirm that the Shaman Totems integration behaves correctly in live gameplay across cast, replacement, expiration, layout fallback, and combat contexts.
+
+**Validation:**
+- ✅ Totems appeared correctly above player auras with icon/cooldown behavior.
+- ✅ Expiration and replacement behavior worked correctly.
+- ✅ Multi-row aura anchoring and aura-disabled fallback anchoring worked correctly.
+- ✅ Spec/form transitions stayed clean with no stale Totem state.
+- ✅ Combat context produced no reported problems or errors.
+
+**Risk Level:** LOW
+- The current Shaman Totems integration is validated in-game; remaining work is optional enhancement scope only.
+
+## 2026-03-12 — Git History Documentation + Instruction Memory Refresh ✅
+
+**Objective:** Document the repository timeline from the first commit through the current release and persist the durable feature/fix context for future agents.
+
+**Changes Applied:**
+- Added [docs/GIT_HISTORY_SUMMARY.md](docs/GIT_HISTORY_SUMMARY.md):
+   - grouped the repository history into major phases from the first commit through `v1.33.1`.
+   - summarized major features, recurring regressions, and the root-cause/resolution patterns behind them.
+- Updated [.github/copilot-instructions.md](.github/copilot-instructions.md):
+   - refreshed the top-level current status, active branch, and next-step guidance.
+   - added historical milestones and durable fix-pattern notes for future code generation and review tasks.
+
+**Validation:**
+- ✅ Repository history was reviewed from the first commit through the current release.
+- ✅ Historical doc and instructions now reflect the shipped `v1.33.1` state and the major architectural pivots that led to it.
+- ✅ Recent upstream oUF audit status is recorded as guidance so future agents do not waste time on a redundant wholesale sync.
+
+**Risk Level:** LOW
+- Documentation and instruction updates only.
+
 ## 2026-03-12 — Step 6 Documentation + Release Prep Kickoff ✅
 
 **Objective:** Start Step 6 by aligning release-facing documentation with the validated DataText enhancement track and low-risk coalescer pilot.

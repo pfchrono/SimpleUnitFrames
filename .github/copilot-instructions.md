@@ -1,8 +1,24 @@
 # Project Guidelines
 
-**Current Status (2026-03-10):** Phase 4 (Low-Risk Coalescer Pilot) Complete - Unit Frame Optimization Phase
-**Active Branch:** `claude/bold-bell`
-**Next Steps:** See [TODO.md](../TODO.md) for comprehensive task tracking and testing checklist. Dungeon validation of SPELL_UPDATE_COOLDOWN/CHARGES and BAG_UPDATE coalescers pending.
+**Current Status (2026-03-12):** `v1.33.1` published. DataText Step 3, Step 5, Step 5b, and Step 5c are validated and shipped. The low-risk coalescer pilot is validated and shipped.
+**Active Branch:** `master`
+**Next Steps:** See [TODO.md](../TODO.md) for follow-up work. The next major tasks are broader non-unit coalescer expansion, TotemBar in-game validation, and future post-release cleanup.
+
+## Historical Milestones (2026-02-22 -> 2026-03-12)
+- **Foundation + modernization:** Initial Ace3/oUF/library import, castbar configuration, config/debug UX overhaul, and runtime modernization landed between `0349d18` and `7b2919a`.
+- **Protected runtime + UI hardening:** ProtectedOperations fixes, solo-party tooltip fixes, Action Bars removal due secure-frame restrictions, OptionsV2, CustomTrackers auto-learn, and skin/import-export hardening landed between `23d5df0` and `49a3563`.
+- **oUF/performance architecture:** Unit-scoped event registration, SmartRegisterUnitEvent, mixin-based unit frame architecture, IndicatorPoolManager, absorb/secret handling, ColorCurve, DirtyFlagManager, SafeReload, and upstream oUF connection fixes landed between `a039dce` and `864db87`.
+- **Phase 4 expansion:** PixelPerfect scaling, ProfileValidator, castbars for all units, OptionsV2 sidebar, and profile migration landed between `8c7f3f7` and `edab41b`.
+- **DataText + coalescer release:** DataText provider/layout/LDB expansion, EditMode/TotemBar related system work, and the low-risk coalescer pilot landed in `2944249` and shipped in `v1.33.1`.
+
+## Historical Fixes To Remember
+- **Secret-value crashes:** Resolved by standardizing on `SafeNumber`, `SafeText`, `SafeAPICall`, `IsSecretValue`, ColorCurve, and Blizzard-native systems where addon code cannot safely evaluate values.
+- **Secure-frame action bar failures:** The old SUF Action Bars subsystem was removed rather than kept in an unsafe state. Do not revive it without a secure-template and attribute-driven design.
+- **Party/raid castbar spawn issue:** Do not manually register oUF element events in `Style()`. The active workaround is a spawn-time disable→enable castbar rebind for non-header frames.
+- **Group header visibility regressions:** Treat `oUF:Factory(...)` as async, apply header visibility inside the callback, and re-register secure visibility drivers if cached state is stale.
+- **Shared indicator texture bug:** Never cache created textures or frames across unit frames. Create per-frame indicator objects only.
+- **Datatext Spec/LootSpec crash:** Use specialization index APIs plus `GetLootSpecialization()`. Do not use talent config IDs as spec IDs and do not call missing `C_SpecializationInfo.GetSpecializationInfoByID`.
+- **Bundled oUF upstream status (2026-03-12):** Recent upstream `13.3.1` fixes for portrait secret GUID handling, connection updates, private auras, aura harmful detection, ready check script binding, PvP classification `pcall`, and AdditionalPower prediction are already present locally. Remaining drift is mostly intentional SUF customization; do not overwrite the bundled oUF tree wholesale.
 
 ## API Verification Workflow
 **CRITICAL: Always verify WoW APIs against the local wow-ui-source repository before planning or implementing any code changes.**
