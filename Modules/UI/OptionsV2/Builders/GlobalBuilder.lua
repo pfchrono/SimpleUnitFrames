@@ -5,6 +5,7 @@ if not addon then
 end
 
 local LSM = LibStub("LibSharedMedia-3.0", true)
+local LibCustomGlow = LibStub("LibCustomGlow-1.0", true)
 
 local function RefreshOptionsV2CurrentPage()
 	if addon.optionsV2Frame and addon.optionsV2Frame.RefreshCurrentPage then
@@ -310,6 +311,21 @@ local function BuildGlobalPageSpec()
 					{ type = "slider", label = "Cast Time Decimals", min = 0, max = 2, step = 1, format = "%.0f", get = function() return tonumber(addon.db.profile.castbar.timeDecimals) or 1 end, set = function(v) addon.db.profile.castbar.timeDecimals = math.floor(v + 0.5); addon:ScheduleUpdateAll() end },
 					{ type = "check", label = "Show Cast Delay", get = function() return addon.db.profile.castbar.showDelay ~= false end, set = function(v) addon.db.profile.castbar.showDelay = v and true or false; addon:ScheduleUpdateAll() end },
 					{ type = "check", label = "Non-Interruptible Castbar Glow", get = function() return addon.db.profile.enhancements.castbarNonInterruptibleGlow ~= false end, set = function(v) addon.db.profile.enhancements.castbarNonInterruptibleGlow = v and true or false; addon:ScheduleUpdateAll() end },
+					{
+						type = "dropdown",
+						label = "Non-Interruptible Glow Style",
+						options = function()
+							return {
+								{ value = "PIXEL", text = "Pixel Glow" },
+								{ value = "AUTOCAST", text = "Autocast Shine" },
+							}
+						end,
+						get = function() return tostring(addon.db.profile.enhancements.castbarNonInterruptibleGlowStyle or "PIXEL") end,
+						set = function(v) addon.db.profile.enhancements.castbarNonInterruptibleGlowStyle = tostring(v); addon:ScheduleUpdateAll() end,
+						disabled = function()
+							return addon.db.profile.enhancements.castbarNonInterruptibleGlow == false or not LibCustomGlow
+						end,
+					},
 				},
 			},
 			{
@@ -319,6 +335,14 @@ local function BuildGlobalPageSpec()
 				controls = {
 					{ type = "check", label = "Raid Debuffs (Party/Raid)", get = function() return addon.db.profile.plugins.raidDebuffs.enabled ~= false end, set = function(v) addon.db.profile.plugins.raidDebuffs.enabled = v and true or false; addon:SchedulePluginUpdate() end },
 					{ type = "check", label = "Raid Debuff Glow", get = function() return addon.db.profile.plugins.raidDebuffs.glow ~= false end, set = function(v) addon.db.profile.plugins.raidDebuffs.glow = v and true or false; addon:SchedulePluginUpdate() end },
+					{
+						type = "dropdown",
+						label = "Raid Debuff Glow Style",
+						options = function() return { { value = "PIXEL", text = "Pixel Glow" }, { value = "BUTTON", text = "Button Glow" } } end,
+						get = function() return tostring(addon.db.profile.plugins.raidDebuffs.glowStyle or "PIXEL") end,
+						set = function(v) addon.db.profile.plugins.raidDebuffs.glowStyle = tostring(v); addon:SchedulePluginUpdate() end,
+						disabled = function() return addon.db.profile.plugins.raidDebuffs.glow == false or not LibCustomGlow end,
+					},
 					{ type = "dropdown", label = "Raid Debuff Glow Mode", options = function() return { { value = "ALL", text = "All Debuffs" }, { value = "DISPELLABLE", text = "Dispellable Only" }, { value = "PRIORITY", text = "Boss/Priority Only" } } end, get = function() return tostring(addon.db.profile.plugins.raidDebuffs.glowMode or "ALL") end, set = function(v) addon.db.profile.plugins.raidDebuffs.glowMode = tostring(v); addon:SchedulePluginUpdate() end },
 					{ type = "slider", label = "Raid Debuff Icon Size", min = 12, max = 36, step = 1, format = "%.0f", get = function() return tonumber(addon.db.profile.plugins.raidDebuffs.size) or 18 end, set = function(v) addon.db.profile.plugins.raidDebuffs.size = math.floor(v + 0.5); addon:SchedulePluginUpdate() end },
 					{ type = "check", label = "Aura Watch (Party/Raid)", get = function() return addon.db.profile.plugins.auraWatch.enabled ~= false end, set = function(v) addon.db.profile.plugins.auraWatch.enabled = v and true or false; addon:SchedulePluginUpdate() end },
@@ -927,6 +951,32 @@ local function BuildGlobalPageSpec()
 						end,
 					},
 					{
+						type = "check",
+						label = "Show on Hover",
+						get = function()
+							return not (addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.showOnHover == false)
+						end,
+						set = function(v)
+							addon.db.profile.databars.xpFade = addon.db.profile.databars.xpFade or {}
+							addon.db.profile.databars.xpFade.showOnHover = v and true or false
+							addon:UpdateDataBars()
+						end,
+						disabled = function() return not (addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.enabled == true) end,
+					},
+					{
+						type = "check",
+						label = "Show in Combat",
+						get = function()
+							return not (addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.showInCombat == false)
+						end,
+						set = function(v)
+							addon.db.profile.databars.xpFade = addon.db.profile.databars.xpFade or {}
+							addon.db.profile.databars.xpFade.showInCombat = v and true or false
+							addon:UpdateDataBars()
+						end,
+						disabled = function() return not (addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.enabled == true) end,
+					},
+					{
 						type = "slider",
 						label = "Fade In Duration",
 						min = 0.05,
@@ -948,6 +998,28 @@ local function BuildGlobalPageSpec()
 						set = function(v) addon.db.profile.databars.xpFade = addon.db.profile.databars.xpFade or {}; addon.db.profile.databars.xpFade.fadeOutDuration = tonumber(v) or 0.3; addon:UpdateDataBars() end,
 						disabled = function() return not (addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.enabled == true) end,
 					},
+					{
+						type = "slider",
+						label = "Fade Out Alpha",
+						min = 0.0,
+						max = 1.0,
+						step = 0.05,
+						format = "%.2f",
+						get = function() return tonumber(addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.fadeOutAlpha) or 0.0 end,
+						set = function(v) addon.db.profile.databars.xpFade = addon.db.profile.databars.xpFade or {}; addon.db.profile.databars.xpFade.fadeOutAlpha = tonumber(v) or 0.0; addon:UpdateDataBars() end,
+						disabled = function() return not (addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.enabled == true) end,
+					},
+					{
+						type = "slider",
+						label = "Fade Out Delay",
+						min = 0.0,
+						max = 2.0,
+						step = 0.05,
+						format = "%.2f",
+						get = function() return tonumber(addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.fadeOutDelay) or 0.5 end,
+						set = function(v) addon.db.profile.databars.xpFade = addon.db.profile.databars.xpFade or {}; addon.db.profile.databars.xpFade.fadeOutDelay = tonumber(v) or 0.5; addon:UpdateDataBars() end,
+						disabled = function() return not (addon.db.profile.databars.xpFade and addon.db.profile.databars.xpFade.enabled == true) end,
+					},
 				},
 			},
 			{
@@ -960,26 +1032,6 @@ local function BuildGlobalPageSpec()
 						label = "Enable Data Text Panel",
 						get = function() return addon.db.profile.datatext.enabled ~= false end,
 						set = function(v) addon.db.profile.datatext.enabled = v and true or false; addon:UpdateDataTextPanel() end,
-					},
-					{
-						type = "slider",
-						label = "Data Text Width",
-						min = 280,
-						max = 900,
-						step = 10,
-						format = "%.0f",
-						get = function() return tonumber(addon.db.profile.datatext.panel and addon.db.profile.datatext.panel.width) or 520 end,
-						set = function(v) addon.db.profile.datatext.panel.width = math.floor(v + 0.5); addon:UpdateDataTextPanel() end,
-					},
-					{
-						type = "slider",
-						label = "Data Text Height",
-						min = 14,
-						max = 40,
-						step = 1,
-						format = "%.0f",
-						get = function() return tonumber(addon.db.profile.datatext.panel and addon.db.profile.datatext.panel.height) or 20 end,
-						set = function(v) addon.db.profile.datatext.panel.height = math.floor(v + 0.5); addon:UpdateDataTextPanel() end,
 					},
 					{
 						type = "dropdown",
@@ -1034,6 +1086,52 @@ local function BuildGlobalPageSpec()
 					},
 					{
 						type = "dropdown",
+						label = "DataText Slot Layout",
+						options = function()
+							return {
+								{ value = 3, text = "3 Slots (Classic)" },
+								{ value = 5, text = "5 Slots (Expanded)" },
+								{ value = 7, text = "7 Slots (Extended)" },
+							}
+						end,
+						get = function()
+							addon.db.profile.datatext.panel = addon.db.profile.datatext.panel or {}
+							local slotCount = tonumber(addon.db.profile.datatext.panel.slotCount) or 3
+							if slotCount >= 7 then return 7 end
+							return slotCount >= 5 and 5 or 3
+						end,
+						set = function(v)
+							addon.db.profile.datatext.panel = addon.db.profile.datatext.panel or {}
+							local count = tonumber(v) or 3
+							if count >= 7 then count = 7 elseif count >= 5 then count = 5 else count = 3 end
+							addon.db.profile.datatext.panel.slotCount = count
+							addon:UpdateDataTextPanel()
+						end,
+					},
+					{
+						type = "dropdown",
+						label = "DataText Outer Left Slot",
+						options = function() return addon:GetAvailableDataTextSources() end,
+						get = function() addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; return tostring(addon.db.profile.datatext.slots.outerLeft or "Spec") end,
+						set = function(v) addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; addon.db.profile.datatext.slots.outerLeft = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function()
+							local panel = addon.db.profile.datatext.panel or {}
+							return (tonumber(panel.slotCount) or 3) < 7
+						end,
+					},
+					{
+						type = "dropdown",
+						label = "DataText Far Left Slot",
+						options = function() return addon:GetAvailableDataTextSources() end,
+						get = function() addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; return tostring(addon.db.profile.datatext.slots.farLeft or "Latency") end,
+						set = function(v) addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; addon.db.profile.datatext.slots.farLeft = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function()
+							local panel = addon.db.profile.datatext.panel or {}
+							return (tonumber(panel.slotCount) or 3) < 5
+						end,
+					},
+					{
+						type = "dropdown",
 						label = "DataText Left Slot",
 						options = function() return addon:GetAvailableDataTextSources() end,
 						get = function() addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; return tostring(addon.db.profile.datatext.slots.left or "FPS") end,
@@ -1052,6 +1150,115 @@ local function BuildGlobalPageSpec()
 						options = function() return addon:GetAvailableDataTextSources() end,
 						get = function() addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; return tostring(addon.db.profile.datatext.slots.right or "Memory") end,
 						set = function(v) addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; addon.db.profile.datatext.slots.right = tostring(v); addon:UpdateDataTextPanel() end,
+					},
+					{
+						type = "dropdown",
+						label = "DataText Far Right Slot",
+						options = function() return addon:GetAvailableDataTextSources() end,
+						get = function() addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; return tostring(addon.db.profile.datatext.slots.farRight or "Gold") end,
+						set = function(v) addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; addon.db.profile.datatext.slots.farRight = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function()
+							local panel = addon.db.profile.datatext.panel or {}
+							return (tonumber(panel.slotCount) or 3) < 5
+						end,
+					},
+					{
+						type = "dropdown",
+						label = "DataText Outer Right Slot",
+						options = function() return addon:GetAvailableDataTextSources() end,
+						get = function() addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; return tostring(addon.db.profile.datatext.slots.outerRight or "System") end,
+						set = function(v) addon.db.profile.datatext.slots = addon.db.profile.datatext.slots or {}; addon.db.profile.datatext.slots.outerRight = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function()
+							local panel = addon.db.profile.datatext.panel or {}
+							return (tonumber(panel.slotCount) or 3) < 7
+						end,
+					},
+					{
+						type = "dropdown",
+						label = "LDB Display (Far Left)",
+						options = function() return { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } } end,
+						get = function() addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; return tostring(addon.db.profile.datatext.slotDisplay.farLeft or "AUTO") end,
+						set = function(v) addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; addon.db.profile.datatext.slotDisplay.farLeft = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function() local panel = addon.db.profile.datatext.panel or {}; return (tonumber(panel.slotCount) or 3) < 5 end,
+					},
+					{
+						type = "dropdown",
+						label = "LDB Display (Left)",
+						options = function() return { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } } end,
+						get = function() addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; return tostring(addon.db.profile.datatext.slotDisplay.left or "AUTO") end,
+						set = function(v) addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; addon.db.profile.datatext.slotDisplay.left = tostring(v); addon:UpdateDataTextPanel() end,
+					},
+					{
+						type = "dropdown",
+						label = "LDB Display (Center)",
+						options = function() return { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } } end,
+						get = function() addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; return tostring(addon.db.profile.datatext.slotDisplay.center or "AUTO") end,
+						set = function(v) addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; addon.db.profile.datatext.slotDisplay.center = tostring(v); addon:UpdateDataTextPanel() end,
+					},
+					{
+						type = "dropdown",
+						label = "LDB Display (Right)",
+						options = function() return { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } } end,
+						get = function() addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; return tostring(addon.db.profile.datatext.slotDisplay.right or "AUTO") end,
+						set = function(v) addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; addon.db.profile.datatext.slotDisplay.right = tostring(v); addon:UpdateDataTextPanel() end,
+					},
+					{
+						type = "dropdown",
+						label = "LDB Display (Far Right)",
+						options = function() return { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } } end,
+						get = function() addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; return tostring(addon.db.profile.datatext.slotDisplay.farRight or "AUTO") end,
+						set = function(v) addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; addon.db.profile.datatext.slotDisplay.farRight = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function() local panel = addon.db.profile.datatext.panel or {}; return (tonumber(panel.slotCount) or 3) < 5 end,
+					},
+					{
+						type = "dropdown",
+						label = "LDB Display (Outer Left)",
+						options = function() return { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } } end,
+						get = function() addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; return tostring(addon.db.profile.datatext.slotDisplay.outerLeft or "AUTO") end,
+						set = function(v) addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; addon.db.profile.datatext.slotDisplay.outerLeft = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function() local panel = addon.db.profile.datatext.panel or {}; return (tonumber(panel.slotCount) or 3) < 7 end,
+					},
+					{
+						type = "dropdown",
+						label = "LDB Display (Outer Right)",
+						options = function() return { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } } end,
+						get = function() addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; return tostring(addon.db.profile.datatext.slotDisplay.outerRight or "AUTO") end,
+						set = function(v) addon.db.profile.datatext.slotDisplay = addon.db.profile.datatext.slotDisplay or {}; addon.db.profile.datatext.slotDisplay.outerRight = tostring(v); addon:UpdateDataTextPanel() end,
+						disabled = function() local panel = addon.db.profile.datatext.panel or {}; return (tonumber(panel.slotCount) or 3) < 7 end,
+					},
+					{
+						type = "slider",
+						label = "Data Text Refresh Rate (sec)",
+						min = 0.2,
+						max = 5.0,
+						step = 0.1,
+						format = "%.1f",
+						get = function() return tonumber(addon.db.profile.datatext.refreshRate) or 1.0 end,
+						set = function(v) addon.db.profile.datatext.refreshRate = tonumber(v) or 1.0; addon:InitializeDataSystems() end,
+					},
+					{
+						type = "slider",
+						label = "Data Text Width",
+						min = 280,
+						max = 4096,
+						step = 10,
+						format = "%.0f",
+						get = function() return tonumber(addon.db.profile.datatext.panel and addon.db.profile.datatext.panel.width) or 520 end,
+						set = function(v)
+							local maxWidth = UIParent and UIParent.GetWidth and UIParent:GetWidth() or 4096
+							addon.db.profile.datatext.panel.width = math.floor(math.max(280, math.min(tonumber(v) or 520, tonumber(maxWidth) or 4096)) + 0.5)
+							addon:UpdateDataTextPanel()
+						end,
+					},
+					{
+						type = "slider",
+						label = "Data Text Height",
+						min = 16,
+						max = 80,
+						step = 1,
+						format = "%.0f",
+						get = function() return tonumber(addon.db.profile.datatext.panel and addon.db.profile.datatext.panel.height) or 40 end,
+						set = function(v) addon.db.profile.datatext.panel.height = math.floor(v + 0.5); addon:UpdateDataTextPanel() end,
 					},
 				},
 			},

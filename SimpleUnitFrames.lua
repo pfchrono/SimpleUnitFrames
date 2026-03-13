@@ -41,12 +41,17 @@ local LibRangeCheck = LibStub("LibRangeCheck-3.0", true)
 ---@type SimpleUnitFrames
 local addon = AceAddon:NewAddon("SimpleUnitFrames", "AceEvent-3.0", "AceConsole-3.0")
 
+-- Create global alias for debug commands (e.g., /run SUF:DumpDataTextSources())
+_G.SUF = addon
+
 ---@type string
 local DEFAULT_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
 ---@type string
 local DEFAULT_FONT = STANDARD_TEXT_FONT
 local ICON_PATH = "Interface\\AddOns\\SimpleUnitFrames\\Media\\AddonIcon"
 local DATATEXT_SLOT_ORDER = { "left", "center", "right" }
+local DATATEXT_SLOT_ORDER_FIVE = { "farLeft", "left", "center", "right", "farRight" }
+local DATATEXT_SLOT_ORDER_SEVEN = { "outerLeft", "farLeft", "left", "center", "right", "farRight", "outerRight" }
 
 local function ChatMsg(message)
 	if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.AddMessage then
@@ -208,14 +213,14 @@ local defaults = {
 			boss = { name = "[name]", level = "[level]", health = "[curhp]", power = "[curpp]" },
 		},
 		sizes = {
-			player = { width = 220, height = 36 },
-			target = { width = 220, height = 36 },
-			tot = { width = 160, height = 28 },
-			focus = { width = 200, height = 32 },
-			pet = { width = 160, height = 26 },
-			party = { width = 160, height = 26 },
-			raid = { width = 120, height = 22 },
-			boss = { width = 200, height = 30 },
+			player = { width = 225, height = 41 },
+			target = { width = 225, height = 41 },
+			tot = { width = 165, height = 33 },
+			focus = { width = 205, height = 37 },
+			pet = { width = 165, height = 31 },
+			party = { width = 165, height = 31 },
+			raid = { width = 125, height = 27 },
+			boss = { width = 205, height = 35 },
 		},
 		powerHeight = 8,
 		classPowerHeight = 8,
@@ -285,6 +290,7 @@ local defaults = {
 			translitNames = false,
 			translitMarker = "",
 			castbarNonInterruptibleGlow = true,
+			castbarNonInterruptibleGlowStyle = "PIXEL",
 			uiOpenAnimation = true,
 			uiOpenAnimationDuration = 0.18,
 			uiOpenAnimationOffsetY = 12,
@@ -356,17 +362,31 @@ local defaults = {
 			positionMode = "ANCHOR",
 			panel = {
 				width = 520,
-				height = 20,
+				height = 40,
 				anchor = "TOP",
 				offsetX = 0,
 				offsetY = -14,
 				backdrop = true,
 				mouseover = false,
+				slotCount = 3,
 			},
 			slots = {
+				outerLeft = "Spec",
+				farLeft = "Latency",
 				left = "FPS",
 				center = "Time",
 				right = "Memory",
+				farRight = "Gold",
+				outerRight = "System",
+			},
+			slotDisplay = {
+				outerLeft = "AUTO",
+				farLeft = "AUTO",
+				left = "AUTO",
+				center = "AUTO",
+				right = "AUTO",
+				farRight = "AUTO",
+				outerRight = "AUTO",
 			},
 		},
 		plugins = {
@@ -375,6 +395,7 @@ local defaults = {
 				size = 18,
 				glow = true,
 				glowMode = "ALL",
+				glowStyle = "PIXEL",
 			},
 			auraWatch = {
 				enabled = true,
@@ -405,6 +426,7 @@ local defaults = {
 						size = 18,
 						glow = true,
 						glowMode = "ALL",
+						glowStyle = "PIXEL",
 					},
 					auraWatch = {
 						enabled = true,
@@ -435,6 +457,7 @@ local defaults = {
 						size = 18,
 						glow = true,
 						glowMode = "ALL",
+						glowStyle = "PIXEL",
 					},
 					auraWatch = {
 						enabled = true,
@@ -549,6 +572,7 @@ local DEFAULT_UNIT_TARGET_GLOW = {
 	enabled = false,
 	color = { 0.95, 0.85, 0.25, 0.92 },
 	inset = 3,
+	style = "BORDER",
 }
 
 local DEFAULT_UNIT_POWER_PREDICTION = {
@@ -751,6 +775,8 @@ local PERF_EVENT_PRIORITY = {
 	UNIT_HEAL_PREDICTION = 2,
 	UNIT_ABSORB_AMOUNT_CHANGED = 2,
 	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = 2,
+	SPELL_UPDATE_COOLDOWN = 4,
+	BAG_UPDATE = 4,
 	UNIT_MAXPOWER = 2,
 	UNIT_DISPLAYPOWER = 3,
 	UNIT_AURA = 3,
@@ -793,6 +819,8 @@ local EVENT_COALESCE_CONFIG = {
 	UNIT_HEAL_PREDICTION = { delay = 0.14, priority = 3 },
 	UNIT_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
 	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
+	SPELL_UPDATE_COOLDOWN = { delay = 0.10, priority = 4 },
+	BAG_UPDATE = { delay = 0.20, priority = 4 },
 	UNIT_POWER_UPDATE = { delay = 0.20, priority = 4 },
 	UNIT_MAXHEALTH = { delay = 0.12, priority = 2 },
 	UNIT_MAXPOWER = { delay = 0.12, priority = 2 },
@@ -823,6 +851,20 @@ local EVENT_COALESCE_CONFIG = {
 	RAID_TARGET_UPDATE = { delay = 0.05, priority = 4 },
 	GROUP_ROSTER_UPDATE = { delay = 0.12, priority = 4 },
 	PLAYER_ROLES_ASSIGNED = { delay = 0.12, priority = 4 },
+}
+
+local EVENT_COALESCE_ALIAS = {
+	SPELL_UPDATE_CHARGES = "SPELL_UPDATE_COOLDOWN",
+}
+
+local PERFORMANCE_INPUT_ONLY_EVENTS = {
+	SPELL_UPDATE_CHARGES = true,
+}
+
+local LOW_RISK_COALESCER_COUNTER_KEYS = {
+	SPELL_UPDATE_COOLDOWN = "spellCooldownCharges",
+	SPELL_UPDATE_CHARGES = "spellCooldownCharges",
+	BAG_UPDATE = "bagUpdate",
 }
 
 local NON_UNIT_EVENT_TARGETS = {
@@ -862,6 +904,32 @@ local UNIT_SCOPED_EVENTS = {
 	UNIT_FLAGS = true,
 	UNIT_CONNECTION = true,
 }
+
+local function ResolveCoalescedEventName(eventName)
+	return EVENT_COALESCE_ALIAS[eventName] or eventName
+end
+
+local function EnsureLowRiskCoalescerStats(context)
+	context._lowRiskCoalescerStats = context._lowRiskCoalescerStats or {
+		raw = {
+			spellCooldownCharges = 0,
+			bagUpdate = 0,
+		},
+		dispatched = {
+			spellCooldownCharges = 0,
+			bagUpdate = 0,
+		},
+	}
+
+	local stats = context._lowRiskCoalescerStats
+	stats.raw = stats.raw or {}
+	stats.dispatched = stats.dispatched or {}
+	if type(stats.raw.spellCooldownCharges) ~= "number" then stats.raw.spellCooldownCharges = 0 end
+	if type(stats.raw.bagUpdate) ~= "number" then stats.raw.bagUpdate = 0 end
+	if type(stats.dispatched.spellCooldownCharges) ~= "number" then stats.dispatched.spellCooldownCharges = 0 end
+	if type(stats.dispatched.bagUpdate) ~= "number" then stats.dispatched.bagUpdate = 0 end
+	return stats
+end
 
 local function ResolveUnitType(unit)
 	if unit == "player" then
@@ -1405,6 +1473,8 @@ addon._core.addonName = addonName
 addon._core.ICON_PATH = ICON_PATH
 addon._core.DEFAULT_TEXTURE = DEFAULT_TEXTURE
 addon._core.DATATEXT_SLOT_ORDER = DATATEXT_SLOT_ORDER
+addon._core.DATATEXT_SLOT_ORDER_FIVE = DATATEXT_SLOT_ORDER_FIVE
+addon._core.DATATEXT_SLOT_ORDER_SEVEN = DATATEXT_SLOT_ORDER_SEVEN
 addon._core.SetStatusBarTexturePreserveLayer = SetStatusBarTexturePreserveLayer
 addon._core.FormatCompactValue = FormatCompactValue
 addon._core.GetWatchedFactionInfoCompat = GetWatchedFactionInfoCompat
@@ -1670,6 +1740,12 @@ function addon:GetUnitTargetGlowSettings(unitType)
 		MergeDefaults(unit.targetGlow, DEFAULT_UNIT_TARGET_GLOW)
 	end
 
+	local style = SafeText(unit.targetGlow.style, DEFAULT_UNIT_TARGET_GLOW.style)
+	if style ~= "BUTTON" then
+		style = "BORDER"
+	end
+	unit.targetGlow.style = style
+
 	return unit.targetGlow
 end
 
@@ -1848,6 +1924,9 @@ function addon:NormalizePluginConfig()
 	if plugins.raidDebuffs.glowMode ~= "DISPELLABLE" and plugins.raidDebuffs.glowMode ~= "PRIORITY" then
 		plugins.raidDebuffs.glowMode = "ALL"
 	end
+	if plugins.raidDebuffs.glowStyle ~= "BUTTON" then
+		plugins.raidDebuffs.glowStyle = "PIXEL"
+	end
 	plugins.auraWatch.size = ClampNumber(plugins.auraWatch.size, 8, 22, defaults.profile.plugins.auraWatch.size)
 	plugins.auraWatch.numBuffs = ClampNumber(plugins.auraWatch.numBuffs, 0, 8, defaults.profile.plugins.auraWatch.numBuffs)
 	plugins.auraWatch.numDebuffs = ClampNumber(plugins.auraWatch.numDebuffs, 0, 8, defaults.profile.plugins.auraWatch.numDebuffs)
@@ -1858,6 +1937,9 @@ function addon:NormalizePluginConfig()
 	local enhancement = self:GetEnhancementSettings()
 	enhancement.uiOpenAnimationDuration = ClampNumber(enhancement.uiOpenAnimationDuration, 0.05, 0.60, 0.18)
 	enhancement.uiOpenAnimationOffsetY = ClampNumber(enhancement.uiOpenAnimationOffsetY, -40, 40, 12)
+	if enhancement.castbarNonInterruptibleGlowStyle ~= "AUTOCAST" then
+		enhancement.castbarNonInterruptibleGlowStyle = "PIXEL"
+	end
 
 	local unitPlugins = plugins.units or {}
 	for unitType, unitCfg in pairs(unitPlugins) do
@@ -1868,6 +1950,9 @@ function addon:NormalizePluginConfig()
 			unitCfg.raidDebuffs.size = ClampNumber(unitCfg.raidDebuffs.size, 12, 36, plugins.raidDebuffs.size)
 			if unitCfg.raidDebuffs.glowMode ~= "DISPELLABLE" and unitCfg.raidDebuffs.glowMode ~= "PRIORITY" then
 				unitCfg.raidDebuffs.glowMode = "ALL"
+			end
+			if unitCfg.raidDebuffs.glowStyle ~= "BUTTON" then
+				unitCfg.raidDebuffs.glowStyle = plugins.raidDebuffs.glowStyle
 			end
 			unitCfg.auraWatch.size = ClampNumber(unitCfg.auraWatch.size, 8, 22, plugins.auraWatch.size)
 			unitCfg.auraWatch.numBuffs = ClampNumber(unitCfg.auraWatch.numBuffs, 0, 8, plugins.auraWatch.numBuffs)
@@ -3557,35 +3642,96 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 	end
 end
 
+function addon:TrackLowRiskCoalescerRawEvent(eventName)
+	local key = LOW_RISK_COALESCER_COUNTER_KEYS[eventName]
+	if not key then
+		return
+	end
+	local stats = EnsureLowRiskCoalescerStats(self)
+	stats.raw[key] = (stats.raw[key] or 0) + 1
+end
+
+function addon:TrackLowRiskCoalescerDispatch(eventName)
+	local key = LOW_RISK_COALESCER_COUNTER_KEYS[eventName]
+	if not key then
+		return
+	end
+	local stats = EnsureLowRiskCoalescerStats(self)
+	stats.dispatched[key] = (stats.dispatched[key] or 0) + 1
+end
+
+function addon:ResetLowRiskCoalescerStats()
+	self._lowRiskCoalescerStats = nil
+	EnsureLowRiskCoalescerStats(self)
+end
+
+function addon:PrintLowRiskCoalescerStats()
+	local stats = EnsureLowRiskCoalescerStats(self)
+	local raw = stats.raw or {}
+	local dispatched = stats.dispatched or {}
+
+	local rawSpell = tonumber(raw.spellCooldownCharges) or 0
+	local dispatchedSpell = tonumber(dispatched.spellCooldownCharges) or 0
+	local rawBag = tonumber(raw.bagUpdate) or 0
+	local dispatchedBag = tonumber(dispatched.bagUpdate) or 0
+
+	self:Print(("Low-risk coalescer counters (raw -> dispatched): SPELL_UPDATE_COOLDOWN+SPELL_UPDATE_CHARGES %d -> %d | BAG_UPDATE %d -> %d")
+		:format(rawSpell, dispatchedSpell, rawBag, dispatchedBag))
+end
+
 function addon:QueuePerformanceEvent(eventName, ...)
 	if not self:IsPerformanceIntegrationEnabled() then
 		return
 	end
 	local profileStart = debugprofilestop and debugprofilestop() or nil
+	local coalescedEventName = ResolveCoalescedEventName(eventName)
 
-	local eventConfig = EVENT_COALESCE_CONFIG[eventName]
-	local priority = (eventConfig and eventConfig.priority) or PERF_EVENT_PRIORITY[eventName] or 3
-	self:DebugLog("Events", "Queued event: " .. tostring(eventName), 3)
+	local eventConfig = EVENT_COALESCE_CONFIG[coalescedEventName]
+	local priority = (eventConfig and eventConfig.priority) or PERF_EVENT_PRIORITY[coalescedEventName] or 3
+	if coalescedEventName ~= eventName then
+		self:DebugLog("Events", "Queued event: " .. tostring(eventName) .. " -> " .. tostring(coalescedEventName), 3)
+	else
+		self:DebugLog("Events", "Queued event: " .. tostring(eventName), 3)
+	end
 	local optimizer = self.performanceLib and self.performanceLib.MLOptimizer
 	if optimizer and optimizer.TrackPattern then
-		pcall(optimizer.TrackPattern, optimizer, eventName, "SUF:QueuePerformanceEvent")
+		pcall(optimizer.TrackPattern, optimizer, coalescedEventName, "SUF:QueuePerformanceEvent")
 	end
 
 	if self.performanceLib and self.performanceLib.QueueEvent then
-		self.performanceLib:QueueEvent(eventName, priority, ...)
+		self.performanceLib:QueueEvent(coalescedEventName, priority, ...)
 		self._perfQueueAccepted = (self._perfQueueAccepted or 0) + 1
 	else
-		self:HandleCoalescedEvent(eventName, ...)
+		self:HandleCoalescedEvent(coalescedEventName, ...)
 		self._perfQueueFallback = (self._perfQueueFallback or 0) + 1
 	end
 
 	if profileStart then
 		local profileEnd = debugprofilestop() or profileStart
-		self:RecordProfilerEvent("suf:queue." .. tostring(eventName), profileEnd - profileStart)
+		self:RecordProfilerEvent("suf:queue." .. tostring(coalescedEventName), profileEnd - profileStart)
 	end
 end
 
 function addon:HandleCoalescedEvent(eventName, ...)
+	local eventConfig = EVENT_COALESCE_CONFIG[eventName]
+
+	if eventName == "SPELL_UPDATE_COOLDOWN" then
+		if self.CustomTrackers and self.CustomTrackers.OnCoalescedSpellCooldownBucket then
+			self.CustomTrackers:OnCoalescedSpellCooldownBucket()
+		end
+		return
+	end
+
+	if eventName == "BAG_UPDATE" then
+		if self.CustomTrackers and self.CustomTrackers.OnCoalescedBagUpdate then
+			self.CustomTrackers:OnCoalescedBagUpdate()
+		end
+		if self.ScheduleUpdateDataTextPanel then
+			self:ScheduleUpdateDataTextPanel()
+		end
+		return
+	end
+
 	local unitToken = ...
 	if UNIT_SCOPED_EVENTS[eventName] then
 		if type(unitToken) == "string" and unitToken ~= "" then
@@ -3622,6 +3768,7 @@ function addon:RegisterPerformanceCoalescedHandlers()
 		for eventName, config in pairs(EVENT_COALESCE_CONFIG) do
 			local callback = function(...)
 				local profileStart = debugprofilestop and debugprofilestop() or nil
+				self:TrackLowRiskCoalescerDispatch(eventName)
 				self:DispatchSUFEvent("COALESCED_EVENT", eventName, ...)
 				if profileStart then
 					local profileEnd = debugprofilestop() or profileStart
@@ -3809,12 +3956,16 @@ function addon:RegisterPerformanceEventFrame()
 					return
 				end
 			end
+			self:TrackLowRiskCoalescerRawEvent(eventName)
 			self:DispatchSUFEvent("PERF_EVENT_INPUT", eventName, ...)
 		end)
 		self.performanceEventFrame = frame
 	end
 
 	for eventName in pairs(EVENT_COALESCE_CONFIG) do
+		self.performanceEventFrame:RegisterEvent(eventName)
+	end
+	for eventName in pairs(PERFORMANCE_INPUT_ONLY_EVENTS) do
 		self.performanceEventFrame:RegisterEvent(eventName)
 	end
 end
@@ -4316,6 +4467,22 @@ function addon:SnapFrameToPixelGrid(frame)
 	end
 	-- Fallback: return current position unchanged
 	return frame:GetPoint()
+end
+
+---Update EditMode element visibility across all frames
+---Called when EditMode settings change or frames are refreshed
+---@param unitType? string Optional unit type filter (updates only that unit's frames)
+---@return void
+function addon:UpdateEditModeElementVisibility(unitType)
+	if not (self.EditModeIntegration and self.frames) then
+		return
+	end
+
+	for _, frame in ipairs(self.frames) do
+		if frame and (not unitType or frame.sufUnitType == unitType) then
+			self.EditModeIntegration:ApplyElementVisibility(frame, frame.sufUnitType)
+		end
+	end
 end
 
 ---Get optimal work delay with ML optimization support
@@ -5558,34 +5725,51 @@ end
 local NON_INTERRUPT_GLOW_KEY = "suf_castbar_non_interrupt"
 local RAID_DEBUFF_GLOW_KEY = "suf_raiddebuff_glow"
 
+local function NormalizeCastbarGlowStyle(style)
+	style = SafeText(style, "PIXEL")
+	if style ~= "AUTOCAST" then
+		return "PIXEL"
+	end
+	return style
+end
+
+local function NormalizeRaidDebuffGlowStyle(style)
+	style = SafeText(style, "PIXEL")
+	if style ~= "BUTTON" then
+		return "PIXEL"
+	end
+	return style
+end
+
+local function NormalizeTargetGlowStyle(style)
+	style = SafeText(style, "BORDER")
+	if style ~= "BUTTON" then
+		return "BORDER"
+	end
+	return style
+end
+
 local function StopCastbarNonInterruptGlow(castbar)
 	if not (LibCustomGlow and castbar) then
 		return
 	end
-	pcall(LibCustomGlow.PixelGlow_Stop, LibCustomGlow, castbar, NON_INTERRUPT_GLOW_KEY)
+	pcall(LibCustomGlow.PixelGlow_Stop, castbar, NON_INTERRUPT_GLOW_KEY)
+	pcall(LibCustomGlow.AutoCastGlow_Stop, castbar, NON_INTERRUPT_GLOW_KEY)
+	pcall(LibCustomGlow.ButtonGlow_Stop, castbar)
 end
 
-local function StartCastbarNonInterruptGlow(castbar, color)
+local function StartCastbarNonInterruptGlow(castbar, color, style)
 	if not (LibCustomGlow and castbar) then
 		return
 	end
 	StopCastbarNonInterruptGlow(castbar)
 	local glowColor = color or { 1, 0.2, 0.2, 0.90 }
-	pcall(
-		LibCustomGlow.PixelGlow_Start,
-		LibCustomGlow,
-		castbar,
-		glowColor,
-		8,
-		0.18,
-		8,
-		2,
-		0,
-		0,
-		false,
-		NON_INTERRUPT_GLOW_KEY,
-		castbar:GetFrameLevel() + 6
-	)
+	local glowStyle = NormalizeCastbarGlowStyle(style)
+	if glowStyle == "AUTOCAST" then
+		pcall(LibCustomGlow.AutoCastGlow_Start, castbar, glowColor, 4, 0.20, 1.0, 0, 0, NON_INTERRUPT_GLOW_KEY, 6)
+		return
+	end
+	pcall(LibCustomGlow.PixelGlow_Start, castbar, glowColor, 8, 0.18, 8, 2, 0, 0, false, NON_INTERRUPT_GLOW_KEY, 6)
 end
 
 local CHANNEL_TICK_COUNT_BY_SPELL_ID = {
@@ -5778,29 +5962,43 @@ local function StopRaidDebuffGlow(element)
 	if not (LibCustomGlow and element) then
 		return
 	end
-	pcall(LibCustomGlow.PixelGlow_Stop, LibCustomGlow, element, RAID_DEBUFF_GLOW_KEY)
+	pcall(LibCustomGlow.PixelGlow_Stop, element, RAID_DEBUFF_GLOW_KEY)
+	pcall(LibCustomGlow.ButtonGlow_Stop, element)
 end
 
-local function StartRaidDebuffGlow(element)
+local function StartRaidDebuffGlow(element, style)
 	if not (LibCustomGlow and element) then
 		return
 	end
 	StopRaidDebuffGlow(element)
-	pcall(
-		LibCustomGlow.PixelGlow_Start,
-		LibCustomGlow,
-		element,
-		{ 1.0, 0.25, 0.25, 0.95 },
-		6,
-		0.22,
-		6,
-		2,
-		0,
-		0,
-		false,
-		RAID_DEBUFF_GLOW_KEY,
-		element:GetFrameLevel() + 4
-	)
+	local glowColor = { 1.0, 0.25, 0.25, 0.95 }
+	local glowStyle = NormalizeRaidDebuffGlowStyle(style)
+	if glowStyle == "BUTTON" then
+		pcall(LibCustomGlow.ButtonGlow_Start, element, glowColor, 0.125, 4)
+		return
+	end
+	pcall(LibCustomGlow.PixelGlow_Start, element, glowColor, 6, 0.22, 6, 2, 0, 0, false, RAID_DEBUFF_GLOW_KEY, 4)
+end
+
+local function StopTargetSelectionGlow(frame)
+	if not (LibCustomGlow and frame) then
+		return
+	end
+	pcall(LibCustomGlow.ButtonGlow_Stop, frame)
+end
+
+local function StartTargetSelectionGlow(frame, color, style)
+	if not (LibCustomGlow and frame) then
+		return false
+	end
+	StopTargetSelectionGlow(frame)
+	local glowStyle = NormalizeTargetGlowStyle(style)
+	if glowStyle ~= "BUTTON" then
+		return false
+	end
+	local glowColor = color or { 0.95, 0.85, 0.25, 0.92 }
+	local ok = pcall(LibCustomGlow.ButtonGlow_Start, frame, glowColor, 0.125, 8)
+	return ok and true or false
 end
 
 local SUF_DISPEL_FILTER = nil
@@ -5933,7 +6131,8 @@ function addon:EnsureRaidDebuffsElement(frame)
 				return
 			end
 		end
-		StartRaidDebuffGlow(widget)
+		local style = pluginCfg and pluginCfg.raidDebuffs and pluginCfg.raidDebuffs.glowStyle or "PIXEL"
+		StartRaidDebuffGlow(widget, style)
 	end
 	element.__owner = frame
 
@@ -6438,6 +6637,7 @@ function addon:ApplyMedia(frame)
 				frame.Castbar.Shield:SetShown(castbarCfg.showShield ~= false)
 			end
 			UpdateCastbarEnhancementWidgets(frame.Castbar, castbarCfg)
+			local enhancementCfg = self:GetEnhancementSettings()
 
 			local function UpdateInterruptVisual(castbar)
 				local isHostile = UnitCanAttack and castbar.unit and UnitCanAttack("player", castbar.unit)
@@ -6459,8 +6659,8 @@ function addon:ApplyMedia(frame)
 				else
 					local niColor = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
 					castbar:SetStatusBarColor(niColor[1] or 0.75, niColor[2] or 0.75, niColor[3] or 0.75)
-					if self:GetEnhancementSettings().castbarNonInterruptibleGlow ~= false then
-						StartCastbarNonInterruptGlow(castbar, { niColor[1] or 0.75, niColor[2] or 0.75, niColor[3] or 0.75, 0.90 })
+					if enhancementCfg.castbarNonInterruptibleGlow ~= false then
+						StartCastbarNonInterruptGlow(castbar, { niColor[1] or 0.75, niColor[2] or 0.75, niColor[3] or 0.75, 0.90 }, enhancementCfg.castbarNonInterruptibleGlowStyle)
 					else
 						StopCastbarNonInterruptGlow(castbar)
 					end
@@ -6552,8 +6752,8 @@ function addon:ApplyMedia(frame)
 			frame.Castbar.PostCastNotInterruptible = function(castbar)
 				local color = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
 				castbar:SetStatusBarColor(color[1] or 0.75, color[2] or 0.75, color[3] or 0.75)
-				if self:GetEnhancementSettings().castbarNonInterruptibleGlow ~= false then
-					StartCastbarNonInterruptGlow(castbar, { color[1] or 0.75, color[2] or 0.75, color[3] or 0.75, 0.90 })
+				if enhancementCfg.castbarNonInterruptibleGlow ~= false then
+					StartCastbarNonInterruptGlow(castbar, { color[1] or 0.75, color[2] or 0.75, color[3] or 0.75, 0.90 }, enhancementCfg.castbarNonInterruptibleGlowStyle)
 				else
 					StopCastbarNonInterruptGlow(castbar)
 				end
@@ -6709,10 +6909,11 @@ function addon:ApplyIndicators(frame)
 	end
 
 	if frame.ThreatIndicator then
-		local threatSize = math.max(12, math.floor(size * 0.6))
+		local threatSize = math.max(12, math.floor(size * 0.6)) * 1.5  -- Smaller threat indicator
 		frame.ThreatIndicator:SetSize(threatSize, threatSize)
 		frame.ThreatIndicator:ClearAllPoints()
-		frame.ThreatIndicator:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 2, 2)
+		-- Position completely outside frame at top right corner
+		frame.ThreatIndicator:SetPoint("BOTTOMLEFT", frame, "TOPRIGHT", 2, 2)
 	end
 
 	if frame.QuestIndicator then
@@ -6776,6 +6977,7 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 
 	local unit = frame.unit
 	if type(unit) ~= "string" or unit == "" then
+		StopTargetSelectionGlow(frame)
 		if frame.RoleIndicator then frame.RoleIndicator:Hide() end
 		if frame.RaidMarkerIndicator then frame.RaidMarkerIndicator:Hide() end
 		if frame.LeaderIndicator then frame.LeaderIndicator:Hide() end
@@ -6785,6 +6987,7 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		return
 	end
 	if UnitExists and not UnitExists(unit) then
+		StopTargetSelectionGlow(frame)
 		if frame.RoleIndicator then frame.RoleIndicator:Hide() end
 		if frame.RaidMarkerIndicator then frame.RaidMarkerIndicator:Hide() end
 		if frame.LeaderIndicator then frame.LeaderIndicator:Hide() end
@@ -6841,6 +7044,7 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 	if frame.TargetIndicator then
 		local globalGlowEnabled = self.db and self.db.profile and self.db.profile.visibility and self.db.profile.visibility.enableTargetSelectionGlow ~= false
 		local glowCfg = self:GetUnitTargetGlowSettings(frame.sufUnitType)
+		local style = NormalizeTargetGlowStyle(glowCfg and glowCfg.style)
 		local enabled = globalGlowEnabled and glowCfg and glowCfg.enabled == true
 		local isTarget = false
 		if enabled and UnitExists and UnitExists("target") and UnitExists(unit) then
@@ -6857,10 +7061,16 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		if isTarget then
 			local color = glowCfg.color or DEFAULT_UNIT_TARGET_GLOW.color
 			local alpha = color[4] or 0.92
-			frame.TargetIndicator:SetBackdropBorderColor(color[1] or 0.95, color[2] or 0.85, color[3] or 0.25, alpha)
-			frame.TargetIndicator:SetAlpha(alpha)
-			frame.TargetIndicator:Show()
+			if style == "BUTTON" and StartTargetSelectionGlow(frame, color, style) then
+				frame.TargetIndicator:Hide()
+			else
+				StopTargetSelectionGlow(frame)
+				frame.TargetIndicator:SetBackdropBorderColor(color[1] or 0.95, color[2] or 0.85, color[3] or 0.25, alpha)
+				frame.TargetIndicator:SetAlpha(alpha)
+				frame.TargetIndicator:Show()
+			end
 		else
+			StopTargetSelectionGlow(frame)
 			frame.TargetIndicator:Hide()
 		end
 	end
@@ -7001,6 +7211,15 @@ function addon:RefreshAllGlowIndicators()
 			end
 		end
 	end
+end
+
+function addon:OnFactionDataChanged()
+	self:ScheduleUpdateDataBars()
+	self:ScheduleUpdateDataTextPanel()
+end
+
+function addon:OnCurrencyDisplayUpdate()
+	self:ScheduleUpdateDataTextPanel()
 end
 
 function addon:OnPlayerTargetChanged()
@@ -7350,6 +7569,38 @@ function addon:ApplySize(frame)
 			frame.Auras:SetPoint("BOTTOMRIGHT", topAnchor, "TOPRIGHT", 0, 4)
 			frame.Auras.needFullUpdate = true
 			frame.__sufAuraAnchorSig = anchorSig
+		end
+	end
+
+	if frame.Totems and frame.TotemAnchor then
+		-- Per oUF pattern and user preferences (edge cases): anchor totems above full aura stack
+		-- with fallback to ClassPowerAnchor/AdditionalPower if auras disabled/hidden.
+		-- This ensures totems remain visible and properly positioned regardless of aura state.
+		local totemAnchor = frame
+		if frame.Auras and frame.Auras:IsShown() then
+			totemAnchor = frame.Auras
+		elseif frame.ClassPowerAnchor and HasVisibleClassPower(frame) then
+			totemAnchor = frame.ClassPowerAnchor
+		elseif frame.AdditionalPower and frame.AdditionalPower:IsShown() then
+			totemAnchor = frame.AdditionalPower
+		end
+
+		local totemAnchorSig = tostring(totemAnchor)
+		if frame.__sufTotemAnchorSig ~= totemAnchorSig then
+			-- Reposition the anchor frame to be above the target anchor
+			frame.TotemAnchor:ClearAllPoints()
+			frame.TotemAnchor:SetPoint("BOTTOMLEFT", totemAnchor, "TOPLEFT", 0, 4)
+			frame.TotemAnchor:SetPoint("BOTTOMRIGHT", totemAnchor, "TOPRIGHT", 0, 4)
+			frame.TotemAnchor:SetHeight(36)  -- Totem size
+
+			-- Ensure all 4 totem buttons are visible and properly positioned
+			for i = 1, 4 do
+				if frame.Totems[i] then
+					frame.Totems[i]:Show()
+				end
+			end
+
+			frame.__sufTotemAnchorSig = totemAnchorSig
 		end
 	end
 
@@ -8970,6 +9221,8 @@ function addon:Style(frame, unit)
 		self:SetupClassPowerCallbacks(frame)
 		CreateAuras(frame)
 
+
+
 		local secondaryGap = math.max(-6, math.min(24, math.floor((unitLayout.secondaryToFrame or 0) + 0.5)))
 		local AdditionalPower = CreateStatusBar(frame, math.max(4, math.floor(self.db.profile.powerHeight * 0.7)))
 		AdditionalPower:SetPoint("BOTTOMLEFT", Health, "TOPLEFT", 0, secondaryGap)
@@ -9313,6 +9566,16 @@ function addon:SpawnFrames()
 		self.spawned = true
 		-- Expose addon globally AFTER spawning completes (safe from oUF lookup)
 		_G.SimpleUnitFrames = self
+
+		-- Register frames with EditMode integration
+		if self.EditModeIntegration and C_EditMode then
+			for _, frame in ipairs(self.frames) do
+				if frame then
+					self.EditModeIntegration:RegisterFrameWithEditMode(frame)
+					self.EditModeIntegration:ApplyElementVisibility(frame, frame.sufUnitType)
+				end
+			end
+		end
 	end
 
 	self:ApplyVisibilityRules()
@@ -10467,6 +10730,11 @@ function addon:OnInitialize()
 			self:Print(addonName .. ": Blizzard skin report is unavailable.")
 		end
 	end)
+
+	-- Initialize EditMode integration (WoW 12.0.0+)
+	if self.EditModeIntegration and self.EditModeIntegration.Initialize then
+		self.EditModeIntegration:Initialize()
+	end
 end
 
 function addon:RegisterUnitScopedDataEvents()
@@ -10570,15 +10838,18 @@ function addon:OnEnable()
 	self:RegisterEvent("PLAYER_DIFFICULTY_CHANGED", "OnGroupRosterUpdate")
 	self:RegisterEvent("PLAYER_XP_UPDATE", "ScheduleUpdateDataBars")
 	self:RegisterEvent("UPDATE_EXHAUSTION", "ScheduleUpdateDataBars")
-	self:RegisterEvent("UPDATE_FACTION", "ScheduleUpdateDataBars")
+	self:RegisterEvent("UPDATE_FACTION", "OnFactionDataChanged")
 	self:RegisterEvent("QUEST_LOG_UPDATE", "ScheduleUpdateDataBars")
 	self:RegisterEvent("PET_BAR_UPDATE", "ScheduleUpdateDataBars")
 	self:RegisterUnitScopedDataEvents()
 	self:RegisterEvent("UPDATE_INVENTORY_DURABILITY", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("PLAYER_MONEY", "ScheduleUpdateDataTextPanel")
+	self:RegisterEvent("CURRENCY_DISPLAY_UPDATE", "OnCurrencyDisplayUpdate")
 	self:RegisterEvent("BAG_UPDATE_DELAYED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("ZONE_CHANGED", "ScheduleUpdateDataTextPanel")
 	self:RegisterEvent("ZONE_CHANGED_INDOORS", "ScheduleUpdateDataTextPanel")
+	pcall(self.RegisterEvent, self, "MAJOR_FACTION_RENOWN_LEVEL_CHANGED", "OnFactionDataChanged")
+	pcall(self.RegisterEvent, self, "MAJOR_FACTION_UNLOCKED", "OnFactionDataChanged")
 	self:RegisterEvent("PLAYER_TARGET_CHANGED", "OnPlayerTargetChanged")
 	self:RegisterEvent("PLAYER_FOCUS_CHANGED", "OnPlayerFocusChanged")
 	self:RegisterEvent("PLAYER_FLAGS_CHANGED", "OnPlayerFlagsChanged")

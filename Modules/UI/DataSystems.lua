@@ -10,6 +10,18 @@ local core = addon._core or {}
 local defaults = core.defaults or {}
 local DEFAULT_TEXTURE = core.DEFAULT_TEXTURE or "Interface\\TargetingFrame\\UI-StatusBar"
 local DATATEXT_SLOT_ORDER = core.DATATEXT_SLOT_ORDER or { "left", "center", "right" }
+local DATATEXT_SLOT_ORDER_FIVE = core.DATATEXT_SLOT_ORDER_FIVE or { "farLeft", "left", "center", "right", "farRight" }
+local DATATEXT_SLOT_ORDER_SEVEN = core.DATATEXT_SLOT_ORDER_SEVEN or { "outerLeft", "farLeft", "left", "center", "right", "farRight", "outerRight" }
+local DATATEXT_DEFAULT_SOURCES = {
+	outerLeft = "Spec",
+	farLeft = "Latency",
+	left = "FPS",
+	center = "Time",
+	right = "Memory",
+	farRight = "Gold",
+	outerRight = "System",
+}
+local DATATEXT_ALL_SLOT_ORDER = DATATEXT_SLOT_ORDER_SEVEN
 local FormatCompactValue = core.FormatCompactValue
 local SetStatusBarTexturePreserveLayer = core.SetStatusBarTexturePreserveLayer
 local GetWatchedFactionInfoCompat = core.GetWatchedFactionInfoCompat
@@ -72,22 +84,86 @@ local function IsDataBarsDragContextActive(context)
 	if InCombatLockdown and InCombatLockdown() then
 		return false
 	end
-	if IsShiftDragRequested() then
-		return true
-	end
-	local cfg = context and context.db and context.db.profile and context.db.profile.databars
-	return cfg and IsEditModePosition(cfg.positionMode)
+	return IsShiftDragRequested()
 end
 
 local function IsDataTextDragContextActive(context)
 	if InCombatLockdown and InCombatLockdown() then
 		return false
 	end
-	if IsShiftDragRequested() then
-		return true
+	return IsShiftDragRequested()
+end
+
+local function ClampDataTextSlotCount(slotCount)
+	local normalized = math.floor((tonumber(slotCount) or 3) + 0.5)
+	if normalized < 3 then
+		return 3
 	end
-	local cfg = context and context.db and context.db.profile and context.db.profile.datatext
-	return cfg and IsEditModePosition(cfg.positionMode)
+	if normalized >= 7 then
+		return 7
+	end
+	if normalized >= 5 then
+		return 5
+	end
+	return 3
+end
+
+local function GetActiveDataTextSlotOrder(dataTextConfig)
+	local panelCfg = dataTextConfig and dataTextConfig.panel
+	if panelCfg then
+		panelCfg.slotCount = ClampDataTextSlotCount(panelCfg.slotCount)
+		if panelCfg.slotCount >= 7 then
+			return DATATEXT_SLOT_ORDER_SEVEN
+		end
+		if panelCfg.slotCount >= 5 then
+			return DATATEXT_SLOT_ORDER_FIVE
+		end
+	end
+	return DATATEXT_SLOT_ORDER
+end
+
+local function GetMaxDataTextPanelWidth()
+	local screenWidth = UIParent and UIParent.GetWidth and UIParent:GetWidth() or 1920
+	screenWidth = tonumber(screenWidth) or 1920
+	return math.max(280, math.floor(screenWidth + 0.5))
+end
+
+local function NormalizeLDBDisplayMode(mode)
+	local normalized = tostring(mode or "AUTO")
+	if normalized == "TEXT" or normalized == "ICON" or normalized == "ICON_TEXT" then
+		return normalized
+	end
+	return "AUTO"
+end
+
+local function GetDataTextSlotDisplayMode(dataTextConfig, slot)
+	local slotDisplay = dataTextConfig and dataTextConfig.slotDisplay
+	if type(slotDisplay) ~= "table" then
+		return "AUTO"
+	end
+	return NormalizeLDBDisplayMode(slotDisplay[slot])
+end
+
+local function GetDataTextButtonMetrics(panelWidth, panelHeight, slotCount)
+	local count = math.max(1, tonumber(slotCount) or 3)
+	local usableWidth = math.max(120, (tonumber(panelWidth) or 520) - 16)
+	local buttonGap = (count >= 5) and 4 or 8
+	local buttonWidth = math.floor((usableWidth - (buttonGap * (count - 1))) / count)
+	if buttonWidth < 74 then
+		buttonWidth = math.floor(usableWidth / count)
+		buttonGap = 0
+	end
+	local buttonHeight = math.max(16, (tonumber(panelHeight) or 20) - 2)
+	return buttonWidth, buttonHeight, buttonGap
+end
+
+local function GetDataTextButtonOffset(index, slotCount, buttonWidth, buttonGap)
+	local count = math.max(1, tonumber(slotCount) or 1)
+	if count <= 1 then
+		return 0
+	end
+	local span = ((count - 1) * (buttonWidth + buttonGap))
+	return math.floor((-span / 2) + ((index - 1) * (buttonWidth + buttonGap)) + 0.5)
 end
 
 local function ForwardDragStartFromChild(root)
@@ -416,26 +492,377 @@ local function GetPlayerMovementSpeedPercent()
 	return (speed / base) * 100
 end
 
+local function IsSecretValue(value)
+	return type(issecretvalue) == "function" and issecretvalue(value)
+end
+
+local function SafeNumber(value, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
+	local numericValue = tonumber(value)
+	if numericValue == nil then
+		return fallback
+	end
+	return numericValue
+end
+
+local function SafeText(value, fallback)
+	if IsSecretValue(value) then
+		return fallback
+	end
+	if value == nil then
+		return fallback
+	end
+	return tostring(value)
+end
+
+local function TruncateLabel(text, maxChars)
+	local normalized = SafeText(text, "")
+	local maxLength = math.max(4, tonumber(maxChars) or 14)
+	if string.len(normalized) <= maxLength then
+		return normalized
+	end
+	return normalized:sub(1, maxLength - 3) .. "..."
+end
+
+local function GetReactionLabel(reaction)
+	local reactionIndex = SafeNumber(reaction, nil)
+	if reactionIndex then
+		local label = _G["FACTION_STANDING_LABEL" .. reactionIndex] or _G["FACTION_STANDING_LABEL" .. reactionIndex .. "_FEMALE"]
+		if label and label ~= "" then
+			return label
+		end
+	end
+	return SafeText(reaction, "?")
+end
+
+local function IsFactionParagonForPlayer(factionID)
+	if not factionID or not C_Reputation then
+		return false
+	end
+	if C_Reputation.IsFactionParagonForCurrentPlayer then
+		local ok, result = pcall(C_Reputation.IsFactionParagonForCurrentPlayer, factionID)
+		if ok then
+			return result and true or false
+		end
+	end
+	if C_Reputation.IsFactionParagon then
+		local ok, result = pcall(C_Reputation.IsFactionParagon, factionID)
+		if ok then
+			return result and true or false
+		end
+	end
+	return false
+end
+
+local function FormatCurrencyAmountWithCap(currencyData)
+	local quantity = SafeNumber(currencyData and currencyData.quantity, 0) or 0
+	local maxQuantity = SafeNumber(currencyData and currencyData.maxQuantity, 0) or 0
+	if maxQuantity > 0 then
+		return ("%s/%s"):format(FormatCompactValue(quantity), FormatCompactValue(maxQuantity))
+	end
+	return FormatCompactValue(quantity)
+end
+
+local function BuildCurrencyEntryFromListInfo(info)
+	if type(info) ~= "table" then
+		return nil
+	end
+	if info.isHeader or info.isTypeUnused then
+		return nil
+	end
+	local quantity = SafeNumber(info.quantity, nil)
+	local currencyName = SafeText(info.name, nil)
+	if not currencyName or quantity == nil then
+		return nil
+	end
+	return {
+		currencyID = SafeNumber(info.currencyID, nil),
+		name = currencyName,
+		quantity = quantity,
+		iconFileID = info.iconFileID,
+		maxQuantity = SafeNumber(info.maxQuantity, 0) or 0,
+		maxWeeklyQuantity = SafeNumber(info.maxWeeklyQuantity, 0) or 0,
+		quantityEarnedThisWeek = SafeNumber(info.quantityEarnedThisWeek, 0) or 0,
+		canEarnPerWeek = info.canEarnPerWeek == true,
+		isShowInBackpack = info.isShowInBackpack == true,
+		isDiscovered = info.isDiscovered ~= false,
+	}
+end
+
 local function CollectTrackedCurrencies(maxCount)
-	local out = {}
+	local output = {}
 	local limit = math.max(1, tonumber(maxCount) or 8)
+	local allEntries = {}
 	if C_CurrencyInfo and C_CurrencyInfo.GetCurrencyListSize and C_CurrencyInfo.GetCurrencyListInfo then
-		local size = tonumber(C_CurrencyInfo.GetCurrencyListSize()) or 0
-		for i = 1, size do
-			local info = C_CurrencyInfo.GetCurrencyListInfo(i)
-			if info and info.name and info.quantity and not info.isHeader and not info.isTypeUnused and not info.isShowInBackpack then
-				out[#out + 1] = {
-					name = tostring(info.name),
-					quantity = tonumber(info.quantity) or 0,
-					iconFileID = info.iconFileID,
-				}
-				if #out >= limit then
-					break
+		local size = SafeNumber(C_CurrencyInfo.GetCurrencyListSize(), 0) or 0
+		for index = 1, size do
+			local info = C_CurrencyInfo.GetCurrencyListInfo(index)
+			local entry = BuildCurrencyEntryFromListInfo(info)
+			if entry and entry.isDiscovered then
+				if entry.currencyID and C_CurrencyInfo.IsCurrencyTracked then
+					local ok, tracked = pcall(C_CurrencyInfo.IsCurrencyTracked, entry.currencyID)
+					entry.isTracked = ok and tracked and true or false
+				else
+					entry.isTracked = false
+				end
+				allEntries[#allEntries + 1] = entry
+			end
+		end
+	end
+
+	if #allEntries == 0 then
+		return output
+	end
+
+	local added = {}
+	local function AddEntryIfMatch(entry)
+		if #output >= limit or type(entry) ~= "table" then
+			return
+		end
+		local uniqueKey = SafeText(entry.currencyID, nil) or SafeText(entry.name, nil)
+		if uniqueKey and added[uniqueKey] then
+			return
+		end
+		if uniqueKey then
+			added[uniqueKey] = true
+		end
+		output[#output + 1] = entry
+	end
+
+	for index = 1, #allEntries do
+		local entry = allEntries[index]
+		if entry.isShowInBackpack then
+			AddEntryIfMatch(entry)
+		end
+	end
+	for index = 1, #allEntries do
+		local entry = allEntries[index]
+		if entry.isTracked then
+			AddEntryIfMatch(entry)
+		end
+	end
+	for index = 1, #allEntries do
+		if #output >= limit then
+			break
+		end
+		AddEntryIfMatch(allEntries[index])
+	end
+
+	return output
+end
+
+local function GetWatchedReputationData()
+	local watchedFactionData
+	if C_Reputation and C_Reputation.GetWatchedFactionData then
+		local ok, data = pcall(C_Reputation.GetWatchedFactionData)
+		if ok and type(data) == "table" and data.name and SafeNumber(data.factionID, 0) ~= 0 then
+			watchedFactionData = data
+		end
+	end
+
+	local factionName, reaction, minRep, maxRep, curRep, factionID
+	if watchedFactionData then
+		factionName = SafeText(watchedFactionData.name, nil)
+		reaction = SafeNumber(watchedFactionData.reaction, nil)
+		minRep = SafeNumber(watchedFactionData.currentReactionThreshold, 0) or 0
+		maxRep = SafeNumber(watchedFactionData.nextReactionThreshold, minRep + 1) or (minRep + 1)
+		curRep = SafeNumber(watchedFactionData.currentStanding, minRep) or minRep
+		factionID = SafeNumber(watchedFactionData.factionID, nil)
+	else
+		factionName, reaction, minRep, maxRep, curRep, factionID = GetWatchedFactionInfoCompat()
+		factionName = SafeText(factionName, nil)
+		reaction = SafeNumber(reaction, nil)
+		minRep = SafeNumber(minRep, 0) or 0
+		maxRep = SafeNumber(maxRep, minRep + 1) or (minRep + 1)
+		curRep = SafeNumber(curRep, minRep) or minRep
+		factionID = SafeNumber(factionID, nil)
+	end
+
+	if not factionName or factionName == "" then
+		return nil
+	end
+
+	if maxRep <= minRep then
+		maxRep = minRep + 1
+	end
+	if curRep < minRep then
+		curRep = minRep
+	elseif curRep > maxRep then
+		curRep = maxRep
+	end
+
+	local reputationData = {
+		kind = "standard",
+		name = factionName,
+		factionID = factionID,
+		reaction = reaction,
+		rankText = GetReactionLabel(reaction),
+		minRep = minRep,
+		maxRep = maxRep,
+		curRep = curRep,
+		isAccountWide = false,
+		isMajorAtMaxRenown = false,
+		hideProgressInTooltip = false,
+		paragonRewardPending = false,
+	}
+
+	if factionID and C_Reputation and C_Reputation.IsAccountWideReputation then
+		local ok, isAccountWide = pcall(C_Reputation.IsAccountWideReputation, factionID)
+		reputationData.isAccountWide = ok and isAccountWide and true or false
+	end
+
+	if factionID and C_Reputation and C_Reputation.IsMajorFaction and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
+		local ok, isMajor = pcall(C_Reputation.IsMajorFaction, factionID)
+		if ok and isMajor then
+			local okMajorData, majorFactionData = pcall(C_MajorFactions.GetMajorFactionData, factionID)
+			if okMajorData and type(majorFactionData) == "table" then
+				local renownLevel = SafeNumber(majorFactionData.renownLevel, 0) or 0
+				local renownThreshold = SafeNumber(majorFactionData.renownLevelThreshold, 1) or 1
+				local renownEarned = SafeNumber(majorFactionData.renownReputationEarned, 0) or 0
+				reputationData.kind = "major"
+				reputationData.rankText = ("Renown %d"):format(math.max(0, math.floor(renownLevel + 0.5)))
+				reputationData.reaction = 10
+				reputationData.minRep = 0
+				reputationData.maxRep = math.max(1, renownThreshold)
+				reputationData.curRep = math.max(0, renownEarned)
+
+				if C_MajorFactions.HasMaximumRenown then
+					local okMax, hasMaximumRenown = pcall(C_MajorFactions.HasMaximumRenown, factionID)
+					if okMax and hasMaximumRenown then
+						reputationData.isMajorAtMaxRenown = true
+						reputationData.curRep = reputationData.maxRep
+						reputationData.hideProgressInTooltip = true
+					end
 				end
 			end
 		end
 	end
-	return out
+
+	if reputationData.kind == "standard" and factionID and C_GossipInfo and C_GossipInfo.GetFriendshipReputation then
+		local ok, friendshipData = pcall(C_GossipInfo.GetFriendshipReputation, factionID)
+		if ok and type(friendshipData) == "table" then
+			local friendshipFactionID = SafeNumber(friendshipData.friendshipFactionID, 0) or 0
+			if friendshipFactionID > 0 then
+				reputationData.kind = "friendship"
+				reputationData.rankText = SafeText(friendshipData.reaction, reputationData.rankText)
+				local friendMin = SafeNumber(friendshipData.reactionThreshold, 0) or 0
+				local friendNext = SafeNumber(friendshipData.nextThreshold, nil)
+				local friendStanding = SafeNumber(friendshipData.standing, friendMin) or friendMin
+				if friendNext and friendNext > friendMin then
+					reputationData.minRep = friendMin
+					reputationData.maxRep = friendNext
+					reputationData.curRep = friendStanding
+				else
+					reputationData.minRep = 0
+					reputationData.maxRep = 1
+					reputationData.curRep = 1
+					reputationData.hideProgressInTooltip = true
+				end
+			end
+		end
+	end
+
+	if factionID and IsFactionParagonForPlayer(factionID) and C_Reputation and C_Reputation.GetFactionParagonInfo then
+		local ok, currentValue, threshold, _, hasRewardPending, tooLowLevelForParagon = pcall(C_Reputation.GetFactionParagonInfo, factionID)
+		if ok then
+			local paragonThreshold = SafeNumber(threshold, nil)
+			local paragonCurrentValue = SafeNumber(currentValue, nil)
+			if paragonThreshold and paragonThreshold > 0 and paragonCurrentValue and not tooLowLevelForParagon then
+				reputationData.kind = "paragon"
+				reputationData.paragonRewardPending = hasRewardPending and true or false
+				reputationData.minRep = 0
+				reputationData.maxRep = paragonThreshold
+				local wrappedValue = paragonCurrentValue % paragonThreshold
+				reputationData.curRep = reputationData.paragonRewardPending and paragonThreshold or wrappedValue
+				local baseRank = SafeText(reputationData.rankText, "Exalted")
+				reputationData.rankText = ("%s (Paragon)"):format(baseRank)
+				reputationData.hideProgressInTooltip = false
+			end
+		end
+	end
+
+	if reputationData.maxRep <= reputationData.minRep then
+		reputationData.maxRep = reputationData.minRep + 1
+	end
+	if reputationData.curRep < reputationData.minRep then
+		reputationData.curRep = reputationData.minRep
+	elseif reputationData.curRep > reputationData.maxRep then
+		reputationData.curRep = reputationData.maxRep
+	end
+
+	local progressCurrent = math.max(0, reputationData.curRep - reputationData.minRep)
+	local progressMax = math.max(1, reputationData.maxRep - reputationData.minRep)
+	if progressCurrent > progressMax then
+		progressCurrent = progressMax
+	end
+	reputationData.progressCurrent = progressCurrent
+	reputationData.progressMax = progressMax
+	reputationData.progressPercent = math.floor((progressCurrent / progressMax) * 100 + 0.5)
+	reputationData.isCapped = progressCurrent >= progressMax
+
+	if reputationData.isCapped and reputationData.kind ~= "paragon" then
+		reputationData.hideProgressInTooltip = reputationData.hideProgressInTooltip or true
+	end
+
+	return reputationData
+end
+
+local function BuildReputationSummaryText(reputationData)
+	if not reputationData then
+		return "Rep: --"
+	end
+	local factionName = TruncateLabel(reputationData.name, 14)
+	if reputationData.paragonRewardPending then
+		return ("Rep: %s !"):format(factionName)
+	end
+	if reputationData.hideProgressInTooltip and reputationData.rankText then
+		return ("Rep: %s %s"):format(factionName, reputationData.rankText)
+	end
+	return ("Rep: %s %d%%"):format(factionName, reputationData.progressPercent or 0)
+end
+
+local function AddReputationTooltipLines(tooltip, reputationData)
+	if not reputationData then
+		tooltip:AddLine("No watched faction.", 0.9, 0.35, 0.35)
+		return
+	end
+
+	tooltip:AddDoubleLine("Faction", SafeText(reputationData.name, "--"), 0.82, 0.82, 0.82, 1, 1, 1)
+	tooltip:AddDoubleLine("Standing", SafeText(reputationData.rankText, "--"), 0.82, 0.82, 0.82, 1, 1, 1)
+	if not reputationData.hideProgressInTooltip then
+		tooltip:AddDoubleLine(
+			"Progress",
+			("%d / %d (%d%%)"):format(reputationData.progressCurrent or 0, reputationData.progressMax or 1, reputationData.progressPercent or 0),
+			0.82,
+			0.82,
+			0.82,
+			1,
+			1,
+			1
+		)
+	end
+
+	if reputationData.kind == "major" then
+		if reputationData.isMajorAtMaxRenown then
+			tooltip:AddLine("Maximum Renown reached.", 0.55, 0.9, 1)
+		else
+			tooltip:AddLine("Major Faction (Renown)", 0.55, 0.9, 1)
+		end
+	elseif reputationData.kind == "friendship" then
+		tooltip:AddLine("Friendship Reputation", 0.55, 0.9, 1)
+	elseif reputationData.kind == "paragon" then
+		tooltip:AddLine("Paragon Reputation", 0.55, 0.9, 1)
+	end
+
+	if reputationData.paragonRewardPending then
+		tooltip:AddLine("Paragon reward available.", 1, 0.82, 0)
+	end
+
+	if reputationData.isAccountWide then
+		tooltip:AddLine("Account-wide reputation.", 0.65, 0.9, 1)
+	end
 end
 
 local dataTextMemoryCacheValue = "Mem: 0.0MB"
@@ -704,7 +1131,7 @@ function addon:GetBuiltinDataTextMap()
 				local parts = {}
 				for i = 1, #list do
 					local info = list[i]
-					parts[#parts + 1] = ("%s %s"):format(info.name, FormatCompactValue(info.quantity))
+					parts[#parts + 1] = ("%s %s"):format(info.name, FormatCurrencyAmountWithCap(info))
 				end
 				return table.concat(parts, " | ")
 			end,
@@ -717,7 +1144,55 @@ function addon:GetBuiltinDataTextMap()
 				for i = 1, #list do
 					local info = list[i]
 					local icon = info.iconFileID and ("|T%d:14:14:0:0:64:64:4:60:4:60|t "):format(info.iconFileID) or ""
-					tooltip:AddDoubleLine(icon .. info.name, BreakUpLargeNumbers and BreakUpLargeNumbers(info.quantity) or tostring(info.quantity), 1, 1, 1, 0.82, 0.96, 1)
+					local quantity = SafeNumber(info.quantity, 0) or 0
+					local maxQuantity = SafeNumber(info.maxQuantity, 0) or 0
+					local quantityText = BreakUpLargeNumbers and BreakUpLargeNumbers(quantity) or tostring(quantity)
+					if maxQuantity > 0 then
+						local maxText = BreakUpLargeNumbers and BreakUpLargeNumbers(maxQuantity) or tostring(maxQuantity)
+						quantityText = ("%s / %s"):format(quantityText, maxText)
+					end
+					tooltip:AddDoubleLine(icon .. info.name, quantityText, 1, 1, 1, 0.82, 0.96, 1)
+					local maxWeekly = SafeNumber(info.maxWeeklyQuantity, 0) or 0
+					local earnedWeekly = SafeNumber(info.quantityEarnedThisWeek, 0) or 0
+					if maxWeekly > 0 then
+						local weeklyEarnedText = BreakUpLargeNumbers and BreakUpLargeNumbers(earnedWeekly) or tostring(earnedWeekly)
+						local weeklyMaxText = BreakUpLargeNumbers and BreakUpLargeNumbers(maxWeekly) or tostring(maxWeekly)
+						tooltip:AddDoubleLine("  Weekly", ("%s / %s"):format(weeklyEarnedText, weeklyMaxText), 0.75, 0.75, 0.75, 0.95, 0.95, 0.95)
+					end
+				end
+				tooltip:AddLine(" ")
+				tooltip:AddLine("Left-click to open currency panel.", 0.75, 0.75, 0.75)
+			end,
+			click = function(mouseButton)
+				if mouseButton ~= "LeftButton" then
+					return
+				end
+				if ToggleCharacter then
+					pcall(ToggleCharacter, "TokenFrame")
+				end
+			end,
+		},
+		Reputation = {
+			label = "Reputation",
+			text = function()
+				local reputationData = GetWatchedReputationData()
+				return BuildReputationSummaryText(reputationData)
+			end,
+			tooltip = function(tooltip)
+				local reputationData = GetWatchedReputationData()
+				AddReputationTooltipLines(tooltip, reputationData)
+				tooltip:AddLine(" ")
+				tooltip:AddLine("Left-click to open reputation panel.", 0.75, 0.75, 0.75)
+			end,
+			click = function(mouseButton)
+				if mouseButton ~= "LeftButton" then
+					return
+				end
+				if ToggleCharacter then
+					local ok = pcall(ToggleCharacter, "ReputationFrame")
+					if not ok then
+						pcall(ToggleCharacter, "TokenFrame")
+					end
 				end
 			end,
 		},
@@ -726,11 +1201,43 @@ function addon:GetBuiltinDataTextMap()
 	return map
 end
 
+function addon:RegisterDataTextProvider(name, providerDef)
+	if not self._dataTextProviderRegistry then
+		self._dataTextProviderRegistry = {}
+	end
+	if not name or not providerDef then
+		return false
+	end
+	self._dataTextProviderRegistry[tostring(name)] = providerDef
+	return true
+end
+
+function addon:UnregisterDataTextProvider(name)
+	if self._dataTextProviderRegistry then
+		self._dataTextProviderRegistry[tostring(name)] = nil
+	end
+end
+
+function addon:GetDataTextProvider(name)
+	if self._dataTextProviderRegistry and self._dataTextProviderRegistry[tostring(name)] then
+		return self._dataTextProviderRegistry[tostring(name)]
+	end
+	local builtins = self:GetBuiltinDataTextMap()
+	return builtins[tostring(name)]
+end
+
 function addon:GetAvailableDataTextSources()
 	local list = {}
 	local builtins = self:GetBuiltinDataTextMap()
-	for key in pairs(builtins) do
-		list[#list + 1] = { value = key, text = key }
+	if builtins then
+		for key in pairs(builtins) do
+			list[#list + 1] = { value = key, text = key }
+		end
+	end
+	if self._dataTextProviderRegistry then
+		for key in pairs(self._dataTextProviderRegistry) do
+			list[#list + 1] = { value = key, text = key }
+		end
 	end
 	if LDB and LDB.DataObjectIterator then
 		for name in LDB:DataObjectIterator() do
@@ -740,6 +1247,10 @@ function addon:GetAvailableDataTextSources()
 	table.sort(list, function(a, b)
 		return tostring(a.text) < tostring(b.text)
 	end)
+	-- Debug output to help diagnose missing options
+	if #list == 0 then
+		self:DebugLog("DataSystems", "WARNING: GetAvailableDataTextSources returned 0 items!", 1)
+	end
 	return list
 end
 
@@ -748,6 +1259,9 @@ function addon:GetDataTextSource(rawValue)
 	local builtins = self:GetBuiltinDataTextMap()
 	if builtins[value] then
 		return "builtin", value, builtins[value]
+	end
+	if self._dataTextProviderRegistry and self._dataTextProviderRegistry[value] then
+		return "custom", value, self._dataTextProviderRegistry[value]
 	end
 	local ldbPrefix = "LDB:"
 	if value:sub(1, #ldbPrefix) == ldbPrefix and LDB and LDB.GetDataObjectByName then
@@ -774,6 +1288,269 @@ function addon:ScheduleUpdateDataTextPanel(delay)
 	end)
 end
 
+local LDB_TOOLTIP_REFRESH_KEYS = {
+	text = true,
+	label = true,
+	value = true,
+	suffix = true,
+	icon = true,
+	tooltiptext = true,
+	type = true,
+}
+
+local function GetLDBValueText(value)
+	if value == nil then
+		return ""
+	end
+	if type(value) == "string" then
+		return SafeText(value, "") or ""
+	end
+	if type(value) == "number" then
+		local numericValue = SafeNumber(value, nil)
+		if numericValue == nil then
+			return ""
+		end
+		if math.floor(numericValue) == numericValue then
+			return tostring(math.floor(numericValue))
+		end
+		return tostring(numericValue)
+	end
+	if type(value) == "boolean" then
+		return value and "true" or "false"
+	end
+	return SafeText(value, "") or ""
+end
+
+local function BuildLDBInlineIconMarkup(icon)
+	if icon == nil then
+		return ""
+	end
+	local iconText = SafeText(icon, "") or ""
+	if iconText == "" then
+		return ""
+	end
+	return ("|T%s:0:0:0:0:64:64:4:60:4:60|t "):format(iconText)
+end
+
+local function BuildLDBDisplayText(sourceName, dataObject, displayMode)
+	if type(dataObject) ~= "table" then
+		return tostring(sourceName or "")
+	end
+
+	local mode = NormalizeLDBDisplayMode(displayMode)
+
+	local iconMarkup = BuildLDBInlineIconMarkup(dataObject.icon)
+	local text = GetLDBValueText(dataObject.text)
+	local label = GetLDBValueText(dataObject.label)
+	local value = GetLDBValueText(dataObject.value)
+	local suffix = GetLDBValueText(dataObject.suffix)
+	local sourceLabel = tostring(sourceName or "")
+
+	if mode == "ICON" then
+		if iconMarkup ~= "" then
+			return iconMarkup
+		end
+		if text ~= "" then
+			return text
+		end
+		if label ~= "" then
+			return label
+		end
+		return sourceLabel
+	end
+
+	if mode == "TEXT" then
+		if text ~= "" then
+			return text
+		end
+		if value ~= "" then
+			if suffix ~= "" then
+				return value .. suffix
+			end
+			return value
+		end
+		if label ~= "" then
+			return label
+		end
+		return sourceLabel
+	end
+
+	if text ~= "" then
+		return iconMarkup .. text
+	end
+
+	if value ~= "" then
+		if suffix ~= "" then
+			value = value .. suffix
+		end
+		if label ~= "" and label ~= value then
+			return iconMarkup .. label .. ": " .. value
+		end
+		return iconMarkup .. value
+	end
+
+	if label ~= "" then
+		return iconMarkup .. label
+	end
+
+	if mode == "ICON_TEXT" and iconMarkup ~= "" then
+		return iconMarkup .. (label ~= "" and label or sourceLabel)
+	end
+
+	return iconMarkup .. sourceLabel
+end
+
+local function AddLDBTooltipFallback(tooltip, sourceName, dataObject)
+	local title = GetLDBValueText(dataObject and dataObject.label) or ""
+	if title == "" then
+		title = GetLDBValueText(sourceName)
+	end
+	if title == "" then
+		title = "LDB Data Source"
+	end
+	tooltip:AddLine(title, 1, 1, 1)
+
+	if type(dataObject) ~= "table" then
+		tooltip:AddLine("LDB source unavailable.", 0.90, 0.35, 0.35)
+		return
+	end
+
+	local text = GetLDBValueText(dataObject.text)
+	local value = GetLDBValueText(dataObject.value)
+	local suffix = GetLDBValueText(dataObject.suffix)
+	local tooltipText = GetLDBValueText(dataObject.tooltiptext)
+
+	if text ~= "" and text ~= title then
+		tooltip:AddLine(text, 0.82, 0.82, 0.82)
+	elseif value ~= "" then
+		if suffix ~= "" then
+			value = value .. suffix
+		end
+		tooltip:AddDoubleLine("Value", value, 0.82, 0.82, 0.82, 1, 1, 1)
+	end
+
+	if tooltipText ~= "" then
+		for line in string.gmatch(tooltipText, "([^\n]+)") do
+			tooltip:AddLine(line, 0.82, 0.82, 0.82)
+		end
+	end
+
+	if type(dataObject.OnClick) == "function" then
+		tooltip:AddLine(" ")
+		tooltip:AddLine("Click to interact.", 0.75, 0.75, 0.75)
+	end
+end
+
+function addon:RefreshDataTextButtonTooltip(button)
+	if not (button and GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden())) then
+		return
+	end
+
+	local sourceType = button.sourceType
+	local sourceObj = button.sourceObj
+	local sourceName = button.sourceName or button.slot or "DataText"
+
+	GameTooltip:SetOwner(button, "ANCHOR_BOTTOMRIGHT")
+
+	if sourceType == "ldb" then
+		if sourceObj and type(sourceObj.OnTooltipShow) == "function" then
+			local ok = pcall(sourceObj.OnTooltipShow, GameTooltip)
+			if not ok then
+				GameTooltip:ClearLines()
+				AddLDBTooltipFallback(GameTooltip, sourceName, sourceObj)
+			end
+		else
+			AddLDBTooltipFallback(GameTooltip, sourceName, sourceObj)
+		end
+	elseif sourceType == "builtin" or sourceType == "custom" then
+		GameTooltip:AddLine(tostring(sourceName), 1, 1, 1)
+		if sourceObj and sourceObj.tooltip and type(sourceObj.tooltip) == "function" then
+			sourceObj.tooltip(GameTooltip)
+		else
+			GameTooltip:AddLine(sourceType == "custom" and "Custom source" or "Built-in source", 0.75, 0.75, 0.75)
+		end
+	else
+		GameTooltip:AddLine(tostring(sourceName), 1, 1, 1)
+		GameTooltip:AddLine("Source unavailable.", 0.90, 0.35, 0.35)
+	end
+
+	GameTooltip:Show()
+end
+
+local function CreateDataTextButton(panel, slot)
+	local button = CreateFrame("Button", nil, panel)
+	button.slot = slot
+	button:SetSize(120, 18)
+	button:RegisterForClicks("AnyUp")
+	button.text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
+	button.text:SetJustifyH("CENTER")
+	button:SetScript("OnEnter", function(widget)
+		local root = widget:GetParent()
+		if root then
+			root._sufHoveredButton = widget
+		end
+		local obj = widget.sourceObj
+		if widget.sourceType == "ldb" and obj and type(obj.OnEnter) == "function" and type(obj.OnTooltipShow) ~= "function" then
+			pcall(obj.OnEnter, widget)
+			if not (GameTooltip and GameTooltip.IsOwned and GameTooltip:IsOwned(widget)) then
+				addon:RefreshDataTextButtonTooltip(widget)
+			elseif GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
+				GameTooltip:Show()
+			end
+		else
+			addon:RefreshDataTextButtonTooltip(widget)
+		end
+	end)
+	button:SetScript("OnLeave", function(widget)
+		local root = widget:GetParent()
+		if root and root._sufHoveredButton == widget then
+			root._sufHoveredButton = nil
+		end
+		local obj = widget.sourceObj
+		if widget.sourceType == "ldb" and obj and type(obj.OnLeave) == "function" then
+			pcall(obj.OnLeave, widget)
+		end
+		if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) and GameTooltip.IsOwned and GameTooltip:IsOwned(widget) then
+			GameTooltip:Hide()
+		end
+	end)
+	button:SetScript("OnMouseDown", function(widget, mouseButton)
+		if mouseButton == "LeftButton" and IsShiftDragRequested() and IsDataTextDragContextActive(addon) then
+			widget._isDragging = true
+			local parent = widget:GetParent()
+			if parent and parent.unlockHandle then
+				parent.unlockHandle:SetShown(ShouldShowDragHandle(parent.__sufIsMouseOver))
+			end
+			ForwardDragStartFromChild(widget:GetParent())
+		end
+	end)
+	button:SetScript("OnMouseUp", function(widget, mouseButton)
+		-- If we were dragging, handle drag stop
+		if widget._isDragging then
+			widget._isDragging = false
+			ForwardDragStopFromChild(widget:GetParent())
+			local parent = widget:GetParent()
+			if parent and parent.unlockHandle then
+				parent.unlockHandle:Hide()
+			end
+			return
+		end
+		-- Handle clicks (only if we weren't dragging)
+		local obj = widget.sourceObj
+		if widget.sourceType == "ldb" and obj then
+			if type(obj.OnClick) == "function" then
+				pcall(obj.OnClick, widget, mouseButton)
+			elseif type(obj.OnMouseUp) == "function" then
+				pcall(obj.OnMouseUp, widget, mouseButton)
+			end
+		elseif (widget.sourceType == "builtin" or widget.sourceType == "custom") and obj and obj.click and type(obj.click) == "function" then
+			pcall(obj.click, mouseButton)
+		end
+	end)
+	return button
+end
+
 function addon:UpdateDataTextPanel()
 	local cfg = self.db and self.db.profile and self.db.profile.datatext
 	if not (cfg and cfg.enabled and self.dataTextPanel and self.dataTextPanel.buttons) then
@@ -785,8 +1562,10 @@ function addon:UpdateDataTextPanel()
 
 	local panelCfg = cfg.panel or defaults.profile.datatext.panel
 	local panel = self.dataTextPanel
-	local width = math.max(280, tonumber(panelCfg.width) or 520)
-	local height = math.max(16, tonumber(panelCfg.height) or 20)
+	local configuredWidth = tonumber(panelCfg.width) or 520
+	local width = math.max(280, configuredWidth)
+	width = math.min(width, GetMaxDataTextPanelWidth())
+	local height = math.max(16, tonumber(panelCfg.height) or 40)
 	local mode = tostring(cfg.positionMode or "ANCHOR")
 	local editModePosition = IsEditModePosition(mode)
 	if editModePosition and cfg.positionMode ~= "EDIT_MODE" then
@@ -862,36 +1641,74 @@ function addon:UpdateDataTextPanel()
 	panel._sufLayoutCache = layout
 
 	local slots = cfg.slots or defaults.profile.datatext.slots
-	local hasRealtimeSource = false
-	local hasMemorySource = false
-	for i = 1, #DATATEXT_SLOT_ORDER do
-		local slot = DATATEXT_SLOT_ORDER[i]
+	local activeSlotOrder = GetActiveDataTextSlotOrder(cfg)
+	local activeSlots = {}
+	for i = 1, #activeSlotOrder do
+		local slot = activeSlotOrder[i]
+		activeSlots[slot] = true
+		if not panel.buttons[slot] then
+			panel.buttons[slot] = CreateDataTextButton(panel, slot)
+		end
+	end
+
+	local buttonWidth, buttonHeight, buttonGap = GetDataTextButtonMetrics(width, height, #activeSlotOrder)
+	for i = 1, #activeSlotOrder do
+		local slot = activeSlotOrder[i]
 		local button = panel.buttons[slot]
 		if button then
-			local rawSource = slots[slot]
-			if button._sufRawSource ~= rawSource then
+			button:ClearAllPoints()
+			button:SetSize(buttonWidth, buttonHeight)
+			button:SetPoint("CENTER", panel, "CENTER", GetDataTextButtonOffset(i, #activeSlotOrder, buttonWidth, buttonGap), 0)
+			button:Show()
+		end
+	end
+	for slot, button in pairs(panel.buttons) do
+		if button and not activeSlots[slot] then
+			button:Hide()
+		end
+	end
+
+	local hasRealtimeSource = false
+	local hasMemorySource = false
+	local hasPendingLDBSource = false
+	for i = 1, #activeSlotOrder do
+		local slot = activeSlotOrder[i]
+		local button = panel.buttons[slot]
+		if button then
+			local rawSource = slots[slot] or DATATEXT_DEFAULT_SOURCES[slot]
+			local shouldResolveSource = button._sufRawSource ~= rawSource or button._sufSourceResolved ~= true
+			if shouldResolveSource then
 				local sourceType, sourceName, sourceObj = self:GetDataTextSource(rawSource)
 				button.sourceType = sourceType
 				button.sourceName = sourceName
 				button.sourceObj = sourceObj
 				button._sufRawSource = rawSource
+				button._sufSourceResolved = (sourceType ~= nil and sourceObj ~= nil)
 			end
 			local text = ""
 			local sourceType = button.sourceType
 			local sourceObj = button.sourceObj
 			local sourceName = button.sourceName
+			local displayMode = GetDataTextSlotDisplayMode(cfg, slot)
+			if sourceType == "ldb" and not sourceObj then
+				hasPendingLDBSource = true
+			elseif not sourceType and type(rawSource) == "string" and rawSource:sub(1, 4) == "LDB:" then
+				hasPendingLDBSource = true
+			end
 			if sourceType == "builtin" and tostring(sourceName or "") == "Memory" then
 				hasMemorySource = true
 			end
 			if sourceType == "builtin" and DATATEXT_REALTIME_BUILTINS[tostring(sourceName or "")] then
 				hasRealtimeSource = true
+			elseif sourceType == "custom" and sourceObj and sourceObj.realtime == true then
+				hasRealtimeSource = true
 			elseif sourceType == "ldb" then
 				hasRealtimeSource = true
 			end
-			if sourceType == "builtin" and sourceObj and sourceObj.text then
+			if (sourceType == "builtin" or sourceType == "custom") and sourceObj and sourceObj.text then
 				text = tostring(sourceObj.text() or "")
 			elseif sourceType == "ldb" and sourceObj then
-				text = tostring(sourceObj.text or sourceObj.label or sourceName or "")
+				text = BuildLDBDisplayText(sourceName, sourceObj, displayMode)
 			end
 			if button._sufText ~= text then
 				button.text:SetText(text)
@@ -899,7 +1716,7 @@ function addon:UpdateDataTextPanel()
 			end
 		end
 	end
-	panel._sufNeedsRealtimeTicker = hasRealtimeSource
+	panel._sufNeedsRealtimeTicker = hasRealtimeSource or hasPendingLDBSource
 	dataTextMemorySlotActive = hasMemorySource
 
 	panel:SetShown(true)
@@ -958,71 +1775,9 @@ function addon:EnsureDataTextPanel()
 		end
 	end)
 
-	local anchors = {
-		left = { "LEFT", "LEFT", 8 },
-		center = { "CENTER", "CENTER", 0 },
-		right = { "RIGHT", "RIGHT", -8 },
-	}
-	for slot, info in pairs(anchors) do
-		local button = CreateFrame("Button", nil, panel)
-		button:SetSize(160, 18)
-		button:SetPoint(info[1], panel, info[2], info[3], 0)
-		button.text = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		button.text:SetPoint("CENTER", button, "CENTER", 0, 0)
-		button.text:SetJustifyH("CENTER")
-		button:SetScript("OnEnter", function(widget)
-			if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
-				GameTooltip:SetOwner(widget, "ANCHOR_BOTTOMRIGHT")
-				local obj = widget.sourceObj
-				local title = widget.sourceName or "DataText"
-				GameTooltip:AddLine(tostring(title), 1, 1, 1)
-				if widget.sourceType == "ldb" and obj and obj.OnTooltipShow and type(obj.OnTooltipShow) == "function" then
-					obj.OnTooltipShow(GameTooltip)
-				elseif widget.sourceType == "builtin" then
-					if obj and obj.tooltip and type(obj.tooltip) == "function" then
-						obj.tooltip(GameTooltip)
-					else
-						GameTooltip:AddLine("Built-in source", 0.75, 0.75, 0.75)
-					end
-				end
-				GameTooltip:Show()
-			end
-		end)
-		button:SetScript("OnLeave", function()
-			if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
-				GameTooltip:Hide()
-			end
-		end)
-		button:SetScript("OnMouseDown", function(widget, mouseButton)
-			if mouseButton == "LeftButton" and IsDataTextDragContextActive(addon) then
-				local parent = widget:GetParent()
-				if parent and parent.unlockHandle then
-					parent.unlockHandle:SetShown(ShouldShowDragHandle(parent.__sufIsMouseOver))
-				end
-				ForwardDragStartFromChild(widget:GetParent())
-			end
-		end)
-		button:SetScript("OnMouseUp", function(widget, mouseButton)
-			if mouseButton == "LeftButton" and IsDataTextDragContextActive(addon) then
-				ForwardDragStopFromChild(widget:GetParent())
-				local parent = widget:GetParent()
-				if parent and parent.unlockHandle then
-					parent.unlockHandle:Hide()
-				end
-			end
-		end)
-		button:SetScript("OnClick", function(widget, mouseButton)
-			if IsDataTextDragContextActive(addon) then
-				return
-			end
-			local obj = widget.sourceObj
-			if widget.sourceType == "ldb" and obj and obj.OnClick then
-				pcall(obj.OnClick, obj, mouseButton)
-			elseif widget.sourceType == "builtin" and obj and obj.click and type(obj.click) == "function" then
-				pcall(obj.click, mouseButton)
-			end
-		end)
-		panel.buttons[slot] = button
+	for i = 1, #DATATEXT_ALL_SLOT_ORDER do
+		local slot = DATATEXT_ALL_SLOT_ORDER[i]
+		panel.buttons[slot] = CreateDataTextButton(panel, slot)
 	end
 
 	local unlockHandle = CreateFrame("Frame", nil, panel, "BackdropTemplate")
@@ -1222,21 +1977,30 @@ function addon:UpdateDataBars()
 		end
 	end
 
-	local factionName, _, minRep, maxRep, curRep = GetWatchedFactionInfoCompat()
-	if factionName and maxRep and maxRep > minRep then
-		local cur = math.max(0, (curRep or 0) - (minRep or 0))
-		local max = math.max(1, (maxRep or 1) - (minRep or 0))
-		repBar:SetMinMaxValues(0, max)
-		repBar:SetValue(cur)
+	local reputationData = GetWatchedReputationData()
+	if reputationData then
+		repBar:SetMinMaxValues(0, reputationData.progressMax)
+		repBar:SetValue(reputationData.progressCurrent)
 		do
 			local c = GetDataBarsTheme().reputation
 			if c then
 				repBar:SetStatusBarColor(c[1], c[2], c[3], c[4])
+			elseif reputationData.kind == "major" then
+				repBar:SetStatusBarColor(0.00, 0.76, 1.00, 0.92)
+			elseif _G.FACTION_BAR_COLORS and reputationData.reaction and _G.FACTION_BAR_COLORS[reputationData.reaction] then
+				local reactionColor = _G.FACTION_BAR_COLORS[reputationData.reaction]
+				repBar:SetStatusBarColor(reactionColor.r or 0.14, reactionColor.g or 0.78, reactionColor.b or 0.31, 0.92)
 			else
 				repBar:SetStatusBarColor(0.14, 0.78, 0.31, 0.92)
 			end
 		end
-		repBar.text:SetText(("%s %d%%"):format(tostring(factionName), math.floor((cur / max) * 100 + 0.5)))
+		local labelText
+		if reputationData.hideProgressInTooltip and reputationData.rankText then
+			labelText = ("%s %s"):format(tostring(reputationData.name), tostring(reputationData.rankText))
+		else
+			labelText = ("%s %d%%"):format(tostring(reputationData.name), tonumber(reputationData.progressPercent) or 0)
+		end
+		repBar.text:SetText(labelText)
 		repBar.text:SetShown(cfg.showText ~= false)
 		repBar:SetShown(repEnabled)
 	else
@@ -1360,7 +2124,8 @@ function addon:EnsureDataBars()
 		end
 	end)
 	xp:SetScript("OnMouseDown", function(widget, mouseButton)
-		if mouseButton == "LeftButton" and IsDataBarsDragContextActive(addon) then
+		if mouseButton == "LeftButton" and IsShiftDragRequested() and IsDataBarsDragContextActive(addon) then
+			widget._isDragging = true
 			local parent = widget:GetParent()
 			if parent and parent.unlockHandle then
 				parent.unlockHandle:SetShown(ShouldShowDragHandle(parent.__sufIsMouseOver))
@@ -1369,7 +2134,8 @@ function addon:EnsureDataBars()
 		end
 	end)
 	xp:SetScript("OnMouseUp", function(widget, mouseButton)
-		if mouseButton == "LeftButton" and IsDataBarsDragContextActive(addon) then
+		if widget._isDragging then
+			widget._isDragging = false
 			ForwardDragStopFromChild(widget:GetParent())
 			local parent = widget:GetParent()
 			if parent and parent.unlockHandle then
@@ -1393,17 +2159,10 @@ function addon:EnsureDataBars()
 	rep:SetScript("OnEnter", function(widget)
 		if GameTooltip and not (GameTooltip.IsForbidden and GameTooltip:IsForbidden()) then
 			GameTooltip:SetOwner(widget, "ANCHOR_BOTTOMRIGHT")
-			local factionName, reaction, minRep, maxRep, curRep = GetWatchedFactionInfoCompat()
-			if factionName and maxRep and maxRep > minRep then
-				local cur = math.max(0, (curRep or 0) - (minRep or 0))
-				local max = math.max(1, (maxRep or 1) - (minRep or 0))
-				GameTooltip:AddLine("Reputation", 1, 1, 1)
-				GameTooltip:AddDoubleLine("Faction", tostring(factionName), 0.82, 0.82, 0.82, 1, 1, 1)
-				GameTooltip:AddDoubleLine("Standing", tostring(reaction or "?"), 0.82, 0.82, 0.82, 1, 1, 1)
-				GameTooltip:AddDoubleLine("Progress", ("%d / %d (%d%%)"):format(cur, max, math.floor((cur / max) * 100 + 0.5)), 0.82, 0.82, 0.82, 1, 1, 1)
-			else
-				GameTooltip:AddLine("No watched faction.", 0.9, 0.35, 0.35)
-			end
+			GameTooltip:AddLine("Reputation", 1, 1, 1)
+			AddReputationTooltipLines(GameTooltip, GetWatchedReputationData())
+			GameTooltip:AddLine(" ")
+			GameTooltip:AddLine("Left-click to open reputation panel.", 0.75, 0.75, 0.75)
 			GameTooltip:Show()
 		end
 	end)
@@ -1413,7 +2172,8 @@ function addon:EnsureDataBars()
 		end
 	end)
 	rep:SetScript("OnMouseDown", function(widget, mouseButton)
-		if mouseButton == "LeftButton" and IsDataBarsDragContextActive(addon) then
+		if mouseButton == "LeftButton" and IsShiftDragRequested() and IsDataBarsDragContextActive(addon) then
+			widget._isDragging = true
 			local parent = widget:GetParent()
 			if parent and parent.unlockHandle then
 				parent.unlockHandle:SetShown(ShouldShowDragHandle(parent.__sufIsMouseOver))
@@ -1422,7 +2182,8 @@ function addon:EnsureDataBars()
 		end
 	end)
 	rep:SetScript("OnMouseUp", function(widget, mouseButton)
-		if mouseButton == "LeftButton" and IsDataBarsDragContextActive(addon) then
+		if widget._isDragging then
+			widget._isDragging = false
 			ForwardDragStopFromChild(widget:GetParent())
 			local parent = widget:GetParent()
 			if parent and parent.unlockHandle then
@@ -1465,7 +2226,8 @@ function addon:EnsureDataBars()
 		end
 	end)
 	petxp:SetScript("OnMouseDown", function(widget, mouseButton)
-		if mouseButton == "LeftButton" and IsDataBarsDragContextActive(addon) then
+		if mouseButton == "LeftButton" and IsShiftDragRequested() and IsDataBarsDragContextActive(addon) then
+			widget._isDragging = true
 			local parent = widget:GetParent()
 			if parent and parent.unlockHandle then
 				parent.unlockHandle:SetShown(ShouldShowDragHandle(parent.__sufIsMouseOver))
@@ -1474,12 +2236,14 @@ function addon:EnsureDataBars()
 		end
 	end)
 	petxp:SetScript("OnMouseUp", function(widget, mouseButton)
-		if mouseButton == "LeftButton" and IsDataBarsDragContextActive(addon) then
+		if widget._isDragging then
+			widget._isDragging = false
 			ForwardDragStopFromChild(widget:GetParent())
 			local parent = widget:GetParent()
 			if parent and parent.unlockHandle then
 				parent.unlockHandle:Hide()
 			end
+			return
 		end
 	end)
 	frame.petxp = petxp
@@ -1536,9 +2300,247 @@ function addon:EnsureDataBars()
 	self:UpdateDataBars()
 end
 
+local function GetPlayerSpecIDByIndex(specIndex)
+	local index = SafeNumber(specIndex, nil)
+	if not index or index <= 0 then
+		return nil
+	end
+
+	if C_SpecializationInfo and type(C_SpecializationInfo.GetSpecializationInfo) == "function" then
+		return SafeNumber(select(1, C_SpecializationInfo.GetSpecializationInfo(index)), nil)
+	end
+
+	if type(GetSpecializationInfo) == "function" then
+		return SafeNumber(select(1, GetSpecializationInfo(index)), nil)
+	end
+
+	return nil
+end
+
+local function GetCurrentPlayerSpecID()
+	local currentSpecIndex = nil
+
+	if C_SpecializationInfo and type(C_SpecializationInfo.GetSpecialization) == "function" then
+		currentSpecIndex = C_SpecializationInfo.GetSpecialization()
+	elseif type(GetSpecialization) == "function" then
+		currentSpecIndex = GetSpecialization()
+	end
+
+	return GetPlayerSpecIDByIndex(currentSpecIndex)
+end
+
+local function GetPlayerSpecializationCount()
+	local classID = SafeNumber(select(3, UnitClass("player")), nil)
+	if classID and C_SpecializationInfo and type(C_SpecializationInfo.GetNumSpecializationsForClassID) == "function" then
+		local count = SafeNumber(C_SpecializationInfo.GetNumSpecializationsForClassID(classID), nil)
+		if count and count > 0 then
+			return count
+		end
+	end
+
+	if type(GetNumSpecializations) == "function" then
+		local count = SafeNumber(GetNumSpecializations(false, false), nil)
+		if count and count > 0 then
+			return count
+		end
+	end
+
+	return 0
+end
+
+local function GetSpecDisplayNameByID(specID)
+	local resolvedSpecID = SafeNumber(specID, nil)
+	if not resolvedSpecID or resolvedSpecID <= 0 then
+		return nil
+	end
+
+	local playerSex = UnitSex and UnitSex("player") or nil
+
+	if type(GetSpecializationInfoByID) == "function" then
+		local _, specName = GetSpecializationInfoByID(resolvedSpecID, playerSex)
+		specName = SafeText(specName, nil)
+		if specName and specName ~= "" then
+			return specName
+		end
+	end
+
+	if type(GetSpecializationInfoForSpecID) == "function" then
+		local _, specName = GetSpecializationInfoForSpecID(resolvedSpecID, playerSex)
+		specName = SafeText(specName, nil)
+		if specName and specName ~= "" then
+			return specName
+		end
+	end
+
+	return nil
+end
+
+local function GetSelectedLootSpecID()
+	if type(GetLootSpecialization) == "function" then
+		return SafeNumber(GetLootSpecialization(), 0) or 0
+	end
+
+	if C_SpecializationInfo and type(C_SpecializationInfo.GetLootSpecialization) == "function" then
+		return SafeNumber(C_SpecializationInfo.GetLootSpecialization(), 0) or 0
+	end
+
+	return 0
+end
+
+function addon:RegisterNewDataTextProviders()
+	-- Specialization provider
+	self:RegisterDataTextProvider("Spec", {
+		label = "Specialization",
+		text = function()
+			local currentSpecID = GetCurrentPlayerSpecID()
+			local specName = GetSpecDisplayNameByID(currentSpecID)
+			if specName and specName ~= "" then
+				return ("Spec: %s"):format(specName)
+			end
+			return "Spec: --"
+		end,
+		tooltip = function(tooltip)
+			if not (C_SpecializationInfo or GetSpecializationInfo) then
+				tooltip:AddLine("Specialization unavailable.", 0.9, 0.35, 0.35)
+				return
+			end
+			local numSpecs = GetPlayerSpecializationCount()
+			local activeSpecID = GetCurrentPlayerSpecID()
+			if numSpecs > 0 then
+				tooltip:AddLine("Available Specifications", 1, 1, 1)
+				for i = 1, numSpecs do
+					local specID = GetPlayerSpecIDByIndex(i)
+					local specName = GetSpecDisplayNameByID(specID)
+					if specName and specName ~= "" then
+						local active = activeSpecID and specID and activeSpecID == specID
+						local prefix = active and "|cff00ff00✓ |r" or "  "
+						tooltip:AddLine(prefix .. specName, 1, 1, 1)
+					end
+				end
+			else
+				tooltip:AddLine("No specializations available.", 0.9, 0.35, 0.35)
+			end
+		end,
+		click = function(button)
+			if button == "LeftButton" and C_SpecializationInfo and C_SpecializationInfo.OpenSpecConversation then
+				C_SpecializationInfo.OpenSpecConversation("player")
+			end
+		end,
+	})
+
+	-- Loot Specification provider
+	self:RegisterDataTextProvider("LootSpec", {
+		label = "Loot Specialization",
+		text = function()
+			local lootSpecID = GetSelectedLootSpecID()
+			if lootSpecID and lootSpecID > 0 then
+				local specName = GetSpecDisplayNameByID(lootSpecID)
+				if specName and specName ~= "" then
+					return ("LootSpec: %s"):format(specName)
+				end
+			end
+			return "LootSpec: Current"
+		end,
+		tooltip = function(tooltip)
+			if not (C_SpecializationInfo or GetLootSpecialization) then
+				tooltip:AddLine("Loot Specialization unavailable.", 0.9, 0.35, 0.35)
+				return
+			end
+			tooltip:AddLine("Loot Specialization", 1, 1, 1)
+			tooltip:AddLine(" ")
+			local lootSpecID = GetSelectedLootSpecID()
+			local currentSpecID = GetCurrentPlayerSpecID()
+			if lootSpecID and lootSpecID > 0 then
+				local specName = GetSpecDisplayNameByID(lootSpecID)
+				if specName and specName ~= "" then
+					tooltip:AddDoubleLine("Selected", specName, 0.82, 0.82, 0.82, 0.2, 0.8, 0.2)
+				end
+			else
+				tooltip:AddDoubleLine("Selected", "Current Specialization", 0.82, 0.82, 0.82, 1, 1, 0.2)
+			end
+			if currentSpecID then
+				local currentSpecName = GetSpecDisplayNameByID(currentSpecID)
+				if currentSpecName and currentSpecName ~= "" then
+					tooltip:AddDoubleLine("Active", currentSpecName, 0.82, 0.82, 0.82, 1, 1, 1)
+				end
+			end
+			tooltip:AddLine(" ")
+			tooltip:AddLine("Left-click to change.", 0.75, 0.75, 0.75)
+		end,
+		click = function(button)
+			if button == "LeftButton" and C_SpecializationInfo and C_SpecializationInfo.OpenSpecConversation then
+				C_SpecializationInfo.OpenSpecConversation("player")
+			end
+		end,
+	})
+
+	-- System Info provider (CPU/simple diagnostics)
+	self:RegisterDataTextProvider("System", {
+		label = "System",
+		realtime = true,
+		text = function()
+			local fps = math.floor((GetFramerate and GetFramerate() or 0) + 0.5)
+			local home, world = GetLatencyPair()
+			return ("Sys: %dFPS %dms"):format(fps, world)
+		end,
+		tooltip = function(tooltip)
+			local fps = math.floor((GetFramerate and GetFramerate() or 0) + 0.5)
+			local home, world = GetLatencyPair()
+			tooltip:AddLine("System", 1, 1, 1)
+			tooltip:AddDoubleLine("FPS", tostring(fps), 0.82, 0.82, 0.82, 1, 1, 1)
+			tooltip:AddDoubleLine("Home Latency", ("%dms"):format(home), 0.82, 0.82, 0.82, 1, 1, 1)
+			tooltip:AddDoubleLine("World Latency", ("%dms"):format(world), 0.82, 0.82, 0.82, 1, 1, 1)
+			local memMB = (collectgarbage("count") or 0) / 1024
+			tooltip:AddDoubleLine("Addon Memory", ("%.1f MB"):format(memMB), 0.82, 0.82, 0.82, 1, 1, 1)
+		end,
+	})
+end
+
+function addon:OnDataTextLDBObjectCreated()
+	self:ScheduleUpdateDataTextPanel(0.05)
+end
+
+function addon:OnDataTextLDBAttributeChanged(eventName, name, key)
+	if not name then
+		return
+	end
+	self:ScheduleUpdateDataTextPanel(0.01)
+
+	local panel = self.dataTextPanel
+	local hovered = panel and panel._sufHoveredButton
+	if not hovered or hovered.sourceType ~= "ldb" then
+		return
+	end
+	if tostring(hovered.sourceName or "") ~= tostring(name) then
+		return
+	end
+
+	local attrKey = SafeText(key, "") or ""
+	if attrKey == "" or LDB_TOOLTIP_REFRESH_KEYS[attrKey] then
+		self:RefreshDataTextButtonTooltip(hovered)
+	end
+end
+
+function addon:RegisterDataTextLDBCallbacks()
+	if self._dataTextLDBCallbacksRegistered then
+		return
+	end
+	if not (LDB and LDB.RegisterCallback) then
+		return
+	end
+	local okCreated = pcall(LDB.RegisterCallback, self, "LibDataBroker_DataObjectCreated", "OnDataTextLDBObjectCreated")
+	local okChanged = pcall(LDB.RegisterCallback, self, "LibDataBroker_AttributeChanged", "OnDataTextLDBAttributeChanged")
+	if okCreated or okChanged then
+		self._dataTextLDBCallbacksRegistered = true
+	end
+end
+
 function addon:InitializeDataSystems()
+	self:RegisterNewDataTextProviders()
+	self:RegisterDataTextLDBCallbacks()
 	self:EnsureDataTextPanel()
 	self:EnsureDataBars()
+	self:ScheduleUpdateDataTextPanel(0.05)
 
 	local dtCfg = self.db and self.db.profile and self.db.profile.datatext
 	local refreshRate = (dtCfg and tonumber(dtCfg.refreshRate)) or 1.0
@@ -1554,4 +2556,34 @@ function addon:InitializeDataSystems()
 	end)
 end
 
-
+-- Debug helper: /run SUF:DumpDataTextSources()
+function addon:DumpDataTextSources()
+	print("=== SimpleUnitFrames DataText Sources ===")
+	local builtins = self:GetBuiltinDataTextMap()
+	if builtins then
+		print("Builtins:")
+		for key in pairs(builtins) do
+			print("  - " .. tostring(key))
+		end
+	else
+		print("Builtins: NONE (nil)")
+	end
+	if self._dataTextProviderRegistry then
+		print("Custom Providers:")
+		for key in pairs(self._dataTextProviderRegistry) do
+			print("  - " .. tostring(key))
+		end
+	else
+		print("Custom Providers: NONE (not initialized)")
+	end
+	if LDB and LDB.DataObjectIterator then
+		print("LibDataBroker Objects:")
+		for name in LDB:DataObjectIterator() do
+			print("  - LDB:" .. tostring(name))
+		end
+	else
+		print("LibDataBroker: unavailable")
+	end
+	local sources = self:GetAvailableDataTextSources()
+	print("Total available sources: " .. #sources)
+end

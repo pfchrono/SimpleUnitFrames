@@ -5,6 +5,7 @@ if not addon then
 end
 
 local LSM = LibStub("LibSharedMedia-3.0", true)
+local LibCustomGlow = LibStub("LibCustomGlow-1.0", true)
 
 function addon:GetOptionsV2Pages()
 	if self._optionsV2Pages then
@@ -1152,7 +1153,7 @@ local function BuildUnitCoreSpec(unitKey)
 							end
 							local plugins = addon:GetPluginSettings()
 							local up = plugins.units and plugins.units[unitKey]
-							return not up or up.useGlobal ~= false
+							return not up or up.useGlobal ~= false or not LibCustomGlow
 						end,
 						get = function()
 							local plugins = addon:GetPluginSettings()
@@ -1169,6 +1170,43 @@ local function BuildUnitCoreSpec(unitKey)
 							end
 							up.raidDebuffs = up.raidDebuffs or {}
 							up.raidDebuffs.glow = v and true or false
+							addon:SchedulePluginUpdate(unitKey)
+						end,
+					},
+					{
+						type = "dropdown",
+						label = "Raid Debuff Glow Style",
+						options = function()
+							return {
+								{ value = "PIXEL", text = "Pixel Glow" },
+								{ value = "BUTTON", text = "Button Glow" },
+							}
+						end,
+						disabled = function()
+							if not isGroup then
+								return true
+							end
+							local plugins = addon:GetPluginSettings()
+							local up = plugins.units and plugins.units[unitKey]
+							up = up or {}
+							up.raidDebuffs = up.raidDebuffs or {}
+							return not up or up.useGlobal ~= false or up.raidDebuffs.glow == false or not LibCustomGlow
+						end,
+						get = function()
+							local plugins = addon:GetPluginSettings()
+							local up = plugins.units and plugins.units[unitKey]
+							up = up or {}
+							up.raidDebuffs = up.raidDebuffs or {}
+							return tostring(up.raidDebuffs.glowStyle or "PIXEL")
+						end,
+						set = function(v)
+							local plugins = addon:GetPluginSettings()
+							local up = plugins.units and plugins.units[unitKey]
+							if not up then
+								return
+							end
+							up.raidDebuffs = up.raidDebuffs or {}
+							up.raidDebuffs.glowStyle = tostring(v)
 							addon:SchedulePluginUpdate(unitKey)
 						end,
 					},
@@ -1816,6 +1854,25 @@ local function BuildUnitCoreSpec(unitKey)
 						set = function(v)
 							local cfg = addon:GetUnitTargetGlowSettings(unitKey)
 							cfg.enabled = v and true or false
+							addon:ScheduleUpdateUnitType(unitKey)
+						end,
+					},
+					{
+						type = "dropdown",
+						label = "Target Glow Style",
+						options = function()
+							return {
+								{ value = "BORDER", text = "Border" },
+								{ value = "BUTTON", text = "Button Glow" },
+							}
+						end,
+						get = function()
+							local cfg = addon:GetUnitTargetGlowSettings(unitKey)
+							return tostring(cfg.style or "BORDER")
+						end,
+						set = function(v)
+							local cfg = addon:GetUnitTargetGlowSettings(unitKey)
+							cfg.style = tostring(v)
 							addon:ScheduleUpdateUnitType(unitKey)
 						end,
 					},

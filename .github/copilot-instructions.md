@@ -1,8 +1,8 @@
 # Project Guidelines
 
-**Current Status (2026-03-01):** Phase 3 (ColorCurve Integration) Complete - In-Game Testing Phase  
-**Active Branch:** `claude/bold-bell`  
-**Next Steps:** See [TODO.md](../TODO.md) for comprehensive task tracking and testing checklist
+**Current Status (2026-03-10):** Phase 4 (Low-Risk Coalescer Pilot) Complete - Unit Frame Optimization Phase
+**Active Branch:** `claude/bold-bell`
+**Next Steps:** See [TODO.md](../TODO.md) for comprehensive task tracking and testing checklist. Dungeon validation of SPELL_UPDATE_COOLDOWN/CHARGES and BAG_UPDATE coalescers pending.
 
 ## API Verification Workflow
 **CRITICAL: Always verify WoW APIs against the local wow-ui-source repository before planning or implementing any code changes.**
@@ -324,10 +324,24 @@
   - **Cross-References:** Links to relevant sections in PHASE3_COLORCURVE_PLAN.md, WORK_SUMMARY.md, API_VALIDATION_REPORT.md
   - **Update Pattern:** After completing implementation work, update TODO.md with next steps and validation requirements
 
+- **DataText Panel Layout (Step 5):**
+  - **Layout Modes:** `datatext.panel.slotCount` supports `3` (classic), `5` (expanded), and `7` (extended) slot layouts
+  - **Slot Keys:** `datatext.slots` includes `outerLeft`, `farLeft`, `left`, `center`, `right`, `farRight`, and `outerRight`
+  - **Runtime Pattern:** [Modules/UI/DataSystems.lua](../Modules/UI/DataSystems.lua) creates all slot buttons once, then dynamically sizes/positions visible buttons based on active slot count
+  - **Options Controls:** Layout + far-slot source controls exist in both [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](../Modules/UI/OptionsV2/Builders/GlobalBuilder.lua) and [Modules/UI/OptionsWindow.lua](../Modules/UI/OptionsWindow.lua)
+  - **Width/Height Pattern:** DataText width may scale to full screen width (clamped to `UIParent:GetWidth()`), and default panel height baseline is 40
+  - **LDB Integration Pattern (Step 5b):** DataText LDB sources should support `OnTooltipShow` first, then fallback tooltip rendering (`tooltiptext`, `value/suffix`, icon/text/label composition), with `OnClick(frame, button)` dispatch and `LibDataBroker_AttributeChanged` callback refresh while hovered
+  - **Per-Slot Display Pattern:** `datatext.slotDisplay[slot]` supports `AUTO`, `TEXT`, `ICON`, `ICON_TEXT` for LDB text/icon composition
+
 - **CustomTrackers Entry Limits & Filtering (Phase 4+):**
   - **Entry Limit:** MAX_TRACKER_ENTRIES_PER_BAR = 256 to prevent script-timeout on startup/reload
   - **Sanitization:** `SanitizeBarEntries()` normalizes IDs, drops invalid entries, deduplicates by type:id, caps at 256 entries
   - **AddEntry Guard:** Checks bar count before adding new entry, prevents bars from exceeding limit
+  - **Low-Risk Coalescer Pilot (2026-03-10):**
+    - `SPELL_UPDATE_COOLDOWN` and `SPELL_UPDATE_CHARGES` are routed into one shared bucket via alias mapping
+    - `BAG_UPDATE` uses debounced coalesced dispatch
+    - CustomTrackers exposes `OnCoalescedSpellCooldownBucket()` and `OnCoalescedBagUpdate()` for low-risk non-unit updates
+    - Use `/suf coalescer reset` before a run and `/suf coalescer` after to compare raw vs dispatched counts
   - **Spell Filters (Auto-Learn):**
     - `learnOnlyKnownSpells`: Only auto-learn spells player has learned via `IsSpellKnownByPlayer()`
     - `excludeNPCSpells`: Filter out NPC-only spells using `IsNPCSpell()` helper
@@ -338,6 +352,51 @@
   - **Configuration:** Added to profile.customTrackers.autoLearn with defaults in [SimpleUnitFrames.lua](../SimpleUnitFrames.lua)
   - **UI Controls:** Three new cascade-disabled checkboxes in OptionsV2 under "Manage" → "Learn Spells" section
   - **Expected Behavior:** Users can toggle filters to control what gets auto-tracked, preventing clutter from quest/low-level spells
+
+- **Non-Unit Event Coalescing Patterns (Phase 4+ Feature):**
+  - **Motivation:** Non-unit events (SPELL_UPDATE_*, BAG_UPDATE, etc.) fire at high frequency and are independent of unit updates. Coalescers reduce redundant processing and improve frame times.
+  - **Low-Risk Coalescer Pilot (2026-03-10):** Two coalescers currently implemented and validated:
+    - `SPELL_UPDATE_COOLDOWN` + `SPELL_UPDATE_CHARGES` (shared bucket via alias mapping)
+    - `BAG_UPDATE` (independent debounced bucket)
+  - **Implementation Steps for New Coalescers:**
+    1. **Add to EVENT_COALESCE_CONFIG** ([SimpleUnitFrames.lua](../SimpleUnitFrames.lua) ~line 580-605):
+       ```lua
+       EVENT_COALESCE_CONFIG["EVENT_NAME"] = {
+           delay = 0.10,        -- Coalesce delay in seconds (0.10-0.20 typical)
+           priority = 4,        -- Priority level (1-4, lower = higher priority)
+       }
+       ```
+    2. **Register as Input-Only Event** (if tracking raw count for validation):
+       - Add event to `PERFORMANCE_INPUT_ONLY_EVENTS` table (~line 840-850)
+       - This registers event on performance frame to track raw dispatch count
+    3. **Create Coalesced Handler** (in SimpleUnitFrames.lua):
+       - Handler name: `HandleCoalescedEvent_[EVENT_NAME]`
+       - Receives coalesced event batch via `EVENT_COALESCE_ALIAS` or direct event name
+       - Example: `OnCoalescedSpellCooldownBucket()` in CustomTrackers (called when bucket expires)
+    4. **Update CustomTrackers** ([Modules/System/CustomTrackers.lua](../Modules/System/CustomTrackers.lua)):
+       - Add corresponding handler/hook: `OnCoalescedEventName()`
+       - Use `addon:IsPerformanceIntegrationEnabled()` check to avoid double-processing
+       - Direct registration fallback for non-performance mode
+    5. **Add Tracking Metrics** (optional but recommended):
+       - Add event to `LOW_RISK_COALESCER_COUNTER_KEYS` table for raw/dispatched comparison
+       - Implement counter tracking in `EnsureLowRiskCoalescerStats()` and print helpers
+    6. **Test & Validate:**
+       - Verify raw vs dispatched counts via `/suf coalescer` before/after test run
+       - Compare metric percentages: `dispatched / raw * 100%` should be 20-40% for good coalescing
+       - Test in multiple scenarios: solo play, outdoor, dungeons, raids (different event densities)
+  - **Anti-Patterns (Avoid):**
+    - ❌ Creating a new coalescer bucket for every event (proliferation issue)
+    - ❌ Coalescing unit-dependent events (UNIT_* events already handled by DirtyFlagManager)
+    - ❌ Forgetting performance integration guard (can cause double-processing)
+    - ❌ Not testing in high-frequency scenarios (may hide ineffective coalescers)
+  - **When to Coalesce:**
+    - ✅ Global UI refresh events (SPELL_UPDATE_*, BAG_*, SKILL_*)
+    - ✅ Periodic syncs (CURRENCY_DISPLAY_UPDATE, TRADESKILL_*)
+    - ✅ Low-impact visual updates (PORTRAIT_UPDATE, QUEST_LOG_UPDATE)
+  - **When NOT to Coalesce:**
+    - ❌ Unit-dependent events (already handled by DirtyFlagManager batching)
+    - ❌ Critical game-state events (PLAYER_DEAD, PLAYER_UNGHOST, PLAYER_REGEN_*)
+    - ❌ Rare high-impact events (coalescing overhead > benefit)
 
 ## Integration Points
 - oUF for frame spawning and colors (see [Libraries/oUF](../Libraries/oUF) and Units/ directory).
@@ -387,6 +446,8 @@
   - `/run SUF.EventCoalescer:PrintStats()` - Event coalescing detailed stats (total coalesced/dispatched, CPU savings %, per-event breakdown with batch sizes min/avg/max, budget defers, emergency flushes)
   - `/run SUF.EventCoalescer:ResetStats()` - Reset coalescing statistics
   - `/run SUF.DirtyFlagManager:PrintStats()` - Dirty flag stats (frames processed, batches, invalid frames skipped, priority decays, processing blocks)
+  - `/suf coalescer` - Print low-risk coalescer stats (raw events vs dispatched events for SPELL_UPDATE_COOLDOWN/CHARGES, BAG_UPDATE pilot)
+  - `/suf coalescer reset` - Reset low-risk coalescer counters before a test run
   - `/SUFdebug` - Toggle debug panel (non-intrusive diagnostic messages, system-specific toggles, export to clipboard)
 
 ## Performance Profiling Integration

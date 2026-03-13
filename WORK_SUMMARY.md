@@ -1,5 +1,419 @@
 # Work Summary
 
+## 2026-03-10 — DataText Spec Provider Crash Fix (nil GetSpecializationInfoByID) ✅
+
+**Objective:** Resolve runtime spam/crash in DataText Spec/LootSpec providers:
+`attempt to call field 'GetSpecializationInfoByID' (a nil value)`.
+
+**Root Cause:**
+- [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua) called `C_SpecializationInfo.GetSpecializationInfoByID`, which is not available on this client API surface.
+- Provider logic also used `C_ClassTalents.GetActiveConfigID()` as if it were a specialization ID (it returns a talent config ID, not spec ID).
+
+**API Verification (Blizzard Reference):**
+- Verified in local `wow-ui-source` that Blizzard uses:
+   - global `GetSpecializationInfoByID(...)` / `GetSpecializationInfoForSpecID(...)`
+   - `C_SpecializationInfo.GetSpecialization()` + `C_SpecializationInfo.GetSpecializationInfo(index)` for current-player spec index→specID resolution.
+- Loot specialization reads use global `GetLootSpecialization()` in Blizzard UI code.
+
+**Changes Applied:**
+- Updated [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua):
+   - Added safe specialization helpers:
+      - `GetPlayerSpecIDByIndex()`
+      - `GetCurrentPlayerSpecID()`
+      - `GetPlayerSpecializationCount()`
+      - `GetSpecDisplayNameByID()`
+      - `GetSelectedLootSpecID()`
+   - Refactored `Spec` provider to resolve active spec via specialization index→specID, then resolve display name through global specialization helpers.
+   - Refactored `LootSpec` provider to use `GetLootSpecialization()` with guarded fallback and safe name resolution.
+   - Removed dependency on config IDs for active specialization comparisons/tooltips.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
+- ✅ Crash path removed (no direct calls to missing `C_SpecializationInfo.GetSpecializationInfoByID`)
+
+**Risk Level:** LOW
+- Fix is scoped to DataText specialization providers and only affects text/tooltip content paths.
+
+---
+
+## 2026-03-10 — DataText Layout Expansion (7 Slots + Full-Width + Taller Panel) ✅
+
+**Objective:** Extend DataText layout and controls to support wider/denser bar setups and improve GUI ergonomics.
+
+**Changes Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Added `DATATEXT_SLOT_ORDER_SEVEN` core export.
+   - Expanded defaults with `outerLeft` / `outerRight` slot keys.
+   - Added default per-slot `slotDisplay` modes (`AUTO`/`TEXT`/`ICON`/`ICON_TEXT`).
+   - Increased default DataText panel height from `20` to `40` (double-height baseline).
+
+- Updated [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua):
+   - Added 7-slot runtime layout support (`3` / `5` / `7` modes).
+   - Added full-screen-aware width clamp via `UIParent:GetWidth()` (bar can scale to full screen width).
+   - Added slot-level LDB display mode handling in text composition (`AUTO`, `TEXT`, `ICON`, `ICON_TEXT`).
+   - Updated panel fallback height handling to use the new 40px default.
+
+- Updated [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua):
+   - Moved DataText dropdown controls higher in the section (before sizing sliders).
+   - Added `7 Slots (Extended)` layout option.
+   - Added `Outer Left` / `Outer Right` source dropdowns.
+   - Added per-slot "LDB Display" dropdowns.
+   - Increased DataText width slider max to `4096` with runtime clamp to screen width.
+   - Increased DataText height slider max to `80` and aligned defaults with 40px baseline.
+
+- Updated [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua):
+   - Moved DataText dropdown controls higher in the legacy GUI section.
+   - Added `7 Slots (Extended)` layout option.
+   - Added `Outer Left` / `Outer Right` source dropdowns.
+   - Added per-slot "LDB Display" dropdowns.
+   - Increased DataText width slider max to `4096` with runtime clamp to screen width.
+   - Increased DataText height slider max to `80` and aligned defaults with 40px baseline.
+
+**Validation:**
+- ✅ Lua diagnostics clean for all modified files:
+   - [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+   - [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
+   - [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua)
+   - [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua)
+- ⏳ In-game validation pending (7-slot rendering, full-width panel behavior, dropdown ordering UX)
+
+**Risk Level:** LOW-MEDIUM
+- Scope is isolated to DataText defaults/layout/options.
+- Backward compatibility preserved: profiles still operate in 3-slot mode unless changed.
+
+---
+
+## 2026-03-10 — DataText LDB Tooltip + Click Integration Expansion ✅
+
+**Objective:** Expand DataText LDB behavior to better match HidingBar-style broker integration by improving tooltip fallbacks, click dispatch compatibility, and live update responsiveness.
+
+**API Verification (Blizzard Reference):**
+- Verified tooltip owner/update pattern against Blizzard reference usage in [wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Mainline/TotemFrame.lua](../wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Mainline/TotemFrame.lua) (`GameTooltip:SetOwner`, owned-tooltip refresh semantics).
+
+**Changes Applied:**
+- Updated [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua):
+   - Added robust LDB text rendering helper path:
+      - icon markup support (`obj.icon`)
+      - fallback priority for `text`, `value+suffix`, `label`, source name
+   - Added generic LDB tooltip fallback renderer for objects without `OnTooltipShow`:
+      - supports `tooltiptext` multiline expansion
+      - supports `value/suffix` rows
+      - includes interaction hint when click handler exists
+   - Added centralized tooltip refresh method:
+      - `RefreshDataTextButtonTooltip(button)`
+      - used by hover flow and attribute-change updates
+   - Enhanced hover behavior for LDB sources:
+      - tracks currently hovered button (`panel._sufHoveredButton`)
+      - supports `OnEnter`/`OnLeave` broker callbacks when no `OnTooltipShow`
+      - keeps fallback tooltip behavior when broker doesn’t provide one
+   - Enhanced click behavior for LDB sources:
+      - button now registers `AnyUp` click type
+      - dispatches `OnClick(widget, button)` (LibDBIcon-compatible pattern)
+      - falls back to `OnMouseUp` if `OnClick` is not present
+   - Added live LDB callback integration:
+      - `LibDataBroker_AttributeChanged` now registered
+      - `OnDataTextLDBAttributeChanged(...)` schedules panel refresh and hot-refreshes tooltip for the hovered source when relevant keys change (`text`, `label`, `value`, `suffix`, `icon`, `tooltiptext`, `type`)
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
+- ✅ Existing `LibDataBroker_DataObjectCreated` callback path preserved
+- ✅ LDB click dispatch now matches common display addon pattern (`OnClick(frame, button)`)
+- ⏳ In-game validation pending with representative LDB addons (launcher + data-source variants)
+
+**Risk Level:** LOW-MEDIUM
+- Scoped to DataText/LDB integration path only.
+- Behavior changes for LDB click and tooltip flow are additive with fallback compatibility.
+
+---
+
+## 2026-03-10 — Low-Risk Coalescer Pilot (Cooldown/Charges + BAG_UPDATE) ✅
+
+**Objective:** Implement only the first two low-risk non-unit coalescers:
+- `SPELL_UPDATE_COOLDOWN` + `SPELL_UPDATE_CHARGES` shared bucket
+- `BAG_UPDATE` debounced dispatch
+
+**API Verification (Blizzard Reference):**
+- Confirmed target events are active in Retail 12.0.0+ via local `wow-ui-source` references, including:
+   - `Blizzard_ActionBar/Shared/ActionButton.lua` (`SPELL_UPDATE_CHARGES`)
+   - `Blizzard_ActionBar/Shared/SpellFlyout.lua` (`SPELL_UPDATE_COOLDOWN`, `BAG_UPDATE`)
+   - `Blizzard_APIDocumentationGenerated/SpellBookDocumentation.lua` + `ContainerDocumentation.lua`
+
+**Changes Applied:**
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Added `SPELL_UPDATE_COOLDOWN` and `BAG_UPDATE` to `EVENT_COALESCE_CONFIG`.
+   - Added alias routing: `SPELL_UPDATE_CHARGES -> SPELL_UPDATE_COOLDOWN` to create a shared bucket.
+   - Registered input-only event `SPELL_UPDATE_CHARGES` for the performance event frame.
+   - Added explicit non-unit coalesced handlers:
+      - `SPELL_UPDATE_COOLDOWN` bucket -> refresh custom tracker bars
+      - `BAG_UPDATE` debounce -> rebuild custom tracker item/spell index + refresh bars + datatext refresh
+   - Added low-risk debug counters (`raw` vs `dispatched`) and print/reset methods:
+      - `ResetLowRiskCoalescerStats()`
+      - `PrintLowRiskCoalescerStats()`
+
+- Updated [Modules/System/CustomTrackers.lua](Modules/System/CustomTrackers.lua):
+   - Added shared helper `UpdateVisibleBars()`.
+   - Added coalesced entrypoints:
+      - `OnCoalescedSpellCooldownBucket()`
+      - `OnCoalescedBagUpdate()`
+   - Added direct `SPELL_UPDATE_CHARGES` registration for parity in non-performance mode.
+   - Prevented duplicate processing when performance integration is enabled for spell-cooldown and bag-delayed paths.
+
+- Updated [Modules/System/Commands.lua](Modules/System/Commands.lua):
+   - Added command help entry and slash handling for:
+      - `/suf coalescer`
+      - `/suf coalescer reset`
+
+**Validation:**
+- ✅ Lua diagnostics clean for edited files:
+   - [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+   - [Modules/System/CustomTrackers.lua](Modules/System/CustomTrackers.lua)
+   - [Modules/System/Commands.lua](Modules/System/Commands.lua)
+- ⏳ In-game validation pending (single dungeon run counter comparison)
+
+**How to Validate In-Game:**
+1. Run `/suf coalescer reset` before entering a dungeon.
+2. Run one normal dungeon with performance integration enabled.
+3. Run `/suf coalescer` after the run.
+4. Confirm `raw -> dispatched` shows reduction for both buckets.
+
+**Risk Level:** LOW
+- Changes are scoped to two non-unit event paths and avoid broad frame-refresh behavior changes.
+
+---
+
+## 2026-03-06 — TotemBar Secret Duration Guard (WoW 12.0.0) ✅
+
+**Objective:** Fix runtime error in totem duration updates:
+`attempt to compare local 'remaining' (a secret number value tainted by 'SimpleUnitFrames')`
+
+**Root Cause:**
+- `Modules/System/TotemBar.lua` compared `GetTotemTimeLeft(button.slot)` directly (`remaining > 0`).
+- In 12.0.0 restricted contexts, `GetTotemTimeLeft()` can return a secret number to tainted addon code, and direct comparisons throw.
+
+**API Verification (Blizzard Reference):**
+- Confirmed Blizzard's native logic in [wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Mainline/TotemFrame.lua](../wow-ui-source/Interface/AddOns/Blizzard_UnitFrame/Mainline/TotemFrame.lua) uses internal paths (`AuraButtonMixin.UpdateDuration(math.ceil(GetTotemTimeLeft(...)))`) while our addon-side path must secret-guard before numeric tests.
+
+**Changes Applied:**
+- Updated [Modules/System/TotemBar.lua](Modules/System/TotemBar.lua):
+    - Added local secret-safe helpers: `IsSecretValue(value)` and `SafeNumber(value, fallback)`.
+    - Updated `UpdateTotemDurations()` to sanitize time-left reads:
+       - from: `local remaining = GetTotemTimeLeft(button.slot)`
+       - to: `local remaining = SafeNumber(GetTotemTimeLeft(button.slot), 0) or 0`
+    - Kept duration rendering logic unchanged after sanitization (`if remaining > 0 then ...`).
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/System/TotemBar.lua](Modules/System/TotemBar.lua)
+- ✅ No remaining raw `GetTotemTimeLeft()` comparisons in SUF addon code
+- ⏳ In-game validation pending (totems active in restricted instance context)
+
+**Risk Level:** LOW
+- Change is isolated to totem duration label updates and only affects unsafe numeric comparison paths.
+
+---
+
+## 2026-03-06 — LibCustomGlow Integration & Style Expansion ✅
+
+**Objective:** Integrate LibCustomGlow-1.0 library (already embedded but minimally used) and expand glow style options for castbar non-interruptible, raid debuffs, and target selection indicators.
+
+**Background:**
+- LibCustomGlow-1.0 (MINOR_VERSION 24) was already present in [Libraries/LibCustomGlow-1.0/LibCustomGlow-1.0.lua](Libraries/LibCustomGlow-1.0/LibCustomGlow-1.0.lua)
+- Previous usage was limited (only 2 callsites) and some call patterns appeared incorrect
+- Library provides three distinct glow styles:
+   - **PixelGlow:** Animated 8-line border glow (configurable color, period, line count, thickness, start/end alpha)
+   - **AutoCastGlow:** 4-sparkle shine effect mimicking action button procs
+   - **ButtonGlow:** Action button pulse effect (outer glow)
+
+**Changes Applied:**
+
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Added glow style configuration defaults:
+      - `profile.castbar.castbarNonInterruptibleGlowStyle = "PIXEL"`
+      - `profile.plugins.raidDebuffs.glowStyle = "PIXEL"`
+      - `profile.units.*.targetGlow.style = "BORDER"` (for unit-specific settings)
+   - Added glow style normalization in:
+      - `GetUnitTargetGlowSettings()` — sanitizes target glow style values
+      - `NormalizePluginConfig()` — validates raid debuff glow style
+   - Implemented glow start/stop helpers with style routing:
+      - `StartCastbarNonInterruptGlow()` — supports PIXEL/AUTOCAST styles
+      - `StartRaidDebuffGlow()` — supports PIXEL/BUTTON styles
+      - `StartTargetSelectionGlow()` — supports BORDER/BUTTON styles
+   - Updated callsites to use new helpers:
+      - Castbar PostCastNotInterruptible hook
+      - Raid debuff PostUpdate callback
+      - Target selection status update
+   - Fixed LibCustomGlow call patterns to use correct signature: `pcall(LibCustomGlow.FunctionName, frame, ...)`
+
+- Updated [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua):
+   - Added "Non-Interruptible Glow Style" dropdown in Global Castbar Settings (line ~316)
+      - Options: PIXEL, AUTOCAST
+      - Disabled if LibCustomGlow not available
+   - Added "Raid Debuff Glow Style" dropdown in Global Plugins Settings (line ~340)
+      - Options: PIXEL, BUTTON
+      - Disabled if LibCustomGlow not available
+
+- Updated [Modules/UI/OptionsV2/Registry.lua](Modules/UI/OptionsV2/Registry.lua):
+   - Added per-unit "Raid Debuff Glow Style" dropdown (line ~1178)
+      - Options: PIXEL, BUTTON
+      - Cascade-disabled if useGlobal=true or glow disabled
+      - Disabled if LibCustomGlow not available
+   - Added per-unit "Target Glow Style" dropdown (line ~1862)
+      - Options: BORDER, BUTTON
+      - Disabled if LibCustomGlow not available
+
+- Updated [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua):
+   - Added local LibCustomGlow handle for disable checks (line 8)
+   - Added global "Non-Interruptible Glow Style" dropdown (line ~1894)
+   - Added global "Raid Debuff Glow Style" dropdown (line ~1997)
+   - Added per-unit "Raid Debuff Glow Style" dropdown (line ~2863)
+   - Added per-unit "Target Glow Style" dropdown (line ~3102)
+   - All controls check LibCustomGlow availability before enabling
+
+**Technical Details:**
+- LibCustomGlow color handling verified to support WoW 12.0+ Color objects via `GetRGBA()` pattern
+- All glow calls use pcall() for safe invocation with error suppression
+- Style values normalized at profile access points to prevent invalid config values
+- UI controls dynamically disable when LibCustomGlow isn't available (graceful degradation)
+
+**Validation:**
+- ✅ Lua diagnostics clean for all 4 modified files:
+   - [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+   - [Modules/UI/OptionsV2/Registry.lua](Modules/UI/OptionsV2/Registry.lua)
+   - [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua)
+   - [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua)
+- ✅ Verified 11 LibCustomGlow callsites all use correct signature pattern
+- ✅ Confirmed LibCustomGlow color object support (GetRGBA() present)
+- ✅ Verified style normalization present in profile accessor functions
+- ✅ All UI controls properly cascade-disable based on dependencies
+- ⏳ In-game validation pending (glow visual styles, UI control interactions)
+
+**Performance Impact:** Negligible
+- Glow effects are opt-in via configuration
+- pcall() overhead minimal for infrequent visual updates
+- No new tickers or polling added
+
+**Risk Level:** LOW
+- Changes scoped to visual glow presentation only
+- Graceful degradation when LibCustomGlow unavailable
+- Defaults preserve existing behavior (new styles opt-in)
+
+---
+
+## 2026-03-05 — DataText Source Rebind on Reload/Login ✅
+
+**Objective:** Fix datatext slots assigned to custom providers (`System`) and `LDB:*` objects not restoring after `/reload` or login unless manually reselected.
+
+**Root Cause:**
+- Datatext source binding cached `rawSource` and only re-resolved when the configured string changed.
+- On startup, custom/LDB sources could be unavailable during first bind pass; the unresolved state was then cached and never retried.
+- Custom provider registration happened after initial panel build/update.
+
+**Changes Applied:**
+- Updated [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua):
+   - Added unresolved-source retry state (`button._sufSourceResolved`) so unresolved bindings are re-resolved on subsequent updates.
+   - Added pending LDB detection to keep datatext realtime ticker active while an `LDB:*` slot is unresolved.
+   - Reordered initialization so `RegisterNewDataTextProviders()` runs before panel creation/update.
+   - Added `LibDataBroker_DataObjectCreated` callback registration to trigger panel refresh when late-loading LDB objects are created.
+   - Added one deferred `ScheduleUpdateDataTextPanel(0.05)` call after initialization to settle startup ordering.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
+- ⏳ In-game validation pending (`/reload` and fresh login with `System` + `LDB:*` slot assignments)
+
+**Risk Level:** LOW
+- Changes are scoped to datatext source resolution and startup refresh behavior.
+
+---
+
+## 2026-03-05 — DataText Step 5: Panel Layout Expansion (3-slot / 5-slot) ✅
+
+**Objective:** Implement Step 5 of the datatext enhancement roadmap by expanding panel layout beyond fixed left/center/right slots while preserving legacy profiles.
+
+**Changes Applied:**
+- Updated [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua):
+   - Added configurable active slot orders for classic 3-slot and expanded 5-slot layouts.
+   - Added dynamic button metrics/positioning so visible datatext buttons resize and distribute evenly based on active slot count.
+   - Added support for additional slots `farLeft` and `farRight` with default source fallbacks.
+   - Refactored datatext button creation into shared helper logic and preserved tooltip/click/drag behavior for builtin/custom/LDB sources.
+
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Added `DATATEXT_SLOT_ORDER_FIVE` core constant export.
+   - Expanded default datatext profile with `panel.slotCount` and default `farLeft` / `farRight` source assignments.
+
+- Updated [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua):
+   - Added "DataText Slot Layout" control (`3` classic / `5` expanded).
+   - Added `DataText Far Left Slot` and `DataText Far Right Slot` controls, cascade-disabled unless 5-slot layout is active.
+
+- Updated [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua):
+   - Added parity controls for slot layout and far-left/far-right source selection in legacy options.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- ✅ Lua diagnostics clean for [Modules/UI/OptionsV2/Builders/GlobalBuilder.lua](Modules/UI/OptionsV2/Builders/GlobalBuilder.lua)
+- ✅ Lua diagnostics clean for [Modules/UI/OptionsWindow.lua](Modules/UI/OptionsWindow.lua)
+- ⏳ In-game validation pending (5-slot spacing/behavior, slot toggle persistence, drag interactions)
+
+**Risk Level:** LOW-MEDIUM
+- Changes are isolated to datatext layout/configuration paths, with defaults preserving existing 3-slot behavior unless user opts into 5-slot layout.
+
+**Next Steps:**
+- Execute Step 3 and Step 5 in-game validation checklist in [TODO.md](TODO.md)
+- Proceed to Step 6 (final docs + release validation pass)
+
+---
+
+## 2026-03-05 — DataText/DataBars Step 3: Currency+ & Reputation+ Upgrades ✅
+
+**Objective:** Implement Step 3 of the datatext enhancement roadmap by upgrading currency/reputation detail while preserving existing slot UX.
+
+**API Verification (Blizzard Reference UI):**
+- Reputation state handling validated against:
+   - [wow-ui-source/Interface/AddOns/Blizzard_ActionBar/Shared/ReputationBar.lua](../wow-ui-source/Interface/AddOns/Blizzard_ActionBar/Shared/ReputationBar.lua)
+   - [wow-ui-source/Interface/AddOns/Blizzard_FrameXMLUtil/Mainline/ReputationUtil.lua](../wow-ui-source/Interface/AddOns/Blizzard_FrameXMLUtil/Mainline/ReputationUtil.lua)
+   - [wow-ui-source/Interface/AddOns/Blizzard_UIPanels_Game/Mainline/ReputationFrame.lua](../wow-ui-source/Interface/AddOns/Blizzard_UIPanels_Game/Mainline/ReputationFrame.lua)
+- Currency list semantics validated against:
+   - [wow-ui-source/Interface/AddOns/Blizzard_TokenUI/Blizzard_TokenUI.lua](../wow-ui-source/Interface/AddOns/Blizzard_TokenUI/Blizzard_TokenUI.lua)
+
+**Changes Applied:**
+- Updated [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua):
+   - Added secret-safe extraction/format helpers for currency + reputation values (`IsSecretValue`, `SafeNumber`, `SafeText`).
+   - Added watched-reputation normalization pipeline (`GetWatchedReputationData`) with support for:
+      - standard reputation standings,
+      - friendship reputation (`C_GossipInfo.GetFriendshipReputation`),
+      - major faction renown (`C_MajorFactions.GetMajorFactionData`),
+      - paragon progress/reward pending (`C_Reputation.GetFactionParagonInfo`).
+   - Upgraded builtin `Currencies` provider:
+      - prioritized backpack-watched/tracked currencies,
+      - added cap + weekly progress details in tooltip,
+      - added left-click open (`TokenFrame`).
+   - Added builtin `Reputation` provider with rank/progress/paragon/account-wide states and left-click open (`ReputationFrame`).
+   - Updated reputation databar text + tooltip to use normalized watched-reputation data (friendship/major/paragon aware).
+   - Enabled full `custom` provider parity in panel runtime (text/tooltip/click) and realtime opt-in via `provider.realtime == true`.
+
+- Updated [SimpleUnitFrames.lua](SimpleUnitFrames.lua):
+   - Added `OnFactionDataChanged()` and `OnCurrencyDisplayUpdate()` event handlers.
+   - Routed `UPDATE_FACTION` through combined handler to refresh both databars and datatext.
+   - Registered `CURRENCY_DISPLAY_UPDATE` for datatext refresh.
+   - Added guarded renown event wiring (`MAJOR_FACTION_RENOWN_LEVEL_CHANGED`, `MAJOR_FACTION_UNLOCKED`) to keep reputation displays current.
+
+**Performance Impact:**
+- Low impact; refreshes are event-driven and bounded.
+- No new global ticker added; existing datatext ticker remains opt-in for realtime sources only.
+
+**Validation:**
+- ✅ Lua diagnostics clean for [Modules/UI/DataSystems.lua](Modules/UI/DataSystems.lua)
+- ✅ Lua diagnostics clean for [SimpleUnitFrames.lua](SimpleUnitFrames.lua)
+- ⏳ In-game validation pending (currency cap/weekly values, renown/paragon/friendship display transitions)
+
+**Risk Level:** LOW-MEDIUM
+- Changes are isolated to data presentation paths, but watched-reputation normalization now drives both datatext and databar tooltip content.
+
+**Next Steps:**
+- Execute Step 3 in-game validation checklist in [TODO.md](TODO.md)
+- Then proceed to Step 5 (optional multi-slot panel expansion)
+
+---
+
 ## 2026-03-05 — Castbar Spawn Fallback Narrowing (Post-Reload Validation) ✅
 
 **Context:** `/reload` validation confirmed castbars were stable, so the remaining spawn-time castbar workaround was reduced to a minimal safety path.

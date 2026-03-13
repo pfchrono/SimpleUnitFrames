@@ -1,12 +1,218 @@
 # TODO.md - SUF Enhancement Implementation Roadmap
 
-**Last Updated:** 2026-03-04  
-**Current Phase:** Phase 3 Complete ✅  
-**Status:** Task 3.1 pixel-perfect scaling system complete (all Phase 1-3 work done)  
+**Last Updated:** 2026-03-10
+**Current Phase:** DataText Enhancement Track — Step 5 Implemented ✅
+**Status:** Expanded datatext 7-slot layout + LDB integration shipped; validation pending ⏳
 
 ---
 
-## PHASE 1: Quick Wins (2-3 hours total)
+## PERFORMANCE COALESCER PILOT (2026-03-10)
+
+**Status:** ✅ IMPLEMENTED | ⏳ DUNGEON VALIDATION PENDING
+
+**Implemented in code:**
+- Added shared spell bucket in performance routing:
+   - `SPELL_UPDATE_COOLDOWN` + `SPELL_UPDATE_CHARGES` -> one coalesced dispatch bucket
+- Added `BAG_UPDATE` debounce in performance coalescer path
+- Routed low-risk handlers to CustomTrackers update paths (without broad full-frame refresh)
+- Added lightweight debug counters with slash helpers:
+   - `/suf coalescer reset`
+   - `/suf coalescer`
+
+**Validation checklist (single dungeon run):**
+- [ ] Before entering dungeon: run `/suf coalescer reset`
+- [ ] Complete one dungeon run with performance integration enabled
+- [ ] After run: run `/suf coalescer`
+- [ ] Confirm spell bucket shows reduced `raw -> dispatched`
+- [ ] Confirm bag debounce shows reduced `raw -> dispatched`
+- [ ] Confirm CustomTracker bars still update correctly for cooldown/charges/bag-driven changes
+
+**Next if validation passes:**
+- Expand coalescer coverage to the next safest non-unit buckets only (incremental rollout).
+
+---
+
+## DATATEXT ENHANCEMENT TRACK (XIV Comparison)
+
+### Step 5c: Extended Layout & GUI Ordering (7-slot / full-width / taller)
+
+**Status:** ✅ IMPLEMENTED (2026-03-10) | ⏳ VALIDATION PENDING
+
+**Implemented in code:**
+- Added 7-slot DataText layout (`outerLeft`, `farLeft`, `left`, `center`, `right`, `farRight`, `outerRight`)
+- Added per-slot LDB display mode controls (`AUTO`, `TEXT`, `ICON`, `ICON_TEXT`)
+- Increased default DataText panel height to 40 (double-height baseline)
+- Expanded width control max and runtime clamp so panel can fill full screen width
+- Moved DataText dropdown controls higher in both OptionsV2 and legacy GUI sections
+
+**Step 5c Validation Checklist:**
+- [ ] Switch to `7 Slots (Extended)` and verify all seven entries render without overlap
+- [ ] Verify `Outer Left` / `Outer Right` source dropdowns enable only in 7-slot layout
+- [ ] Verify DataText width can be adjusted to full screen width and clamps correctly
+- [ ] Verify default/new profile DataText height starts at 40px
+- [ ] Verify LDB display mode per-slot (`AUTO/TEXT/ICON/ICON_TEXT`) renders as expected
+- [ ] Verify dropdown ordering in GUI matches updated top-priority control flow
+
+### Step 5b: LDB Tooltip + Click Integration (HidingBar-style)
+
+**Status:** ✅ IMPLEMENTED (2026-03-10) | ⏳ VALIDATION PENDING
+
+**Implemented in code:**
+- Enhanced LDB text rendering in DataText buttons:
+   - supports icon + text/value/label fallback composition
+- Added robust LDB tooltip fallback path when broker has no `OnTooltipShow`:
+   - supports `tooltiptext`, `value/suffix`, multiline rows
+- Added hover compatibility for broker callbacks:
+   - `OnEnter` / `OnLeave` support
+   - hovered-source tracking for tooltip refresh
+- Added click compatibility improvements:
+   - `AnyUp` click registration
+   - dispatch `OnClick(frame, button)` with fallback to `OnMouseUp`
+- Added live LibDataBroker attribute callback handling:
+   - `LibDataBroker_AttributeChanged` now triggers datatext refresh
+   - active tooltip refreshes while hovered on relevant key changes
+
+**Step 5b Validation Checklist:**
+- [ ] Test with an LDB launcher addon (icon/label only) and verify click opens expected panel
+- [ ] Test with an LDB data source addon (`text` updates) and verify DataText updates without waiting for ticker cycle
+- [ ] Verify tooltip fallback renders when broker has no `OnTooltipShow`
+- [ ] Verify broker-provided tooltip still works when `OnTooltipShow` exists
+- [ ] Verify broker `OnEnter`/`OnLeave` paths do not break tooltip lifecycle
+- [ ] Verify middle/right click dispatch for LDB sources registered for those buttons
+
+**Next after Step 5b validation:**
+- Fold any addon-specific click edge cases into a tiny compatibility shim (only if needed).
+
+### Step 3: High-Value Provider Upgrades
+
+**Status:** ✅ IMPLEMENTED (2026-03-05) | ⏳ VALIDATION PENDING
+
+**Implemented in code:**
+- Upgraded builtin `Currencies` datatext provider with cap-aware formatting and weekly progress tooltip rows.
+- Added builtin `Reputation` datatext provider with support for:
+   - standard standings,
+   - friendship standings,
+   - major faction renown,
+   - paragon reward-pending state.
+- Upgraded reputation databar text/tooltip to use the same normalized watched-faction logic.
+- Added event-driven refresh wiring for faction/currency/renown updates:
+   - `UPDATE_FACTION`
+   - `CURRENCY_DISPLAY_UPDATE`
+   - `MAJOR_FACTION_RENOWN_LEVEL_CHANGED`
+   - `MAJOR_FACTION_UNLOCKED`
+
+**Step 3 Validation Checklist:**
+- [ ] Select `Currencies` in a DataText slot and verify cap + weekly rows in tooltip
+- [ ] Select `Reputation` in a DataText slot and verify normal standing/progress display
+- [ ] Verify friendship faction watched display (rank text + progress handling)
+- [ ] Verify major faction watched display (renown styling/progress)
+- [ ] Verify paragon watched display and pending reward indicator (`!` + tooltip line)
+- [ ] Verify reputation databar tooltip matches datatext standing/progress state
+- [ ] Verify left-click actions (`TokenFrame` for currencies, `ReputationFrame` for reputation)
+- [ ] Verify event-driven updates after rep/currency changes without requiring UI reload
+
+### Step 5: Panel Layout Expansion (optional)
+
+**Status:** ✅ IMPLEMENTED (2026-03-05) | ⏳ VALIDATION PENDING
+
+**Implemented in code:**
+- Added configurable datatext slot layout (`3` classic / `5` expanded) with profile key `datatext.panel.slotCount`.
+- Expanded slot model to support `farLeft` and `farRight` alongside `left/center/right`.
+- Refactored DataText panel runtime layout to dynamically size/position buttons per active slot count.
+- Added configuration controls in both OptionsV2 and legacy OptionsWindow for layout + far slot source assignment.
+
+**Step 5 Validation Checklist:**
+- [ ] Switch to `5 Slots (Expanded)` and verify five datatext fields render with no overlap at default width
+- [ ] Verify `farLeft` and `farRight` source dropdowns become enabled only in 5-slot layout
+- [ ] Verify switching back to `3 Slots (Classic)` hides far slots and preserves left/center/right content
+- [ ] Verify drag/edit mode still works for the panel in both layouts
+- [ ] Verify tooltip/click behavior still works for all visible slots (builtin/custom/LDB)
+- [ ] Verify `System` and `LDB:*` slot assignments persist and render correctly after `/reload` and fresh login (no reselect required)
+
+**Next after Step 3 + Step 5 validation:**
+- Step 6: Final documentation + release validation pass
+
+---
+
+## SHAMAN TOTEMS INTEGRATION (2026-03-05)
+
+**Status:** ✅ IMPLEMENTED | ⏳ IN-GAME TESTING PENDING
+
+**Objective:** Display Shaman totem information (slot 1-4) above player auras via oUF Totems element
+
+### What Was Implemented:
+
+1. **Totems Widget Constructor** (CreateTotems function):
+   - Creates 4 totem button frames (36px × 36px each, 4px spacing)
+   - Each button has Icon texture and Cooldown CooldownFrame
+   - Follows oUF element contract per Libraries/oUF/elements/totems.lua
+
+2. **Player Frame Instantiation** (Shaman-gated):
+   - Added CreateTotems call in player Style (line ~8991-9000)
+   - Guards with UnitClassBase check to ensure Shamans only
+
+3. **Dynamic Anchor Chain** (ApplySize layout):
+   - Primary anchor: Above Auras (if visible) — respects multi-row aura layout
+   - Fallback 1: Above ClassPowerAnchor (if visible) — for when auras disabled
+   - Fallback 2: Above AdditionalPower (if visible) — secondary fallback
+   - Fallback 3: Above main frame (if nothing else visible)
+   - Prevents totem disappearance under any configuration
+
+4. **Event Integration** (Dirty event routing):
+   - PLAYER_TOTEM_UPDATE event coalesced with power events
+   - IsFrameEventRelevant updated to recognize Totems
+   - UpdateFrameFromDirtyEvents routes updates to Totems element
+
+5. **Spec-Change Reliability** (OnClassResourceContextChanged):
+   - Added Totems.ForceUpdate hook alongside ClassPower/AdditionalPower
+   - Ensures clean state on spec/form transitions
+
+### Files Modified:
+
+- **SimpleUnitFrames.lua** (5 locations):
+  - Line ~7654-7682: CreateTotems function (28 lines)
+  - Line ~8991-9000: Player Style instantiation (9 lines)
+  - Line ~7376-7421: ApplySize anchoring logic (46 lines)
+  - Line ~3282: IsFrameEventRelevant Totems check (1 line modified)
+  - Line ~3382: UpdateFrameFromDirtyEvents SafeUpdateElement (1 line added)
+  - Line ~10037-10039: OnClassResourceContextChanged ForceUpdate (3 lines added)
+
+### In-Game Testing Checklist:
+
+- [ ] **Cast behavior:** Cast a totem and verify it appears above auras with icon/cooldown
+- [ ] **Expiration:** Totem expires after duration ends; frame hides cleanly
+- [ ] **Replacement:** Replace active totem (e.g., swap fire totem); new one renders correctly
+- [ ] **Multi-row auras:** With 12+ auras causing 2-row layout, totems stay above full stack
+- [ ] **Auras disabled:** Hide player auras; verify totems anchor to ClassPowerAnchor (or fallback) and remain visible
+- [ ] **Spec switch:** Swap specs (e.g., Enhancement ↔ Restoration); totems update cleanly without stale state
+- [ ] **Form changes:** Shapeshift forms (e.g., Bear/Cat for Druid mains) don't break totem layout
+- [ ] **Combat context:** Cast totems in combat; verify event handling works without combat lockdown issues
+
+### Implementation Quality Metrics:
+
+- **Code Reuse:** Follows existing class-resource patterns (CreateClassPower, CreateAuras)
+- **Maintainability:** Zero custom event handling; relies on oUF's built-in PLAYER_TOTEM_UPDATE
+- **Performance:** Minimal overhead; event-driven with dirty coalescing (included in power event batch)
+- **Compatibility:** Works with existing aura/class-power/additional-power layout system
+
+### Known Limitations & Future Enhancements:
+
+- **Totem Size:** Currently hard-coded to 36px × 36px (no UI customization yet)
+- **Totem Dismiss:** Right-click functionality not implemented (future enhancement)
+- **Keybindings:** No default keybindings for totem casting (rely on Blizzard defaults)
+- **Multi-class:** Implementation Shaman-specific (other classes don't benefit; patch as needed if added)
+
+### Next Steps:
+
+1. ✅ Code implementation complete
+2. ⏳ In-game testing (all checklist items)
+3. ⏳ Bug fix cycle (if issues found)
+4. ⏳ Update WORK_SUMMARY.md with final status + performance metrics
+5. ⏳ Consider optional enhancements (configurable size, positioning, right-click dismiss)
+
+---
+
+
 
 Low-effort, high-confidence enhancements. Start here.
 
@@ -507,6 +713,7 @@ High-impact visual improvements.
 - Phase 1 (Quick Wins): 3 tasks complete (Safe Helpers, SafeReload, Profile Validation)
 - Phase 2 (UI Improvements): 3 tasks complete (Accent Colors, Search Navigation, Modular Builders)
 - Phase 3 (Visual Polish): 1 task complete (Pixel-Perfect Scaling)
+- **LibCustomGlow Integration** (2026-03-06): Expanded glow style options for castbar non-interruptible, raid debuffs, and target selection (PIXEL/AUTOCAST/BUTTON/BORDER styles with UI controls in both OptionsV2 and legacy OptionsWindow)
 
 **Recommended Next Steps:**
 1. **Option A:** Prepare v1.30.0 release (all core phases complete)

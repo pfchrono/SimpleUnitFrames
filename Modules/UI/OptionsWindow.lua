@@ -5,6 +5,7 @@
 local AceAddon = LibStub("AceAddon-3.0")
 local AceGUI = LibStub("AceGUI-3.0")
 local LSM = LibStub("LibSharedMedia-3.0", true)
+local LibCustomGlow = LibStub("LibCustomGlow-1.0", true)
 local addon = AceAddon and AceAddon:GetAddon("SimpleUnitFrames", true)
 if not addon then
     return
@@ -1890,23 +1891,55 @@ function addon:ShowOptions()
 				{ type = "check", label = "Transliterate Names (LibTranslit)", get = function() return enhancementCfg.translitNames == true end, set = function(v) enhancementCfg.translitNames = v and true or false; self:ScheduleUpdateAll() end, disabled = function() return not LibTranslit end },
 				{ type = "edit", label = "Translit Marker Prefix", get = function() return enhancementCfg.translitMarker or "" end, set = function(v) enhancementCfg.translitMarker = SafeText(v, ""); self:ScheduleUpdateAll() end },
 				{ type = "check", label = "Non-Interruptible Castbar Glow (LibCustomGlow)", get = function() return enhancementCfg.castbarNonInterruptibleGlow ~= false end, set = function(v) enhancementCfg.castbarNonInterruptibleGlow = v and true or false; self:ScheduleUpdateAll() end, disabled = function() return not LibCustomGlow end },
+				{ type = "dropdown", label = "Non-Interruptible Glow Style", options = { { value = "PIXEL", text = "Pixel Glow" }, { value = "AUTOCAST", text = "Autocast Shine" } }, get = function() return tostring(enhancementCfg.castbarNonInterruptibleGlowStyle or "PIXEL") end, set = function(v) enhancementCfg.castbarNonInterruptibleGlowStyle = tostring(v); self:ScheduleUpdateAll() end, disabled = function() return enhancementCfg.castbarNonInterruptibleGlow == false or not LibCustomGlow end },
 				{ type = "check", label = "Window Open Animation (LibAnim)", get = function() return enhancementCfg.uiOpenAnimation ~= false end, set = function(v) enhancementCfg.uiOpenAnimation = v and true or false end, disabled = function() return not (UIParent and UIParent.CreateAnimationGroup) end },
 				{ type = "slider", label = "Window Animation Duration", min = 0.05, max = 0.60, step = 0.01, get = function() return tonumber(enhancementCfg.uiOpenAnimationDuration) or 0.18 end, set = function(v) enhancementCfg.uiOpenAnimationDuration = v end },
 				{ type = "slider", label = "Window Animation Offset Y", min = -40, max = 40, step = 1, get = function() return tonumber(enhancementCfg.uiOpenAnimationOffsetY) or 12 end, set = function(v) enhancementCfg.uiOpenAnimationOffsetY = v end },
 				{ type = "label", text = "DataText Panel" },
 				{ type = "check", label = "Enable DataText Panel", get = function() return self.db.profile.datatext.enabled ~= false end, set = function(v) self.db.profile.datatext.enabled = v and true or false; self:InitializeDataSystems() end },
-				{ type = "slider", label = "DataText Refresh Rate (sec)", min = 0.2, max = 5.0, step = 0.1, get = function() return tonumber(self.db.profile.datatext.refreshRate) or 1.0 end, set = function(v) self.db.profile.datatext.refreshRate = v; self:InitializeDataSystems() end },
 				{ type = "dropdown", label = "DataText Position Mode", options = {
 					{ value = "ANCHOR", text = "Top/Bottom Anchor" },
 					{ value = "EDIT_MODE", text = "Edit Mode Position" },
 				}, get = function() return tostring(self.db.profile.datatext.positionMode or "ANCHOR") end, set = function(v) self.db.profile.datatext.positionMode = v; self:UpdateDataTextPanel() end },
-				{ type = "slider", label = "DataText Panel Width", min = 280, max = 900, step = 10, get = function() return tonumber(self.db.profile.datatext.panel.width) or 520 end, set = function(v) self.db.profile.datatext.panel.width = v; self:UpdateDataTextPanel() end },
-				{ type = "slider", label = "DataText Panel Height", min = 16, max = 40, step = 1, get = function() return tonumber(self.db.profile.datatext.panel.height) or 20 end, set = function(v) self.db.profile.datatext.panel.height = v; self:UpdateDataTextPanel() end },
 				{ type = "dropdown", label = "DataText Panel Anchor", options = { { value = "TOP", text = "Top" }, { value = "BOTTOM", text = "Bottom" } }, get = function() return tostring(self.db.profile.datatext.panel.anchor or "TOP") end, set = function(v) self.db.profile.datatext.panel.anchor = v; self:UpdateDataTextPanel() end },
 				{ type = "check", label = "DataText Mouseover Fade", get = function() return self.db.profile.datatext.panel.mouseover == true end, set = function(v) self.db.profile.datatext.panel.mouseover = v and true or false; self:UpdateDataTextPanel() end },
+				{ type = "dropdown", label = "DataText Slot Layout", options = {
+					{ value = 3, text = "3 Slots (Classic)" },
+					{ value = 5, text = "5 Slots (Expanded)" },
+					{ value = 7, text = "7 Slots (Extended)" },
+				}, get = function()
+					self.db.profile.datatext.panel = self.db.profile.datatext.panel or {}
+					local slotCount = tonumber(self.db.profile.datatext.panel.slotCount) or 3
+					if slotCount >= 7 then return 7 end
+					return slotCount >= 5 and 5 or 3
+				end, set = function(v)
+					self.db.profile.datatext.panel = self.db.profile.datatext.panel or {}
+					local count = tonumber(v) or 3
+					if count >= 7 then count = 7 elseif count >= 5 then count = 5 else count = 3 end
+					self.db.profile.datatext.panel.slotCount = count
+					self:UpdateDataTextPanel()
+				end },
+				{ type = "dropdown", label = "DataText Outer Left Slot", options = function() return self:GetAvailableDataTextSources() end, get = function() return self.db.profile.datatext.slots.outerLeft or "Spec" end, set = function(v) self.db.profile.datatext.slots.outerLeft = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 7 end },
+				{ type = "dropdown", label = "DataText Far Left Slot", options = function() return self:GetAvailableDataTextSources() end, get = function() return self.db.profile.datatext.slots.farLeft or "Latency" end, set = function(v) self.db.profile.datatext.slots.farLeft = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 5 end },
 				{ type = "dropdown", label = "DataText Left Slot", options = function() return self:GetAvailableDataTextSources() end, get = function() return self.db.profile.datatext.slots.left or "FPS" end, set = function(v) self.db.profile.datatext.slots.left = v; self:UpdateDataTextPanel() end },
 				{ type = "dropdown", label = "DataText Center Slot", options = function() return self:GetAvailableDataTextSources() end, get = function() return self.db.profile.datatext.slots.center or "Time" end, set = function(v) self.db.profile.datatext.slots.center = v; self:UpdateDataTextPanel() end },
 				{ type = "dropdown", label = "DataText Right Slot", options = function() return self:GetAvailableDataTextSources() end, get = function() return self.db.profile.datatext.slots.right or "Memory" end, set = function(v) self.db.profile.datatext.slots.right = v; self:UpdateDataTextPanel() end },
+				{ type = "dropdown", label = "DataText Far Right Slot", options = function() return self:GetAvailableDataTextSources() end, get = function() return self.db.profile.datatext.slots.farRight or "Gold" end, set = function(v) self.db.profile.datatext.slots.farRight = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 5 end },
+				{ type = "dropdown", label = "DataText Outer Right Slot", options = function() return self:GetAvailableDataTextSources() end, get = function() return self.db.profile.datatext.slots.outerRight or "System" end, set = function(v) self.db.profile.datatext.slots.outerRight = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 7 end },
+				{ type = "dropdown", label = "LDB Display (Far Left)", options = { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } }, get = function() self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; return self.db.profile.datatext.slotDisplay.farLeft or "AUTO" end, set = function(v) self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; self.db.profile.datatext.slotDisplay.farLeft = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 5 end },
+				{ type = "dropdown", label = "LDB Display (Left)", options = { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } }, get = function() self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; return self.db.profile.datatext.slotDisplay.left or "AUTO" end, set = function(v) self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; self.db.profile.datatext.slotDisplay.left = v; self:UpdateDataTextPanel() end },
+				{ type = "dropdown", label = "LDB Display (Center)", options = { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } }, get = function() self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; return self.db.profile.datatext.slotDisplay.center or "AUTO" end, set = function(v) self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; self.db.profile.datatext.slotDisplay.center = v; self:UpdateDataTextPanel() end },
+				{ type = "dropdown", label = "LDB Display (Right)", options = { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } }, get = function() self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; return self.db.profile.datatext.slotDisplay.right or "AUTO" end, set = function(v) self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; self.db.profile.datatext.slotDisplay.right = v; self:UpdateDataTextPanel() end },
+				{ type = "dropdown", label = "LDB Display (Far Right)", options = { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } }, get = function() self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; return self.db.profile.datatext.slotDisplay.farRight or "AUTO" end, set = function(v) self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; self.db.profile.datatext.slotDisplay.farRight = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 5 end },
+				{ type = "dropdown", label = "LDB Display (Outer Left)", options = { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } }, get = function() self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; return self.db.profile.datatext.slotDisplay.outerLeft or "AUTO" end, set = function(v) self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; self.db.profile.datatext.slotDisplay.outerLeft = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 7 end },
+				{ type = "dropdown", label = "LDB Display (Outer Right)", options = { { value = "AUTO", text = "Auto" }, { value = "TEXT", text = "Text Only" }, { value = "ICON", text = "Icon Only" }, { value = "ICON_TEXT", text = "Icon + Text" } }, get = function() self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; return self.db.profile.datatext.slotDisplay.outerRight or "AUTO" end, set = function(v) self.db.profile.datatext.slotDisplay = self.db.profile.datatext.slotDisplay or {}; self.db.profile.datatext.slotDisplay.outerRight = v; self:UpdateDataTextPanel() end, disabled = function() return (tonumber(self.db.profile.datatext.panel and self.db.profile.datatext.panel.slotCount) or 3) < 7 end },
+				{ type = "slider", label = "DataText Refresh Rate (sec)", min = 0.2, max = 5.0, step = 0.1, get = function() return tonumber(self.db.profile.datatext.refreshRate) or 1.0 end, set = function(v) self.db.profile.datatext.refreshRate = v; self:InitializeDataSystems() end },
+				{ type = "slider", label = "DataText Panel Width", min = 280, max = 4096, step = 10, get = function() return tonumber(self.db.profile.datatext.panel.width) or 520 end, set = function(v)
+					local maxWidth = UIParent and UIParent.GetWidth and UIParent:GetWidth() or 4096
+					self.db.profile.datatext.panel.width = math.max(280, math.min(tonumber(v) or 520, tonumber(maxWidth) or 4096))
+					self:UpdateDataTextPanel()
+				end },
+				{ type = "slider", label = "DataText Panel Height", min = 16, max = 80, step = 1, get = function() return tonumber(self.db.profile.datatext.panel.height) or 40 end, set = function(v) self.db.profile.datatext.panel.height = v; self:UpdateDataTextPanel() end },
 				{ type = "label", text = "Data Bars" },
 				{ type = "check", label = "Enable Data Bars", get = function() return self.db.profile.databars.enabled ~= false end, set = function(v) self.db.profile.databars.enabled = v and true or false; self:UpdateDataBars() end },
 				{ type = "dropdown", label = "Data Bar Position Mode", options = {
@@ -1978,6 +2011,7 @@ function addon:ShowOptions()
 				{ type = "label", text = "oUF Plugin Integrations" },
 				{ type = "check", label = "Raid Debuffs (Party/Raid)", get = function() return pluginCfg.raidDebuffs.enabled ~= false end, set = function(v) pluginCfg.raidDebuffs.enabled = v and true or false; self:SchedulePluginUpdate() end },
 				{ type = "check", label = "Raid Debuff Glow", get = function() return pluginCfg.raidDebuffs.glow ~= false end, set = function(v) pluginCfg.raidDebuffs.glow = v and true or false; self:SchedulePluginUpdate() end, disabled = function() return not LibCustomGlow end },
+				{ type = "dropdown", label = "Raid Debuff Glow Style", options = { { value = "PIXEL", text = "Pixel Glow" }, { value = "BUTTON", text = "Button Glow" } }, get = function() return tostring(pluginCfg.raidDebuffs.glowStyle or "PIXEL") end, set = function(v) pluginCfg.raidDebuffs.glowStyle = tostring(v); self:SchedulePluginUpdate() end, disabled = function() return pluginCfg.raidDebuffs.glow == false or not LibCustomGlow end },
 				{ type = "dropdown", label = "Raid Debuff Glow Mode", options = { { value = "ALL", text = "All Debuffs" }, { value = "DISPELLABLE", text = "Dispellable Only" }, { value = "PRIORITY", text = "Boss/Priority Only" } }, get = function() return pluginCfg.raidDebuffs.glowMode or "ALL" end, set = function(v) pluginCfg.raidDebuffs.glowMode = v; self:SchedulePluginUpdate() end },
 				{ type = "slider", label = "Raid Debuff Icon Size", min = 12, max = 36, step = 1, get = function() return tonumber(pluginCfg.raidDebuffs.size) or 18 end, set = function(v) pluginCfg.raidDebuffs.size = v; self:SchedulePluginUpdate() end },
 				{ type = "check", label = "Aura Watch (Party/Raid)", get = function() return pluginCfg.auraWatch.enabled ~= false end, set = function(v) pluginCfg.auraWatch.enabled = v and true or false; self:SchedulePluginUpdate() end },
@@ -2843,6 +2877,15 @@ function addon:ShowOptions()
 						unitPluginProfile.raidDebuffs.glow = v and true or false
 						self:SchedulePluginUpdate(tabKey)
 					end, not LibCustomGlow)
+					ui:Dropdown("Raid Debuff Glow Style", {
+						{ value = "PIXEL", text = "Pixel Glow" },
+						{ value = "BUTTON", text = "Button Glow" },
+					}, function()
+						return unitPluginProfile.raidDebuffs.glowStyle or "PIXEL"
+					end, function(v)
+						unitPluginProfile.raidDebuffs.glowStyle = v
+						self:SchedulePluginUpdate(tabKey)
+					end, not LibCustomGlow or unitPluginProfile.raidDebuffs.glow == false)
 					ui:Dropdown("Raid Debuff Glow Mode", {
 						{ value = "ALL", text = "All Debuffs" },
 						{ value = "DISPELLABLE", text = "Dispellable Only" },
@@ -3071,6 +3114,17 @@ function addon:ShowOptions()
 			end, function(v)
 				local cfg = self:GetUnitTargetGlowSettings(tabKey)
 				cfg.enabled = v and true or false
+				self:ScheduleUpdateUnitType(tabKey)
+			end)
+			ui:Dropdown("Target Glow Style", {
+				{ value = "BORDER", text = "Border" },
+				{ value = "BUTTON", text = "Button Glow" },
+			}, function()
+				local cfg = self:GetUnitTargetGlowSettings(tabKey)
+				return cfg.style or "BORDER"
+			end, function(v)
+				local cfg = self:GetUnitTargetGlowSettings(tabKey)
+				cfg.style = v
 				self:ScheduleUpdateUnitType(tabKey)
 			end)
 			ui:Slider("Target Glow Inset", 0, 12, 1, function()

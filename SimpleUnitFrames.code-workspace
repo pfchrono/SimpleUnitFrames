@@ -17,6 +17,9 @@
 		},
 		{
 			"path": "../QUI"
+		},
+		{
+			"path": "../../AddOns/XIV_Databar_Continued"
 		}
 	],
 	"settings": {

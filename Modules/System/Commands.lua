@@ -46,11 +46,12 @@ function addon:ShowLauncherHelp()
 	self:Print(addonName .. ": /suf protected (see also: /SUFprotected help)")
 	self:Print(addonName .. ": /suf absorbdebug on|off|toggle|status")
 	self:Print(addonName .. ": /sufabsorbdebug on|off|toggle|status")
+	self:Print(addonName .. ": /suf coalescer [reset]")
 	self:Print(addonName .. ": /suf skinreport (Blizzard skin coverage report)")
 	self:Print(addonName .. ": /suf install")
 	self:Print(addonName .. ": /suf tutorial")
 	self:Print(addonName .. ": /sufskinreport (direct alias)")
-	self:Print(addonName .. ": /suf reload")
+	self:Print(addonName .. ": /suf reload [now]")
 	self:Print(addonName .. ": /suf resources")
 	self:Print(addonName .. ": /suf help")
 end
@@ -232,7 +233,17 @@ function addon:HandleSUFSlash(msg)
 		return
 	end
 	if command == "reload" or command == "rl" then
-		self:PromptReloadUI("Reload SUF/UI now?")
+		if rest == "now" then
+			-- Force immediate reload without prompt
+			if addon.SafeReload then
+				addon:SafeReload()
+			else
+				ReloadUI()
+			end
+		else
+			-- Show confirmation dialog
+			self:PromptReloadUI("Reload SUF/UI now?")
+		end
 		return
 	end
 	if command == "status" or command == "report" then
@@ -265,6 +276,26 @@ function addon:HandleSUFSlash(msg)
 
 	if command == "absorbdebug" or command == "absdebug" then
 		self:HandleAbsorbDebugSlash(rest)
+		return
+	end
+
+	if command == "coalescer" or command == "coalescers" then
+		local mode = (rest:match("^(%S+)") or ""):lower()
+		if mode == "reset" then
+			if self.ResetLowRiskCoalescerStats then
+				self:ResetLowRiskCoalescerStats()
+				self:Print(addonName .. ": Low-risk coalescer counters reset.")
+			else
+				self:Print(addonName .. ": Coalescer counters are unavailable.")
+			end
+			return
+		end
+
+		if self.PrintLowRiskCoalescerStats then
+			self:PrintLowRiskCoalescerStats()
+		else
+			self:Print(addonName .. ": Coalescer counters are unavailable.")
+		end
 		return
 	end
 

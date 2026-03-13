@@ -1597,6 +1597,23 @@ function CT:RefreshAll()
     end
 end
 
+function CT:UpdateVisibleBars()
+    for _, bar in pairs(CT.activeBars) do
+        if bar and bar:IsShown() and bar.DoUpdate then
+            bar.DoUpdate()
+        end
+    end
+end
+
+function CT:OnCoalescedSpellCooldownBucket()
+    self:UpdateVisibleBars()
+end
+
+function CT:OnCoalescedBagUpdate()
+    self:RebuildItemSpellIndex()
+    self:UpdateVisibleBars()
+end
+
 function CT:RefreshBarPosition(barID)
     local bar = self.activeBars[barID]
     if bar then PositionBar(bar) end
@@ -1812,6 +1829,7 @@ function CT:Init()
     initFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
     initFrame:RegisterEvent("SPELL_UPDATE_USABLE")
     initFrame:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+    initFrame:RegisterEvent("SPELL_UPDATE_CHARGES")
     initFrame:RegisterEvent("ACTIONBAR_UPDATE_COOLDOWN")
     -- Player-scoped UNIT_* events: avoid receiving raid/party-wide unit traffic.
     initFrame:RegisterUnitEvent("UNIT_AURA", "player")
@@ -1889,16 +1907,16 @@ function CT:Init()
                 wipe(pendingActiveSetRebuilds)
                 CT:FlushAutoLearnQueue()
             end
-            for _, bar in pairs(CT.activeBars) do
-                if bar and bar:IsShown() and bar.DoUpdate then bar.DoUpdate() end
-            end
+            CT:UpdateVisibleBars()
             return
         end
 
-        if event == "SPELL_UPDATE_COOLDOWN" or event == "ACTIONBAR_UPDATE_COOLDOWN" then
-            for _, bar in pairs(CT.activeBars) do
-                if bar and bar:IsShown() and bar.DoUpdate then bar.DoUpdate() end
+        if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" or event == "ACTIONBAR_UPDATE_COOLDOWN" then
+            local performanceEnabled = addon and addon.IsPerformanceIntegrationEnabled and addon:IsPerformanceIntegrationEnabled()
+            if performanceEnabled and (event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES") then
+                return
             end
+            CT:UpdateVisibleBars()
             return
         end
 
@@ -1918,9 +1936,7 @@ function CT:Init()
                         CT:TryAutoLearnEntry("item", tonumber(mappedItemID), "spellcast-item")
                     end
                 end
-                for _, bar in pairs(CT.activeBars) do
-                    if bar and bar:IsShown() and bar.DoUpdate then bar.DoUpdate() end
-                end
+                CT:UpdateVisibleBars()
             end
             return
         end
@@ -1932,12 +1948,12 @@ function CT:Init()
             if event == "UNIT_AURA" then
                 local unit = ...
                 if unit ~= "player" then return end
+            elseif event == "BAG_UPDATE_DELAYED" and addon and addon.IsPerformanceIntegrationEnabled and addon:IsPerformanceIntegrationEnabled() then
+                return
             elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
                 CT:RebuildItemSpellIndex()
             end
-            for _, bar in pairs(CT.activeBars) do
-                if bar and bar:IsShown() and bar.DoUpdate then bar.DoUpdate() end
-            end
+            CT:UpdateVisibleBars()
         end
     end)
 end
