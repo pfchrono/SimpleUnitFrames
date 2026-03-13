@@ -154,7 +154,7 @@
 **Status:** 🟡 IN PROGRESS (2026-03-12)
 
 **Completed at kickoff:**
-- [x] Refresh [CHANGELOG.md](CHANGELOG.md) for `1.33.0` with validated DataText and coalescer work
+- [x] Refresh [CHANGELOG.md](CHANGELOG.md) for `1.33.1` with validated DataText and coalescer work
 - [x] Refresh [README.md](README.md) recent updates, commands, and feature summary for the current validated feature set
 
 **Remaining Step 6 checklist:**
@@ -164,8 +164,8 @@
 - [x] Confirm no additional documentation updates are needed before packaging/release prep
 
 **Step 6 result (2026-03-12):**
-- `SimpleUnitFrames.toc` (`1.33.0.31226`), [CHANGELOG.md](CHANGELOG.md), and [README.md](README.md) are aligned on `1.33.0` release metadata.
-- Final publish notes drafted in `RELEASE_NOTES_v1.33.0.md`.
+- `SimpleUnitFrames.toc` (`1.33.1.31226`), [CHANGELOG.md](CHANGELOG.md), and [README.md](README.md) are aligned on `1.33.1` release metadata.
+- Final publish notes drafted in `RELEASE_NOTES_v1.33.1.md`.
 - Validated low-risk coalescer work is included in this release scope; broader next-bucket expansion is deferred to follow-up work.
 
 ---

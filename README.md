@@ -6,7 +6,7 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 
 ## Recent Updates
 
-### v1.33.0 - DataText Expansion + Coalescer Pilot (March 12, 2026)
+### v1.33.1 - DataText Expansion + Coalescer Pilot (March 12, 2026)
 - **Expanded DataText Layouts** — Validated 3-slot, 5-slot, and 7-slot modes with full-width panel clamping and 40px default height
 - **LDB Integration Upgrade** — Validated tooltip fallback, broker tooltip support, click dispatch parity, live text refresh, and per-slot icon/text display modes
 - **Provider Upgrade Pass** — `Currencies`, `Reputation`, `Spec`, and `LootSpec` paths hardened and validated with databar parity

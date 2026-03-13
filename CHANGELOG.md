@@ -1,4 +1,4 @@
-## [1.33.0] - 2026-03-12
+## [1.33.1] - 2026-03-12
 
 ### Added
 - DataText expansion and polish release:

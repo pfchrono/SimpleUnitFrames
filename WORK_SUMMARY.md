@@ -6,17 +6,17 @@
 
 **Changes Applied:**
 - Updated [CHANGELOG.md](CHANGELOG.md):
-   - Added `1.33.0` entry summarizing DataText layout/provider/LDB work, tooltip hardening, and low-risk coalescer pilot results.
+   - Added `1.33.1` entry summarizing DataText layout/provider/LDB work, tooltip hardening, and low-risk coalescer pilot results.
 - Updated [README.md](README.md):
-   - Refreshed the "Recent Updates" section to reflect `v1.33.0` instead of older `v1.26.0` messaging.
+   - Refreshed the "Recent Updates" section to reflect `v1.33.1` instead of older `v1.26.0` messaging.
    - Added coalescer diagnostics commands and current DataText feature coverage to user-facing documentation.
    - Updated feature summary text so release-facing docs match the validated in-game state.
 
 **Validation:**
-- ✅ `CHANGELOG.md` now reflects the current `1.33.0` feature set tracked in [SimpleUnitFrames.toc](SimpleUnitFrames.toc).
+- ✅ `CHANGELOG.md` now reflects the current `1.33.1` feature set tracked in [SimpleUnitFrames.toc](SimpleUnitFrames.toc).
 - ✅ `README.md` recent updates and commands now reflect current validated features rather than older release highlights.
 - ✅ Final release-metadata consistency pass completed across [SimpleUnitFrames.toc](SimpleUnitFrames.toc), [CHANGELOG.md](CHANGELOG.md), and [README.md](README.md).
-- ✅ Final publish notes drafted in `RELEASE_NOTES_v1.33.0.md`.
+- ✅ Final publish notes drafted in `RELEASE_NOTES_v1.33.1.md`.
 - ✅ Release scope decision made: validated low-risk coalescer work ships in this release; broader expansion is deferred.
 
 **Risk Level:** LOW
@@ -27,8 +27,8 @@
 **Objective:** Finish the documentation side of Step 6 so release metadata, scope, and publish notes are consistent before commit/push/publish.
 
 **Validation:**
-- ✅ `SimpleUnitFrames.toc` release version prefix matches `1.33.0` in [CHANGELOG.md](CHANGELOG.md) and [README.md](README.md).
-- ✅ `RELEASE_NOTES_v1.33.0.md` drafted for publish flow consumption.
+- ✅ `SimpleUnitFrames.toc` release version prefix matches `1.33.1` in [CHANGELOG.md](CHANGELOG.md) and [README.md](README.md).
+- ✅ `RELEASE_NOTES_v1.33.1.md` drafted for publish flow consumption.
 - ✅ Low-risk coalescer pilot explicitly included in the release scope.
 
 **Risk Level:** LOW

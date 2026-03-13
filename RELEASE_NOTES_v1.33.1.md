@@ -1,4 +1,4 @@
-# SimpleUnitFrames v1.33.0
+# SimpleUnitFrames v1.33.1
 
 This release ships the validated DataText enhancement track together with the first validated low-risk non-unit event coalescer rollout.
 
