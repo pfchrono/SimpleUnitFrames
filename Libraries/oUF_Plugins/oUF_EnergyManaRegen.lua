@@ -8,7 +8,7 @@ local GetTime = GetTime
 local UnitPower = UnitPower
 local UnitPowerType = UnitPowerType
 local UnitPowerMax = UnitPowerMax
-local GetSpellPowerCost = GetSpellPowerCost
+local GetSpellPowerCost = C_Spell and C_Spell.GetSpellPowerCost
 
 local LastTickTime = GetTime()
 local TickDelay = 2.025 -- Average tick time is slightly over 2 seconds
@@ -105,8 +105,8 @@ local OnUnitSpellcastSucceeded = function(_, _, _, _, spellID)
 	if powerType ~= MANA then return end
 
 	local spellCost = false
-	local costTable = GetSpellPowerCost(spellID)
-	for _, costInfo in next, costTable do
+	local costTable = GetSpellPowerCost and GetSpellPowerCost(spellID)
+	for _, costInfo in next, costTable or {} do
 		if costInfo.cost and costInfo.cost > 0 then
 			spellCost = true
 		end

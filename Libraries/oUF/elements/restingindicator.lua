@@ -24,6 +24,9 @@ A default texture will be applied if the widget is a Texture and doesn't have a 
 
 local _, ns = ...
 local oUF = ns.oUF
+local Private = oUF.Private
+
+local unitIsUnit = Private.unitIsUnit
 
 local function Update(self, event)
 	local element = self.RestingIndicator
@@ -40,19 +43,17 @@ local function Update(self, event)
 	local isResting = IsResting()
 	if(isResting) then
 		element:Show()
-		
-		-- Apply visual resting highlight effect using ObjectPool
+
 		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:ApplyHighlight(self, {0.3, 0.7, 1, 0.2})  -- Light blue highlight
+		if(addon and addon.IndicatorPoolManager) then
+			addon.IndicatorPoolManager:ApplyHighlight(self, {0.3, 0.7, 1, 0.2})
 		end
 	else
 		element:Hide()
-		
-		-- Release resting highlight when not resting
+
 		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:Release(self, "highlight_overlay")
+		if(addon and addon.IndicatorPoolManager) then
+			addon.IndicatorPoolManager:Release(self, 'highlight_overlay')
 		end
 	end
 
@@ -83,7 +84,7 @@ end
 
 local function Enable(self, unit)
 	local element = self.RestingIndicator
-	if(element and UnitIsUnit(unit, 'player')) then
+	if(element and unitIsUnit(unit, 'player')) then
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 

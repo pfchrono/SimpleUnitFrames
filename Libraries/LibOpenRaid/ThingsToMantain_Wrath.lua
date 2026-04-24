@@ -6,6 +6,8 @@ if (gameVersion >= 40000 or gameVersion < 30000) then
     return
 end
 
+local GetSpellName = C_Spell.GetSpellName
+
 --localization
 local gameLanguage = GetLocale()
 
@@ -609,25 +611,25 @@ elseif (GetBuildInfo():match ("%d") == "3") then
 
 else
 	LIB_OPEN_RAID_SPELL_CUSTOM_NAMES = {
-		[44461] = {name = GetSpellInfo(44461) .. " (" .. L["STRING_EXPLOSION"] .. ")"}, --Living Bomb (explosion)
-		[59638] = {name = GetSpellInfo(59638) .. " (" .. L["STRING_MIRROR_IMAGE"] .. ")"}, --Mirror Image's Frost Bolt (mage)
-		[88082] = {name = GetSpellInfo(88082) .. " (" .. L["STRING_MIRROR_IMAGE"] .. ")"}, --Mirror Image's Fireball (mage)
-		[94472] = {name = GetSpellInfo(94472) .. " (" .. L["STRING_CRITICAL_ONLY"] .. ")"}, --Atonement critical hit (priest)
-		[33778] = {name = GetSpellInfo(33778) .. " (" .. L["STRING_BLOOM"] .. ")"}, --lifebloom (bloom)
-		[121414] = {name = GetSpellInfo(121414) .. " (" .. L["STRING_GLAIVE"] .. " #1)"}, --glaive toss (hunter)
-		[120761] = {name = GetSpellInfo(120761) .. " (" .. L["STRING_GLAIVE"] .. " #2)"}, --glaive toss (hunter)
-		[212739] = {name = GetSpellInfo(212739) .. " (" .. L["STRING_MAINTARGET"] .. ")"}, --DK Epidemic
-		[215969] = {name = GetSpellInfo(215969) .. " (" .. L["STRING_AOE"] .. ")"}, --DK Epidemic
-		[70890] = {name = GetSpellInfo(70890) .. " (" .. L["STRING_SHADOW"] .. ")"}, --DK Scourge Strike
-		[55090] = {name = GetSpellInfo(55090) .. " (" .. L["STRING_PHYSICAL"] .. ")"}, --DK Scourge Strike
-		[49184] = {name = GetSpellInfo(49184) .. " (" .. L["STRING_MAINTARGET"] .. ")"}, --DK Howling Blast
-		[237680] = {name = GetSpellInfo(237680) .. " (" .. L["STRING_AOE"] .. ")"}, --DK Howling Blast
-		[228649] = {name = GetSpellInfo(228649) .. " (" .. L["STRING_PASSIVE"] .. ")"}, --Monk Mistweaver Blackout kick - Passive Teachings of the Monastery
-		[339538] = {name = GetSpellInfo(224266) .. " (" .. L["STRING_TEMPLAR_VINDCATION"] .. ")"}, --
-		[343355] = {name = GetSpellInfo(343355)  .. " (" .. L["STRING_PROC"] .. ")"}, --shadow priest's void bold proc
+		[44461] = {name = GetSpellName(44461) .. " (" .. L["STRING_EXPLOSION"] .. ")"}, --Living Bomb (explosion)
+		[59638] = {name = GetSpellName(59638) .. " (" .. L["STRING_MIRROR_IMAGE"] .. ")"}, --Mirror Image's Frost Bolt (mage)
+		[88082] = {name = GetSpellName(88082) .. " (" .. L["STRING_MIRROR_IMAGE"] .. ")"}, --Mirror Image's Fireball (mage)
+		[94472] = {name = GetSpellName(94472) .. " (" .. L["STRING_CRITICAL_ONLY"] .. ")"}, --Atonement critical hit (priest)
+		[33778] = {name = GetSpellName(33778) .. " (" .. L["STRING_BLOOM"] .. ")"}, --lifebloom (bloom)
+		[121414] = {name = GetSpellName(121414) .. " (" .. L["STRING_GLAIVE"] .. " #1)"}, --glaive toss (hunter)
+		[120761] = {name = GetSpellName(120761) .. " (" .. L["STRING_GLAIVE"] .. " #2)"}, --glaive toss (hunter)
+		[212739] = {name = GetSpellName(212739) .. " (" .. L["STRING_MAINTARGET"] .. ")"}, --DK Epidemic
+		[215969] = {name = GetSpellName(215969) .. " (" .. L["STRING_AOE"] .. ")"}, --DK Epidemic
+		[70890] = {name = GetSpellName(70890) .. " (" .. L["STRING_SHADOW"] .. ")"}, --DK Scourge Strike
+		[55090] = {name = GetSpellName(55090) .. " (" .. L["STRING_PHYSICAL"] .. ")"}, --DK Scourge Strike
+		[49184] = {name = GetSpellName(49184) .. " (" .. L["STRING_MAINTARGET"] .. ")"}, --DK Howling Blast
+		[237680] = {name = GetSpellName(237680) .. " (" .. L["STRING_AOE"] .. ")"}, --DK Howling Blast
+		[228649] = {name = GetSpellName(228649) .. " (" .. L["STRING_PASSIVE"] .. ")"}, --Monk Mistweaver Blackout kick - Passive Teachings of the Monastery
+		[339538] = {name = GetSpellName(224266) .. " (" .. L["STRING_TEMPLAR_VINDCATION"] .. ")"}, --
+		[343355] = {name = GetSpellName(343355)  .. " (" .. L["STRING_PROC"] .. ")"}, --shadow priest's void bold proc
 
 		--shadowlands trinkets
-		[345020] = {name = GetSpellInfo(345020) .. " ("  .. L["STRING_TRINKET"] .. ")"},
+		[345020] = {name = GetSpellName(345020) .. " ("  .. L["STRING_TRINKET"] .. ")"},
 	}
 end
 

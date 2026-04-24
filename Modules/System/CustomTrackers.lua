@@ -114,12 +114,12 @@ end
 -- COOLDOWN INFO
 ---------------------------------------------------------------------------
 local function GetSpellCooldownInfo(spellID)
-    if not spellID then return 0, 0, false, nil end
+    if not spellID then return 0, 0, false, nil, 0 end
     local info = C_Spell.GetSpellCooldown(spellID)
     if info then
-        return info.startTime, info.duration, info.isEnabled, info.isOnGCD
+        return info.startTime, info.duration, info.isEnabled, info.isOnGCD, info.modRate or 0
     end
-    return 0, 0, true, nil
+    return 0, 0, true, nil, 0
 end
 
 local function GetItemCooldownInfo(itemID)
@@ -140,11 +140,11 @@ local knownChargeSpells = {}
 local chargeSpellLastCast = {}
 
 local function GetSpellChargeCount(spellID)
-    if not spellID then return 0, 1, 0, 0 end
+    if not spellID then return 0, 1, 0, 0, 0, false end
     local chargeInfo = C_Spell.GetSpellCharges(spellID)
-    if not chargeInfo then return 0, 1, 0, 0 end
+    if not chargeInfo then return 0, 1, 0, 0, 0, false end
     local maxCharges = chargeInfo.maxCharges
-    if not maxCharges then return 0, 1, 0, 0 end
+    if not maxCharges then return 0, 1, 0, 0, 0, false end
     local ok, isSecret = pcall(function() return maxCharges ~= maxCharges end)  -- NaN check (secret values)
     -- Safer: just try to compare
     local safeOk, safeResult = pcall(function() return maxCharges > 1 end)
@@ -153,18 +153,39 @@ local function GetSpellChargeCount(spellID)
         if cached and cached > 1 then
             return chargeInfo.currentCharges, cached,
                    chargeInfo.cooldownStartTime or 0,
-                   chargeInfo.cooldownDuration or 0
+                   chargeInfo.cooldownDuration or 0,
+                   chargeInfo.chargeModRate or 0,
+                   chargeInfo.isActive == true
         end
-        return 0, 1, 0, 0
+        return 0, 1, 0, 0, 0, false
     end
     if safeResult then
         knownChargeSpells[spellID] = maxCharges
         return chargeInfo.currentCharges or 0, maxCharges,
                chargeInfo.cooldownStartTime or 0,
-               chargeInfo.cooldownDuration or 0
+               chargeInfo.cooldownDuration or 0,
+               chargeInfo.chargeModRate or 0,
+               chargeInfo.isActive == true
     end
     knownChargeSpells[spellID] = 1
-    return 0, 1, 0, 0
+    return 0, 1, 0, 0, 0, false
+end
+
+local function GetSpellLossOfControlInfo(spellID)
+    if not spellID or not C_Spell or not C_Spell.GetSpellLossOfControlCooldownInfo then
+        return 0, 0, 0, false, false
+    end
+
+    local info = C_Spell.GetSpellLossOfControlCooldownInfo(spellID)
+    if not info then
+        return 0, 0, 0, false, false
+    end
+
+    return info.startTime or 0,
+           info.duration or 0,
+           info.modRate or 0,
+           info.isActive == true,
+           info.shouldReplaceNormalCooldown == true
 end
 
 local function IsCooldownFrameActive(cooldownFrame)
@@ -1161,17 +1182,20 @@ function CT:StartCooldownPolling(bar)
         for _, icon in ipairs(bar.activeIcons or bar.icons or {}) do
             local entry = icon.entry
             if entry and entry.id then
-                local startTime, duration, enabled, isOnGCD
+                local startTime, duration, enabled, isOnGCD, modRate
                 local count, maxCharges = 0, 1
-                local chargeStartTime, chargeDuration = 0, 0
+                local chargeStartTime, chargeDuration, chargeModRate, chargeActive = 0, 0, 0, false
+                local locStartTime, locDuration, locModRate, locActive, locReplacesNormal = 0, 0, 0, false, false
 
                 if entry.type == "spell" then
-                    startTime, duration, enabled, isOnGCD = GetSpellCooldownInfo(entry.id)
-                    count, maxCharges, chargeStartTime, chargeDuration = GetSpellChargeCount(entry.id)
+                    startTime, duration, enabled, isOnGCD, modRate = GetSpellCooldownInfo(entry.id)
+                    count, maxCharges, chargeStartTime, chargeDuration, chargeModRate, chargeActive = GetSpellChargeCount(entry.id)
+                    locStartTime, locDuration, locModRate, locActive, locReplacesNormal = GetSpellLossOfControlInfo(entry.id)
                 else
                     startTime, duration, enabled = GetItemCooldownInfo(entry.id)
                     count = GetItemStackCount(entry.id, config.showItemCharges)
                     isOnGCD = false
+                    modRate = 0
                     icon._usable = IsItemUsable(entry.id, count)
                 end
 
@@ -1202,9 +1226,9 @@ function CT:StartCooldownPolling(bar)
                     if isChargeSpell then
                         if chargeStartTime and chargeDuration then
                             pcall(function()
-                                icon.cooldown:SetCooldown(chargeStartTime, chargeDuration)
+                                icon.cooldown:SetCooldown(chargeStartTime, chargeDuration, chargeModRate)
                             end)
-                            rechargeActive = IsCooldownFrameActive(icon.cooldown)
+                            rechargeActive = chargeActive or IsCooldownFrameActive(icon.cooldown)
                         else
                             icon.cooldown:Clear()
                         end
@@ -1222,10 +1246,16 @@ function CT:StartCooldownPolling(bar)
 
                         -- Detect main CD (all charges depleted)
                         icon.cooldown:Clear()
-                        pcall(function() icon.cooldown:SetCooldown(startTime, duration) end)
+                        pcall(function()
+                            local displayStart, displayDuration, displayModRate = startTime, duration, modRate
+                            if locActive and (locReplacesNormal or not (displayStart and displayStart > 0 and displayDuration and displayDuration > 0)) then
+                                displayStart, displayDuration, displayModRate = locStartTime, locDuration, locModRate
+                            end
+                            icon.cooldown:SetCooldown(displayStart, displayDuration, displayModRate)
+                        end)
                         local mainCDActive = IsCooldownFrameActive(icon.cooldown)
                         if chargeStartTime and chargeDuration then
-                            pcall(function() icon.cooldown:SetCooldown(chargeStartTime, chargeDuration) end)
+                            pcall(function() icon.cooldown:SetCooldown(chargeStartTime, chargeDuration, chargeModRate) end)
                         end
 
                         if hideGCD then
@@ -1257,8 +1287,13 @@ function CT:StartCooldownPolling(bar)
                         end
                     else
                         -- Normal cooldown
-                        if startTime and duration then
-                            pcall(function() icon.cooldown:SetCooldown(startTime, duration) end)
+                        local displayStart, displayDuration, displayModRate = startTime, duration, modRate
+                        if locActive and (locReplacesNormal or not (displayStart and displayStart > 0 and displayDuration and displayDuration > 0)) then
+                            displayStart, displayDuration, displayModRate = locStartTime, locDuration, locModRate
+                        end
+
+                        if displayStart and displayDuration then
+                            pcall(function() icon.cooldown:SetCooldown(displayStart, displayDuration, displayModRate) end)
                         end
                         pcall(icon.cooldown.SetDrawSwipe, icon.cooldown, false)
                         pcall(icon.cooldown.SetDrawEdge, icon.cooldown, false)
@@ -1276,13 +1311,13 @@ function CT:StartCooldownPolling(bar)
                                 isOnCD = false
                             else
                                 local checkOk, checkResult = pcall(function()
-                                    return startTime and startTime > 0 and duration and duration > 0
+                                    return displayStart and displayStart > 0 and displayDuration and displayDuration > 0
                                 end)
                                 isOnCD = checkOk and checkResult or IsCooldownFrameActive(icon.cooldown)
                             end
                         else
                             local checkOk, checkResult = pcall(function()
-                                return startTime and startTime > 0 and duration and duration > 0
+                                return displayStart and displayStart > 0 and displayDuration and displayDuration > 0
                             end)
                             isOnCD = checkOk and checkResult or IsCooldownFrameActive(icon.cooldown)
                         end
@@ -1614,6 +1649,10 @@ function CT:OnCoalescedBagUpdate()
     self:UpdateVisibleBars()
 end
 
+function CT:OnCoalescedSpellUsableUpdate()
+    self:UpdateVisibleBars()
+end
+
 function CT:RefreshBarPosition(barID)
     local bar = self.activeBars[barID]
     if bar then PositionBar(bar) end
@@ -1913,7 +1952,16 @@ function CT:Init()
 
         if event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" or event == "ACTIONBAR_UPDATE_COOLDOWN" then
             local performanceEnabled = addon and addon.IsPerformanceIntegrationEnabled and addon:IsPerformanceIntegrationEnabled()
-            if performanceEnabled and (event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES") then
+            if performanceEnabled then
+                return
+            end
+            CT:UpdateVisibleBars()
+            return
+        end
+
+        if event == "SPELL_UPDATE_USABLE" then
+            local performanceEnabled = addon and addon.IsPerformanceIntegrationEnabled and addon:IsPerformanceIntegrationEnabled()
+            if performanceEnabled then
                 return
             end
             CT:UpdateVisibleBars()
@@ -1943,7 +1991,7 @@ function CT:Init()
 
         -- Item / aura / equipment events – refresh icons and update
         if event == "GET_ITEM_INFO_RECEIVED" or event == "BAG_UPDATE_DELAYED"
-           or event == "PLAYER_EQUIPMENT_CHANGED" or event == "SPELL_UPDATE_USABLE"
+           or event == "PLAYER_EQUIPMENT_CHANGED"
            or event == "UNIT_AURA" then
             if event == "UNIT_AURA" then
                 local unit = ...

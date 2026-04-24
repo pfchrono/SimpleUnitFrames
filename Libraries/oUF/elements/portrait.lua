@@ -3,11 +3,6 @@
 
 Handles the updating of the unit's portrait.
 
----@class oUFPortraitElement : Frame
----@field portraitModel PlayerModel|nil 3D character model
----@field portraitTexture Texture|nil 2D portrait texture
----@field displayPowerType boolean Show unit power type in portrait
-
 ## Widget
 
 Portrait - A `PlayerModel` or a `Texture` used to represent the unit's portrait.
@@ -45,8 +40,10 @@ local _, ns = ...
 local oUF = ns.oUF
 local Private = oUF.Private
 
+local unitIsUnit = Private.unitIsUnit
+
 local function Update(self, event, unit)
-	if(not unit or not UnitIsUnit(self.unit, unit)) then return end
+	if(not unit or not unitIsUnit(self.unit, unit)) then return end
 
 	local element = self.Portrait
 
@@ -60,9 +57,11 @@ local function Update(self, event, unit)
 
 	local guid = UnitGUID(unit)
 	local isAvailable = UnitIsConnected(unit) and UnitIsVisible(unit)
+
 	local hasStateChanged = event ~= 'OnUpdate'
 		or (not issecretvalue(guid) and not issecretvalue(element.guid) and element.guid ~= guid)
 		or element.state ~= isAvailable
+
 	if(hasStateChanged) then
 		if(element:IsObjectType('PlayerModel')) then
 			if(not isAvailable) then
@@ -137,8 +136,8 @@ local function Enable(self, unit)
 		-- party members overlapping quests. This will probably be enough to handle
 		-- model updating.
 		if(unit == 'party' or unit == 'target') then
-			Private.SmartRegisterUnitEvent(self, 'PARTY_MEMBER_ENABLE', unit, Path)
-			Private.SmartRegisterUnitEvent(self, 'PARTY_MEMBER_DISABLE', unit, Path)
+			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path)
+			self:RegisterEvent('PARTY_MEMBER_DISABLE', Path)
 		end
 
 		element:Show()

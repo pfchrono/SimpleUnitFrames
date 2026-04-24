@@ -217,8 +217,8 @@ local function PostOnlyMissing(element, unit, offset)
 
 		button.spellID = spellID
 
-		local icon = GetSpellTexture(spellID)
-		HandleElements(element, unit, button, setting, icon)
+		local spellTexture, baseSpellTexture = GetSpellTexture(spellID)
+		HandleElements(element, unit, button, setting, baseSpellTexture or spellTexture)
 
 		if element.PostUpdateIcon then
 			element:PostUpdateIcon(unit, button, nil, position)

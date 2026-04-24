@@ -41,6 +41,8 @@ local _, ns = ...
 local oUF = ns.oUF
 local Private = oUF.Private
 
+local unitIsUnit = Private.unitIsUnit
+
 -- sourced from Blizzard_UnitFrame/UnitPowerBarAlt.lua
 local ALTERNATE_POWER_INDEX = Enum.PowerType.Alternate or 10
 
@@ -75,7 +77,7 @@ local function UpdateColor(self, event, unit, powerType)
 		color = self.colors.power[ALTERNATE_POWER_INDEX]
 
 		if(element.colorPowerSmooth and color and color:GetCurve()) then
-			color = UnitPowerPercent(unit, true, color:GetCurve())
+			color = UnitPowerPercent(unit, ALTERNATE_POWER_INDEX, true, color:GetCurve())
 		end
 	end
 
@@ -170,7 +172,7 @@ local function Visibility(self, event, unit)
 	element.__barInfo = barInfo
 	if(barInfo and (barInfo.showOnRaid and (UnitInParty(unit) or UnitInRaid(unit))
 		or not barInfo.hideFromOthers
-		or UnitIsUnit(unit, 'player')))
+		or unitIsUnit(unit, 'player')))
 	then
 		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_UPDATE', unit, Path)
 		Private.SmartRegisterUnitEvent(self, 'UNIT_MAXPOWER', unit, Path)
@@ -211,8 +213,8 @@ local function Enable(self, unit)
 			element.smoothing = Enum.StatusBarInterpolation.Immediate
 		end
 
-		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_BAR_SHOW', unit, VisibilityPath)
-		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_BAR_HIDE', unit, VisibilityPath)
+		self:RegisterUnitEvent('UNIT_POWER_BAR_SHOW', VisibilityPath, unit)
+		self:RegisterUnitEvent('UNIT_POWER_BAR_HIDE', VisibilityPath, unit)
 
 		if(element:IsObjectType('StatusBar') and not element:GetStatusBarTexture()) then
 			element:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])

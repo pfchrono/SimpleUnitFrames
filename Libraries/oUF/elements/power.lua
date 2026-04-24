@@ -3,12 +3,6 @@
 
 Handles the updating of a status bar that displays the unit's power.
 
----@class oUFPowerElement : Frame
----@field CostPrediction StatusBar|nil Power cost prediction bar
----@field powerType string Current power type (MANA, RAGE, ENERGY, etc.)
----@field powerAmount number Current power amount
----@field powerMax number Maximum power amount
-
 ## Widget
 
 Power - A `StatusBar` used to represent the unit's power.
@@ -92,6 +86,7 @@ local _, ns = ...
 local oUF = ns.oUF
 local Private = oUF.Private
 
+local unitIsUnit = Private.unitIsUnit
 local unitSelectionType = Private.unitSelectionType
 
 -- sourced from Blizzard_UnitFrame/UnitPowerBarAlt.lua
@@ -151,7 +146,7 @@ local function UpdateColor(self, event, unit)
 		end
 
 		if(element.colorPowerSmooth and color and color:GetCurve()) then
-			color = UnitPowerPercent(unit, true, color:GetCurve())
+			color = UnitPowerPercent(unit, element.displayType, true, color:GetCurve())
 		end
 	elseif(element.colorClass and (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
 		or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
@@ -485,10 +480,10 @@ local function SetFrequentUpdates(element, state, isForced)
 		element.frequentUpdates = state
 		if(state) then
 			element.__owner:UnregisterEvent('UNIT_POWER_UPDATE', Path)
-			element.__owner:RegisterEvent('UNIT_POWER_FREQUENT', Path)
+			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_POWER_FREQUENT', element.__owner.unit, Path)
 		else
 			element.__owner:UnregisterEvent('UNIT_POWER_FREQUENT', Path)
-			element.__owner:RegisterEvent('UNIT_POWER_UPDATE', Path)
+			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_POWER_UPDATE', element.__owner.unit, Path)
 		end
 	end
 end
@@ -534,8 +529,8 @@ local function Enable(self, unit)
 		self:RegisterEvent('UNIT_CONNECTION', Path)
 
 		if(unit == 'party' or unit == 'raid') then
-			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path, true)
-			self:RegisterEvent('PARTY_MEMBER_DISABLE', Path, true)
+			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path)
+			self:RegisterEvent('PARTY_MEMBER_DISABLE', Path)
 		end
 
 		if(element:IsObjectType('StatusBar') and not element:GetStatusBarTexture()) then
@@ -553,15 +548,15 @@ local function Enable(self, unit)
 		if(element.CostPrediction) then
 			element.CostPrediction:Hide()
 
-			if(UnitIsUnit(unit, 'player')) then
+			if(unitIsUnit(unit, 'player')) then
 				if(element.CostPrediction:IsObjectType('StatusBar') and not element.CostPrediction:GetStatusBarTexture()) then
 					element.CostPrediction:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
 				end
 
-			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_START', unit, PredictionPath)
-			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_STOP', unit, PredictionPath)
-			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_FAILED', unit, PredictionPath)
-			Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_SUCCEEDED', unit, PredictionPath)
+				Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_START', self.unit, PredictionPath)
+				Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_STOP', self.unit, PredictionPath)
+				Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_FAILED', self.unit, PredictionPath)
+				Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_SUCCEEDED', self.unit, PredictionPath)
 			end
 		end
 

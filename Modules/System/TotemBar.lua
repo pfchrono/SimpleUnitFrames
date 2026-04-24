@@ -298,8 +298,13 @@ function TotemBar:SetupCombatListener()
 	local eventFrame = CreateFrame("Frame")
 	eventFrame:RegisterEvent("PLAYER_REGEN_DISABLED")
 	eventFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
-	eventFrame:SetScript("OnEvent", function()
-		-- Refresh totem positioning after combat state change
+	eventFrame:RegisterEvent("PLAYER_TALENT_UPDATE")
+	eventFrame:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+	eventFrame:SetScript("OnEvent", function(_, event, unit)
+		if event == "PLAYER_SPECIALIZATION_CHANGED" and unit ~= "player" then
+			return
+		end
+		-- Refresh totem positioning after combat state change or spec change
 		C_Timer.After(0.1, function()
 			addon.TotemBar:RefreshTotemLayout()
 		end)

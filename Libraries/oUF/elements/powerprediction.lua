@@ -46,6 +46,8 @@ local _, ns = ...
 local oUF = ns.oUF
 local Private = oUF.Private
 
+local unitIsUnit = Private.unitIsUnit
+
 -- sourced from Blizzard_UnitFrame/AlternatePowerBar.lua
 local ALT_POWER_BAR_PAIR_DISPLAY_INFO = _G.ALT_POWER_BAR_PAIR_DISPLAY_INFO
 
@@ -124,10 +126,14 @@ local function Update(self, event, unit)
 		element.mainBar:Show()
 	end
 
-	if(element.altBar and hasAltManaBar) then
-		element.altBar:SetMinMaxValues(0, UnitPowerMax(unit, ADDITIONAL_POWER_BAR_INDEX))
-		element.altBar:SetValue(altCost)
-		element.altBar:Show()
+	if(element.altBar) then
+		if(hasAltManaBar) then
+			element.altBar:SetMinMaxValues(0, UnitPowerMax(unit, ADDITIONAL_POWER_BAR_INDEX))
+			element.altBar:SetValue(altCost)
+			element.altBar:Show()
+		else
+			element.altBar:Hide()
+		end
 	end
 
 	--[[ Callback: PowerPrediction:PostUpdate(unit, mainCost, altCost, hasAltManaBar)
@@ -200,7 +206,7 @@ end
 
 local function Enable(self, unit)
 	local element = self.PowerPrediction
-	if(element and UnitIsUnit(unit, 'player')) then
+	if(element and unitIsUnit(unit, 'player')) then
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 

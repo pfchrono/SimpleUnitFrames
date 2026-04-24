@@ -776,7 +776,10 @@ local PERF_EVENT_PRIORITY = {
 	UNIT_ABSORB_AMOUNT_CHANGED = 2,
 	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = 2,
 	SPELL_UPDATE_COOLDOWN = 4,
+	SPELL_UPDATE_USABLE = 4,
+	ACTIONBAR_UPDATE_COOLDOWN = 4,
 	BAG_UPDATE = 4,
+	BAG_UPDATE_DELAYED = 4,
 	UNIT_MAXPOWER = 2,
 	UNIT_DISPLAYPOWER = 3,
 	UNIT_AURA = 3,
@@ -820,6 +823,7 @@ local EVENT_COALESCE_CONFIG = {
 	UNIT_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
 	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = { delay = 0.12, priority = 3 },
 	SPELL_UPDATE_COOLDOWN = { delay = 0.10, priority = 4 },
+	SPELL_UPDATE_USABLE = { delay = 0.12, priority = 4 },
 	BAG_UPDATE = { delay = 0.20, priority = 4 },
 	UNIT_POWER_UPDATE = { delay = 0.20, priority = 4 },
 	UNIT_MAXHEALTH = { delay = 0.12, priority = 2 },
@@ -855,16 +859,23 @@ local EVENT_COALESCE_CONFIG = {
 
 local EVENT_COALESCE_ALIAS = {
 	SPELL_UPDATE_CHARGES = "SPELL_UPDATE_COOLDOWN",
+	ACTIONBAR_UPDATE_COOLDOWN = "SPELL_UPDATE_COOLDOWN",
+	BAG_UPDATE_DELAYED = "BAG_UPDATE",
 }
 
 local PERFORMANCE_INPUT_ONLY_EVENTS = {
 	SPELL_UPDATE_CHARGES = true,
+	ACTIONBAR_UPDATE_COOLDOWN = true,
+	BAG_UPDATE_DELAYED = true,
 }
 
 local LOW_RISK_COALESCER_COUNTER_KEYS = {
 	SPELL_UPDATE_COOLDOWN = "spellCooldownCharges",
 	SPELL_UPDATE_CHARGES = "spellCooldownCharges",
+	ACTIONBAR_UPDATE_COOLDOWN = "spellCooldownCharges",
+	SPELL_UPDATE_USABLE = "spellUsable",
 	BAG_UPDATE = "bagUpdate",
+	BAG_UPDATE_DELAYED = "bagUpdate",
 }
 
 local NON_UNIT_EVENT_TARGETS = {
@@ -913,10 +924,12 @@ local function EnsureLowRiskCoalescerStats(context)
 	context._lowRiskCoalescerStats = context._lowRiskCoalescerStats or {
 		raw = {
 			spellCooldownCharges = 0,
+			spellUsable = 0,
 			bagUpdate = 0,
 		},
 		dispatched = {
 			spellCooldownCharges = 0,
+			spellUsable = 0,
 			bagUpdate = 0,
 		},
 	}
@@ -925,10 +938,22 @@ local function EnsureLowRiskCoalescerStats(context)
 	stats.raw = stats.raw or {}
 	stats.dispatched = stats.dispatched or {}
 	if type(stats.raw.spellCooldownCharges) ~= "number" then stats.raw.spellCooldownCharges = 0 end
+	if type(stats.raw.spellUsable) ~= "number" then stats.raw.spellUsable = 0 end
 	if type(stats.raw.bagUpdate) ~= "number" then stats.raw.bagUpdate = 0 end
 	if type(stats.dispatched.spellCooldownCharges) ~= "number" then stats.dispatched.spellCooldownCharges = 0 end
+	if type(stats.dispatched.spellUsable) ~= "number" then stats.dispatched.spellUsable = 0 end
 	if type(stats.dispatched.bagUpdate) ~= "number" then stats.dispatched.bagUpdate = 0 end
 	return stats
+end
+
+local function FormatLowRiskCoalescerMetric(rawCount, dispatchedCount)
+	rawCount = tonumber(rawCount) or 0
+	dispatchedCount = tonumber(dispatchedCount) or 0
+	local reduction = 0
+	if rawCount > 0 then
+		reduction = ((rawCount - dispatchedCount) / rawCount) * 100
+	end
+	return ("%d -> %d (%.1f%%%% reduced)"):format(rawCount, dispatchedCount, reduction)
 end
 
 local function ResolveUnitType(unit)
@@ -2423,11 +2448,8 @@ function addon:GetSpellNameForValidation(spellID)
 			return info.name
 		end
 	end
-	if GetSpellInfo then
-		local name = GetSpellInfo(spellID)
-		if name then
-			return name
-		end
+	if C_Spell and C_Spell.GetSpellName then
+		return C_Spell.GetSpellName(spellID)
 	end
 	return nil
 end
@@ -3672,11 +3694,17 @@ function addon:PrintLowRiskCoalescerStats()
 
 	local rawSpell = tonumber(raw.spellCooldownCharges) or 0
 	local dispatchedSpell = tonumber(dispatched.spellCooldownCharges) or 0
+	local rawUsable = tonumber(raw.spellUsable) or 0
+	local dispatchedUsable = tonumber(dispatched.spellUsable) or 0
 	local rawBag = tonumber(raw.bagUpdate) or 0
 	local dispatchedBag = tonumber(dispatched.bagUpdate) or 0
 
-	self:Print(("Low-risk coalescer counters (raw -> dispatched): SPELL_UPDATE_COOLDOWN+SPELL_UPDATE_CHARGES %d -> %d | BAG_UPDATE %d -> %d")
-		:format(rawSpell, dispatchedSpell, rawBag, dispatchedBag))
+	self:Print(("Low-risk coalescer counters: SPELL_UPDATE_COOLDOWN+SPELL_UPDATE_CHARGES+ACTIONBAR_UPDATE_COOLDOWN %s | SPELL_UPDATE_USABLE %s | BAG_UPDATE+BAG_UPDATE_DELAYED %s")
+		:format(
+			FormatLowRiskCoalescerMetric(rawSpell, dispatchedSpell),
+			FormatLowRiskCoalescerMetric(rawUsable, dispatchedUsable),
+			FormatLowRiskCoalescerMetric(rawBag, dispatchedBag)
+		))
 end
 
 function addon:QueuePerformanceEvent(eventName, ...)
@@ -3718,6 +3746,13 @@ function addon:HandleCoalescedEvent(eventName, ...)
 	if eventName == "SPELL_UPDATE_COOLDOWN" then
 		if self.CustomTrackers and self.CustomTrackers.OnCoalescedSpellCooldownBucket then
 			self.CustomTrackers:OnCoalescedSpellCooldownBucket()
+		end
+		return
+	end
+
+	if eventName == "SPELL_UPDATE_USABLE" then
+		if self.CustomTrackers and self.CustomTrackers.OnCoalescedSpellUsableUpdate then
+			self.CustomTrackers:OnCoalescedSpellUsableUpdate()
 		end
 		return
 	end
