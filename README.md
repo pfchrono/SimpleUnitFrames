@@ -6,7 +6,7 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 
 ## Recent Updates
 
-### v1.34.0 - Runtime Guard Pass + Tracker Cooldown Hardening
+### v1.34.1 - Runtime Guard Pass + Tracker Cooldown Hardening
 - **Secret-Value Safe Player Checks** — Hardened oUF `PowerPrediction` and `RestingIndicator` enable paths so player-only elements fail closed instead of tripping on protected/secret unit comparisons
 - **Movement Datatext Safety** — Guarded player movement speed reads against secret values so run/swim/fly/glide speed displays degrade cleanly instead of throwing numeric conversion errors
 - **Custom Tracker Cooldown Fixes** — Centralized positive cooldown-window detection and improved loss-of-control cooldown substitution when the normal spell cooldown is absent

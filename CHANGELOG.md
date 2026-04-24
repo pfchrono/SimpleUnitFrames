@@ -1,4 +1,4 @@
-## [1.34.0] - 2026-04-24
+## [1.34.1] - 2026-04-24
 
 ### Changed
 - Hardened oUF player-only element enable checks in `Libraries/oUF/elements/powerprediction.lua` and `Libraries/oUF/elements/restingindicator.lua` by routing `unitIsUnit` through a secret-value-safe wrapper
