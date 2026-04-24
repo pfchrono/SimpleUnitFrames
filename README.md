@@ -6,12 +6,11 @@ SimpleUnitFrames is a comprehensive, modular unit frame replacement for World of
 
 ## Recent Updates
 
-### v1.33.1 - DataText Expansion + Coalescer Pilot (March 12, 2026)
-- **Expanded DataText Layouts** — Validated 3-slot, 5-slot, and 7-slot modes with full-width panel clamping and 40px default height
-- **LDB Integration Upgrade** — Validated tooltip fallback, broker tooltip support, click dispatch parity, live text refresh, and per-slot icon/text display modes
-- **Provider Upgrade Pass** — `Currencies`, `Reputation`, `Spec`, and `LootSpec` paths hardened and validated with databar parity
-- **Low-Risk Coalescer Pilot** — `SPELL_UPDATE_COOLDOWN` + `SPELL_UPDATE_CHARGES` shared bucket and `BAG_UPDATE` debounce validated in dungeon gameplay
-- **Coalescer Results** — Spell bucket reduced `6002 -> 2700` (~55.0%), `BAG_UPDATE` reduced `38 -> 21` (~44.7%)
+### v1.34.0 - Runtime Guard Pass + Tracker Cooldown Hardening
+- **Secret-Value Safe Player Checks** — Hardened oUF `PowerPrediction` and `RestingIndicator` enable paths so player-only elements fail closed instead of tripping on protected/secret unit comparisons
+- **Movement Datatext Safety** — Guarded player movement speed reads against secret values so run/swim/fly/glide speed displays degrade cleanly instead of throwing numeric conversion errors
+- **Custom Tracker Cooldown Fixes** — Centralized positive cooldown-window detection and improved loss-of-control cooldown substitution when the normal spell cooldown is absent
+- **Retail Runtime Compatibility** — Focused pass on WoW retail edge cases where protected API results can surface as non-numeric or secret values
 
 ### Previous Updates
 - **Castbar Coverage Expansion** — Castbars enabled across more unit types with profile migration support and spawn-time reliability fixes

@@ -1,3 +1,20 @@
+## [1.34.0] - 2026-04-24
+
+### Changed
+- Hardened oUF player-only element enable checks in `Libraries/oUF/elements/powerprediction.lua` and `Libraries/oUF/elements/restingindicator.lua` by routing `unitIsUnit` through a secret-value-safe wrapper
+- Hardened movement-speed reads in `Modules/UI/DataSystems.lua` so run, swim, flight, glide, and base-speed values fall back cleanly when Retail APIs return protected or non-numeric results
+
+### Fixed
+- Prevent `PowerPrediction` and `RestingIndicator` from misbehaving when WoW Retail returns secret values during player-unit comparisons
+- Fix datatext movement speed numeric conversion failures caused by protected speed values
+- Fix Custom Trackers loss-of-control cooldown substitution in `Modules/System/CustomTrackers.lua` by reusing a centralized positive cooldown-window check before falling back to LOC timing
+- Reduce duplicated cooldown-state checks in Custom Trackers so cooldown visibility stays consistent when normal cooldown data is missing
+
+### Notes
+- This is a focused runtime-compatibility and cooldown-correctness pass for Retail edge cases rather than a feature release
+
+---
+
 ## [1.33.1] - 2026-03-12
 
 ### Added

@@ -470,22 +470,34 @@ local function GetPlayerMovementSpeedPercent()
 	if not GetUnitSpeed then
 		return 0
 	end
+
+	local function safeMovementNumber(value, fallback)
+		if type(issecretvalue) == "function" and issecretvalue(value) then
+			return fallback
+		end
+		local numericValue = tonumber(value)
+		if numericValue == nil then
+			return fallback
+		end
+		return numericValue
+	end
+
 	local _, runSpeed, flightSpeed, swimSpeed = GetUnitSpeed("player")
-	local speed = tonumber(runSpeed) or 0
+	local speed = safeMovementNumber(runSpeed, 0)
 	local isSwimming = IsSwimming and IsSwimming()
 	local isFlying = IsFlying and IsFlying()
 	if isSwimming then
-		speed = tonumber(swimSpeed) or speed
+		speed = safeMovementNumber(swimSpeed, speed)
 	elseif isFlying then
-		speed = tonumber(flightSpeed) or speed
+		speed = safeMovementNumber(flightSpeed, speed)
 	end
 	if C_PlayerInfo and C_PlayerInfo.GetGlidingInfo then
 		local isGliding, _, forwardSpeed = C_PlayerInfo.GetGlidingInfo()
 		if isGliding then
-			speed = tonumber(forwardSpeed) or speed
+			speed = safeMovementNumber(forwardSpeed, speed)
 		end
 	end
-	local base = tonumber(BASE_MOVEMENT_SPEED) or 7
+	local base = safeMovementNumber(BASE_MOVEMENT_SPEED, 7)
 	if base <= 0 then
 		base = 7
 	end

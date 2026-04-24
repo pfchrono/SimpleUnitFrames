@@ -194,6 +194,14 @@ local function IsCooldownFrameActive(cooldownFrame)
     return ok and shown == true
 end
 
+local function HasPositiveCooldownWindow(startTime, duration)
+    if not startTime or not duration then return false end
+    local ok, active = pcall(function()
+        return startTime > 0 and duration > 0
+    end)
+    return ok and active == true
+end
+
 ---------------------------------------------------------------------------
 -- ITEM HELPERS
 ---------------------------------------------------------------------------
@@ -1248,7 +1256,7 @@ function CT:StartCooldownPolling(bar)
                         icon.cooldown:Clear()
                         pcall(function()
                             local displayStart, displayDuration, displayModRate = startTime, duration, modRate
-                            if locActive and (locReplacesNormal or not (displayStart and displayStart > 0 and displayDuration and displayDuration > 0)) then
+                            if locActive and (locReplacesNormal or not HasPositiveCooldownWindow(displayStart, displayDuration)) then
                                 displayStart, displayDuration, displayModRate = locStartTime, locDuration, locModRate
                             end
                             icon.cooldown:SetCooldown(displayStart, displayDuration, displayModRate)
@@ -1288,7 +1296,7 @@ function CT:StartCooldownPolling(bar)
                     else
                         -- Normal cooldown
                         local displayStart, displayDuration, displayModRate = startTime, duration, modRate
-                        if locActive and (locReplacesNormal or not (displayStart and displayStart > 0 and displayDuration and displayDuration > 0)) then
+                        if locActive and (locReplacesNormal or not HasPositiveCooldownWindow(displayStart, displayDuration)) then
                             displayStart, displayDuration, displayModRate = locStartTime, locDuration, locModRate
                         end
 
@@ -1310,16 +1318,10 @@ function CT:StartCooldownPolling(bar)
                                 icon.cooldown:Clear()
                                 isOnCD = false
                             else
-                                local checkOk, checkResult = pcall(function()
-                                    return displayStart and displayStart > 0 and displayDuration and displayDuration > 0
-                                end)
-                                isOnCD = checkOk and checkResult or IsCooldownFrameActive(icon.cooldown)
+                                isOnCD = HasPositiveCooldownWindow(displayStart, displayDuration) or IsCooldownFrameActive(icon.cooldown)
                             end
                         else
-                            local checkOk, checkResult = pcall(function()
-                                return displayStart and displayStart > 0 and displayDuration and displayDuration > 0
-                            end)
-                            isOnCD = checkOk and checkResult or IsCooldownFrameActive(icon.cooldown)
+                            isOnCD = HasPositiveCooldownWindow(displayStart, displayDuration) or IsCooldownFrameActive(icon.cooldown)
                         end
                     end
                 end

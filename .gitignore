@@ -27,3 +27,4 @@ EDITMODE_*
 *.bak
 API_*
 LIBQTIP*
+.env

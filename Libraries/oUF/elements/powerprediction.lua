@@ -48,6 +48,14 @@ local Private = oUF.Private
 
 local unitIsUnit = Private.unitIsUnit
 
+local function safeUnitIsUnit(unit1, unit2)
+	local result = unitIsUnit(unit1, unit2)
+	if type(issecretvalue) == 'function' and issecretvalue(result) then
+		return false
+	end
+	return result and true or false
+end
+
 -- sourced from Blizzard_UnitFrame/AlternatePowerBar.lua
 local ALT_POWER_BAR_PAIR_DISPLAY_INFO = _G.ALT_POWER_BAR_PAIR_DISPLAY_INFO
 
@@ -206,7 +214,7 @@ end
 
 local function Enable(self, unit)
 	local element = self.PowerPrediction
-	if(element and unitIsUnit(unit, 'player')) then
+	if(element and safeUnitIsUnit(unit, 'player')) then
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
