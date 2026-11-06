@@ -1,3 +1,10 @@
+## [1.36.2] - 2026-11-06
+
+### Fixed
+- LibQTip-2.0 was bundled but never loaded, so the Debug window's frame and performance stats tooltips (and LibQTip aura tooltips) errored with "Cannot find a library instance of LibQTip-2.0" unless another addon happened to load it, as on WoW Forever. It now loads from `Libraries/Init.xml`, and the lookups are silent so a missing library falls back instead of erroring
+
+---
+
 ## [1.36.1] - 2026-11-06
 
 ### Fixed

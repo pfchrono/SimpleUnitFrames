@@ -19,7 +19,7 @@ addon.PerformanceMetricsHelper = PerformanceMetricsHelper
 --- Get the LibQTip-2.0 library
 --- @return LibQTip-2.0|nil
 local function GetQTip()
-    return LibStub:GetLibrary("LibQTip-2.0")
+    return LibStub:GetLibrary("LibQTip-2.0", true)
 end
 
 --- Get efficiency-based color (green >= 90%, yellow 70-89%, red < 70%)

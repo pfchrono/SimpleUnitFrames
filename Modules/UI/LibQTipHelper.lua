@@ -20,7 +20,7 @@ addon.LibQTipHelper = LibQTipHelper
 --- Get the LibQTip-2.0 library
 --- @return LibQTip-2.0|nil
 local function GetQTip()
-    return LibStub:GetLibrary("LibQTip-2.0")
+    return LibStub:GetLibrary("LibQTip-2.0", true)
 end
 
 --- Create a frame stats tooltip showing health, power, and performance data

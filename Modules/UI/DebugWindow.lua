@@ -449,7 +449,7 @@ function addon:ShowDebugPanel()
 		end)
 		frameStatsBtn:SetScript("OnLeave", function(self)
 			if self.__frameStatsTooltip then
-				local QTip = LibStub:GetLibrary("LibQTip-2.0")
+				local QTip = LibStub:GetLibrary("LibQTip-2.0", true)
 				if QTip then
 					QTip:ReleaseTooltip(self.__frameStatsTooltip)
 				end
@@ -475,7 +475,7 @@ function addon:ShowDebugPanel()
 		end)
 		perfStatsBtn:SetScript("OnLeave", function(self)
 			if self.__perfStatsTooltip then
-				local QTip = LibStub:GetLibrary("LibQTip-2.0")
+				local QTip = LibStub:GetLibrary("LibQTip-2.0", true)
 				if QTip then
 					QTip:ReleaseTooltip(self.__perfStatsTooltip)
 				end

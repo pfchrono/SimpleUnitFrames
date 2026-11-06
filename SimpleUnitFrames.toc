@@ -1,6 +1,6 @@
 ## Title: SimpleUnitFrames
 ## Interface: 120105, 120107, 16001
-## Version: 1.36.1.110626
+## Version: 1.36.2.110626
 ## Author: |cFF8080FFGrevin|r
 ## Notes: Simple Unitframe replacement with WIP features.
 ## IconTexture: Interface\AddOns\SimpleUnitFrames\Media\AddonIcon

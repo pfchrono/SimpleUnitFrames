@@ -19,7 +19,7 @@ addon.AuraTooltipHelper = AuraTooltipHelper
 --- Get the LibQTip-2.0 library
 --- @return LibQTip-2.0|nil
 local function GetQTip()
-    return LibStub:GetLibrary("LibQTip-2.0")
+    return LibStub:GetLibrary("LibQTip-2.0", true)
 end
 
 --- Format duration with remaining time
