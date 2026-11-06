@@ -54,7 +54,10 @@ local isRetail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local isEra = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 local isTBC = WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC
 local isCata = WOW_PROJECT_ID == WOW_PROJECT_CATACLYSM_CLASSIC
-local isMidnight = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and interfaceVersion >= 120000
+-- SUF: WoW Forever (game type "camelot", interface 16xxx) is a Mainline-family client with Midnight's
+-- event set and secret-value restrictions, but original class spells (the non-retail tables apply).
+local isForever = (WOW_PROJECT_CAMELOT ~= nil and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT) or (interfaceVersion >= 16000 and interfaceVersion < 20000)
+local isMidnight = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE and interfaceVersion >= 120000) or isForever
 
 local InCombatLockdownRestriction = function(unit) return InCombatLockdown() and not UnitCanAttack("player", unit) end
 
@@ -4960,7 +4963,7 @@ function lib:activate()
       frame:RegisterEvent("CVAR_UPDATE")
     end
 
-    if isRetail or isCata then
+    if isRetail or isCata or isForever then
       frame:RegisterEvent("PLAYER_TALENT_UPDATE")
     end
 

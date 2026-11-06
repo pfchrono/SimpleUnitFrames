@@ -13,7 +13,8 @@ local CreateFrame, UIParent = CreateFrame, UIParent
 
 -- Unfortunately we have no way to realistically detect if a client uses inverted alpha
 -- as no API will tell you. Wrath uses the old colorpicker, era uses the new one, both are inverted
-local INVERTED_ALPHA = (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE)
+-- SUF: WoW Forever (WOW_PROJECT_CAMELOT) loads the Mainline color picker, which isn't inverted
+local INVERTED_ALPHA = (WOW_PROJECT_ID ~= WOW_PROJECT_MAINLINE) and not (WOW_PROJECT_CAMELOT ~= nil and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT)
 
 --[[-----------------------------------------------------------------------------
 Support functions

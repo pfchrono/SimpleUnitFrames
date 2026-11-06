@@ -1,3 +1,12 @@
+## [1.36.1] - 2026-11-06
+
+### Fixed
+- WoW Forever: `LibDispel-1.0` errored on load ("Attempt to register unknown event LEARNED_SPELL_IN_TAB"); Forever now uses the Mainline spell-learned event with the original-class dispel spell checks, and no longer toggles the `ShowAllSpellRanks` CVar there (that re-fired `SPELLS_CHANGED` in a loop, causing FPS drops and memory growth)
+- WoW Forever: `LibRangeCheck-3.0` registered the same Classic-only event and built range caches from secret GUIDs; Forever is now treated as Midnight for events and secret handling
+- WoW Forever: AceGUI color pickers inverted the alpha slider (Forever uses the Mainline color picker)
+
+---
+
 ## [1.36.0] - 2026-11-06
 
 ### Added

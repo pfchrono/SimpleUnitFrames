@@ -25,6 +25,9 @@ local Mists = WOW_PROJECT_ID == WOW_PROJECT_MISTS_CLASSIC
 local Retail = WOW_PROJECT_ID == WOW_PROJECT_MAINLINE
 local Classic = WOW_PROJECT_ID == WOW_PROJECT_CLASSIC
 local Midnight = wowtoc >= 120000
+-- SUF: WoW Forever (game type "camelot", interface 16xxx) runs the Mainline client (Mainline events)
+-- with original class kits and spell ranks, so it uses the vanilla spell checks below.
+local Forever = (WOW_PROJECT_CAMELOT ~= nil and WOW_PROJECT_ID == WOW_PROJECT_CAMELOT) or (wowtoc >= 16000 and wowtoc < 20000)
 
 local function SetList(object, key, value)
 	if object[key] then return end
@@ -116,7 +119,7 @@ do
 		[89808] = "Singe"
 	}
 
-	local vanilla = Classic or TBC or Wrath
+	local vanilla = Classic or TBC or Wrath or Forever
 	if vanilla then
 		WarlockPetSpells[19505] = "Devour Magic Rank 1"
 		WarlockPetSpells[19731] = "Devour Magic Rank 2"
@@ -147,7 +150,10 @@ do
 		end
 
 		-- this will fix a problem where spells dont show as existing because they are 'hidden'
-		local undoRanks = (vanilla and GetCVar('ShowAllSpellRanks') ~= '1') and SetCVar('ShowAllSpellRanks', '1')
+		-- SUF: not on Forever - its spellbook re-filters when this CVar changes, which re-fires
+		-- SPELLS_CHANGED and loops this handler (FPS drop + memory growth). The base spell IDs
+		-- checked below are found there without it.
+		local undoRanks = (vanilla and not Forever and GetCVar('ShowAllSpellRanks') ~= '1') and SetCVar('ShowAllSpellRanks', '1')
 
 		if event == 'UNIT_PET' then
 			DispelList.Magic = CheckPetSpells()
@@ -221,7 +227,7 @@ do
 	frame:RegisterEvent('CHARACTER_POINTS_CHANGED')
 	frame:RegisterEvent('SPELLS_CHANGED')
 
-	if Midnight or TBC then
+	if Midnight or TBC or Forever then
 		frame:RegisterEvent('LEARNED_SPELL_IN_SKILL_LINE')
 	else
 		frame:RegisterEvent('LEARNED_SPELL_IN_TAB')
