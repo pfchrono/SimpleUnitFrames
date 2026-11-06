@@ -6,7 +6,7 @@ end
 
 -- Clears the cached frame event index so it can be safely rebuilt by EnsureFrameEventIndex().
 -- Per system guidelines, call this after any frame spawn/removal, or whenever a frame's
--- unit-related identity changes (i.e., when frame.unit or frame.sufUnitType are modified).
+-- unit-related identity changes (i.e., when frame.__unit or frame.sufUnitType are modified).
 function addon:InvalidateFrameEventIndex()
 	self._frameEventIndex = nil
 end
@@ -24,9 +24,9 @@ function addon:EnsureFrameEventIndex()
 		local frame = self.frames[i]
 		if frame then
 			all[#all + 1] = frame
-			if frame.unit then
-				byUnit[frame.unit] = byUnit[frame.unit] or {}
-				byUnit[frame.unit][#byUnit[frame.unit] + 1] = frame
+			if frame.__unit then
+				byUnit[frame.__unit] = byUnit[frame.__unit] or {}
+				byUnit[frame.__unit][#byUnit[frame.__unit] + 1] = frame
 			end
 			if frame.sufUnitType then
 				byType[frame.sufUnitType] = byType[frame.sufUnitType] or {}

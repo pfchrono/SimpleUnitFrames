@@ -19,10 +19,6 @@ Default textures will be applied if the layout does not provide custom ones. See
                    1.5 (number).
 .useAtlasSize    - Makes the element use preprogrammed atlas' size instead of its set dimensions (boolean)
 
-## Attributes
-
-.status - the unit's ready check status (string?)['ready', 'noready', 'waiting']
-
 ## Examples
 
     -- Position and size
@@ -56,7 +52,7 @@ end
 
 local function Update(self, event)
 	local element = self.ReadyCheckIndicator
-	local unit = self.unit
+	local unit = self.__unit
 
 	--[[ Callback: ReadyCheckIndicator:PreUpdate()
 	Called before the element has been updated.
@@ -70,57 +66,22 @@ local function Update(self, event)
 	local status = GetReadyCheckStatus(unit)
 	if(unitExists(unit) and status) then
 		if(status == 'ready') then
-			if(element.readyTexture) then
-				element:SetTexture(element.readyTexture) -- DEPRECATED
-			else
-				element:SetAtlas('UI-LFG-ReadyMark-Raid', element.useAtlasSize)
-			end
+			element:SetAtlas('UI-LFG-ReadyMark-Raid', element.useAtlasSize)
 		elseif(status == 'notready') then
-			if(element.notReadyTexture) then
-				element:SetTexture(element.notReadyTexture) -- DEPRECATED
-			else
-				element:SetAtlas('UI-LFG-DeclineMark-Raid', element.useAtlasSize)
-			end
+			element:SetAtlas('UI-LFG-DeclineMark-Raid', element.useAtlasSize)
 		else
-			if(element.waitingTexture) then
-				element:SetTexture(element.waitingTexture) -- DEPRECATED
-			else
-				element:SetAtlas('UI-LFG-PendingMark-Raid', element.useAtlasSize)
-			end
+			element:SetAtlas('UI-LFG-PendingMark-Raid', element.useAtlasSize)
 		end
 
-		element.status = status
 		element:Show()
-		
-		-- Apply visual ready check glow effect using ObjectPool
-		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			if status == 'ready' then
-				addon.IndicatorPoolManager:ApplyCustomGlow(self, 0.2, 1, 0.2, 0.7)  -- Green glow for ready
-			elseif status == 'notready' then
-				addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 0.2, 0.2, 0.7)  -- Red glow for not ready
-			else
-				addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 1, 0.2, 0.7)  -- Yellow glow for waiting
-			end
-		end
 	elseif(event ~= 'READY_CHECK_FINISHED') then
-		element.status = nil
+		status = nil
 		element:Hide()
-		
-		-- Release ready check glow when not checking
-		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:Release(self, "custom_glow")
-		end
 	end
 
 	if(event == 'READY_CHECK_FINISHED') then
-		if(element.status == 'waiting') then
-			if(element.notReadyTexture) then
-				element:SetTexture(element.notReadyTexture) -- DEPRECATED
-			else
-				element:SetAtlas('UI-LFG-DeclineMark-Raid', element.useAtlasSize)
-			end
+		if(status == 'waiting') then
+			element:SetAtlas('UI-LFG-DeclineMark-Raid', element.useAtlasSize)
 		end
 
 		element.Animation:Play()
@@ -159,15 +120,16 @@ local function Enable(self, unit)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		local AnimationGroup = element:CreateAnimationGroup()
+		local AnimationGroup = element.Animation or element:CreateAnimationGroup()
 		AnimationGroup:SetScript('OnFinished', OnFinished)
 		element.Animation = AnimationGroup
 
-		local Animation = AnimationGroup:CreateAnimation('Alpha')
+		local Animation = AnimationGroup.Alpha or AnimationGroup:CreateAnimation('Alpha')
 		Animation:SetFromAlpha(1)
 		Animation:SetToAlpha(0)
 		Animation:SetDuration(element.fadeTime or 1.5)
 		Animation:SetStartDelay(element.finishedTime or 10)
+		AnimationGroup.Alpha = Animation
 
 		self:RegisterEvent('READY_CHECK', Path, true)
 		self:RegisterEvent('READY_CHECK_CONFIRM', Path, true)

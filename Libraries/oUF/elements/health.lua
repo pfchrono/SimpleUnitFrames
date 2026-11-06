@@ -3,14 +3,6 @@
 
 Handles the updating of a status bar that displays the unit's health.
 
----@class oUFHealthElement : Frame
----@field TempLoss StatusBar|nil Temporary max health reduction bar
----@field HealingAll StatusBar|nil Incoming heals from all sources
----@field HealingPlayer StatusBar|nil Incoming heals from player
----@field HealingOther StatusBar|nil Incoming heals from others
----@field DamageAbsorb StatusBar|nil Damage absorb bar
----@field HealAbsorb StatusBar|nil Heal absorb bar
-
 ## Widget
 
 Health - A `StatusBar` used to represent the unit's health.
@@ -52,6 +44,9 @@ The following options are listed by priority. The first check that returns true 
 .colorTapping      - Use `self.colors.tapping` to color the bar if the unit isn't tapped by the player (boolean)
 .colorThreat       - Use `self.colors.threat[threat]` to color the bar based on the unit's threat status. `threat` is
                      defined by the first return of [UnitThreatSituation](https://warcraft.wiki.gg/wiki/API_UnitThreatSituation) (boolean)
+.colorHappiness    - Use `self.colors.happiness[happiness]` to color the bar based on the unit's happiness. `happiness` is
+                     defined by the first return of [C_PetInfo.GetPetHappiness](https://warcraft.wiki.gg/wiki/API:C_PetInfo.GetPetHappiness).
+                     Only available for the `pet` unit, and only in Forever game version (boolean)
 .colorClass        - Use `self.colors.class[class]` to color the bar based on unit class. `class` is defined by the
                      second return of [UnitClass](https://warcraft.wiki.gg/wiki/API_UnitClass) (boolean)
 .colorClassNPC     - Use `self.colors.class[class]` to color the bar if the unit is a NPC (boolean)
@@ -159,43 +154,45 @@ local _, ns = ...
 local oUF = ns.oUF
 local Private = oUF.Private
 
+local STATE = {}
+
 local unitSelectionType = Private.unitSelectionType
+local GameVersion = Private.GameVersion
+
+local playerClass = UnitClassBase('player')
 
 local function UpdateColor(self, event, unit)
-	if(not unit or self.unit ~= unit) then 
-		return 
-	end
+	if(not unit or self.__unit ~= unit) then return end
 	local element = self.Health
 
 	local color
-	local colorPath = "unknown"
 	if(element.colorDisconnected and not UnitIsConnected(unit)) then
 		color = self.colors.disconnected
-		colorPath = "disconnected"
 	elseif(element.colorTapping and not UnitPlayerControlled(unit) and UnitIsTapDenied(unit)) then
 		color = self.colors.tapped
-		colorPath = "tapped"
 	elseif(element.colorThreat and not UnitPlayerControlled(unit) and UnitThreatSituation('player', unit)) then
-		color =  self.colors.threat[UnitThreatSituation('player', unit)]
-		colorPath = "threat"
+		color = self.colors.threat[UnitThreatSituation('player', unit)]
+	elseif(element.colorHappiness and GameVersion.Forever and unit == 'pet' and playerClass == 'HUNTER' and C_PetInfo.GetPetHappiness()) then
+		color = self.colors.happiness[(C_PetInfo.GetPetHappiness())]
 	elseif(element.colorClass and (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
 		or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
 		or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
 		local _, class = UnitClass(unit)
-		color = self.colors.class[class]
-		colorPath = "class"
+		if(issecretvalue(class)) then
+			-- BUG: we can't use custom colors if the class is secret
+			-- https://github.com/oUF-wow/oUF/issues/873
+			color = C_ClassColor.GetClassColor(class)
+		else
+			color = self.colors.class[class]
+		end
 	elseif(element.colorSelection and unitSelectionType(unit, element.considerSelectionInCombatHostile)) then
 		color = self.colors.selection[unitSelectionType(unit, element.considerSelectionInCombatHostile)]
-		colorPath = "selection"
 	elseif(element.colorReaction and UnitReaction(unit, 'player')) then
 		color = self.colors.reaction[UnitReaction(unit, 'player')]
-		colorPath = "reaction"
 	elseif(element.colorSmooth and self.colors.health:GetCurve()) then
 		color = element.values:EvaluateCurrentHealthPercent(self.colors.health:GetCurve())
-		colorPath = "smooth"
 	elseif(element.colorHealth) then
 		color = self.colors.health
-		colorPath = "health"
 	end
 
 	if(color) then
@@ -226,16 +223,7 @@ local function ColorPath(self, ...)
 end
 
 local function Update(self, event, unit)
-	-- PARTY_MEMBER_{ENABLE,DISABLE} can be fired without a unit token.
-	-- Normalize to the current frame unit so solo-party visibility updates remain safe.
-	if((event == 'PARTY_MEMBER_ENABLE' or event == 'PARTY_MEMBER_DISABLE') and not unit) then
-		unit = self.unit
-	end
-
-	if(not unit or self.unit ~= unit) then
-		return
-	end
-
+	if(not unit or self.__unit ~= unit) then return end
 	local element = self.Health
 
 	--[[ Callback: Health:PreUpdate(unit)
@@ -259,9 +247,6 @@ local function Update(self, event, unit)
 	else
 		element:SetValue(max, element.smoothing)
 	end
-
-	element.cur = cur -- DEPRECATED: use element.values
-	element.max = max -- DEPRECATED: use element.values
 
 	if(element.HealingAll or element.HealingPlayer or element.HealingOther or element.OverHealIndicator) then
 		local allHeal, playerHeal, otherHeal, healClamped = element.values:GetIncomingHeals()
@@ -327,35 +312,37 @@ end
 local function UpdatePredictionSize(self, event, unit)
 	local element = self.Health
 
+	local method = STATE[element].horizontal and 'SetWidth' or 'SetHeight'
 	if(element.HealingAll) then
-		element.HealingAll[element.__isHoriz and 'SetWidth' or 'SetHeight'](element.HealingAll, element.__size)
+		element.HealingAll[method](element.HealingAll, STATE[element].size)
 	end
 
 	if(element.HealingPlayer) then
-		element.HealingPlayer[element.__isHoriz and 'SetWidth' or 'SetHeight'](element.HealingPlayer, element.__size)
+		element.HealingPlayer[method](element.HealingPlayer, STATE[element].size)
 	end
 
 	if(element.HealingOther) then
-		element.HealingOther[element.__isHoriz and 'SetWidth' or 'SetHeight'](element.HealingOther, element.__size)
+		element.HealingOther[method](element.HealingOther, STATE[element].size)
 	end
 
 	if(element.DamageAbsorb) then
-		element.DamageAbsorb[element.__isHoriz and 'SetWidth' or 'SetHeight'](element.DamageAbsorb, element.__size)
+		element.DamageAbsorb[method](element.DamageAbsorb, STATE[element].size)
 	end
 
 	if(element.HealAbsorb) then
-		element.HealAbsorb[element.__isHoriz and 'SetWidth' or 'SetHeight'](element.HealAbsorb, element.__size)
+		element.HealAbsorb[method](element.HealAbsorb, STATE[element].size)
 	end
 end
 
 local function shouldUpdatePredictionSize(self)
 	local element = self.Health
 
-	local isHoriz = element:GetOrientation() == 'HORIZONTAL'
-	local newSize = element[isHoriz and 'GetWidth' or 'GetHeight'](element)
-	if(isHoriz ~= element.__isHoriz or newSize ~= element.__size) then
-		element.__isHoriz = isHoriz
-		element.__size = newSize
+	local horizontal = element:GetOrientation() == 'HORIZONTAL'
+	local size = horizontal and element:GetWidth() or element:GetHeight()
+	size = math.floor((size + 0.005) * 100) / 100 -- normalize floating point errors
+	if(horizontal ~= STATE[element].horizontal or size ~= STATE[element].size) then
+		STATE[element].horizontal = horizontal
+		STATE[element].size = size
 
 		return true
 	end
@@ -388,24 +375,20 @@ local function Path(self, ...)
 	ColorPath(self, ...)
 end
 
-local function ForceUpdate(element)
-	element.__isHoriz = nil
-	element.__size = nil
+-- SUF: PARTY_MEMBER_{ENABLE,DISABLE} can fire without a unit token, so they're registered unitless
+-- and normalized to the frame's unit before taking the regular update path.
+local function PartyMemberPath(self, event, unit)
+	unit = unit or self.__unit
+	if(self.__unit ~= unit) then return end
 
-	Path(element.__owner, 'ForceUpdate', element.__owner.unit)
+	return Path(self, event, unit)
 end
 
---[[ Health:SetColorDisconnected(state, isForced)
-Used to toggle coloring if the unit is offline.
+local function ForceUpdate(element)
+	STATE[element].horizontal = nil
+	STATE[element].size = nil
 
-* self     - the Health element
-* state    - the desired state (boolean)
-* isForced - forces the event update even if the state wasn't changed (boolean)
---]]
-local function SetColorDisconnected(element, state, isForced) -- DEPRECATED
-	if(element.colorDisconnected ~= state or isForced) then
-		element.colorDisconnected = state
-	end
+	Path(element.__owner, 'ForceUpdate', element.__owner.__unit)
 end
 
 --[[ Health:SetColorSelection(state, isForced)
@@ -485,11 +468,12 @@ local function Enable(self, unit)
 	if(element) then
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
-		element.SetColorDisconnected = SetColorDisconnected
 		element.SetColorSelection = SetColorSelection
 		element.SetColorTapping = SetColorTapping
 		element.SetColorReaction = SetColorReaction
 		element.SetColorThreat = SetColorThreat
+
+		STATE[element] = {}
 
 		if(element.values) then
 			element.values:ResetPredictedValues()
@@ -525,41 +509,45 @@ local function Enable(self, unit)
 			element.values:SetIncomingHealOverflowPercent(element.incomingHealOverflow)
 		end
 
-		Private.SmartRegisterUnitEvent(self, 'UNIT_HEALTH', self.unit, Path)
-		Private.SmartRegisterUnitEvent(self, 'UNIT_MAXHEALTH', self.unit, Path)
+		self:RegisterEvent('UNIT_HEALTH', Path)
+		self:RegisterEvent('UNIT_MAXHEALTH', Path)
 		self:RegisterEvent('UNIT_CONNECTION', Path)
 
 		if(unit == 'party' or unit == 'raid') then
-			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path, true)
-			self:RegisterEvent('PARTY_MEMBER_DISABLE', Path, true)
+			self:RegisterEvent('PARTY_MEMBER_ENABLE', PartyMemberPath, true)
+			self:RegisterEvent('PARTY_MEMBER_DISABLE', PartyMemberPath, true)
 		end
 
 		if(element.colorSelection) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_FLAGS', self.unit, ColorPath)
+			self:RegisterEvent('UNIT_FLAGS', ColorPath)
 		end
 
 		if(element.colorTapping or element.colorReaction) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_FACTION', self.unit, ColorPath)
+			self:RegisterEvent('UNIT_FACTION', ColorPath)
 		end
 
 		if(element.colorThreat) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_LIST_UPDATE', self.unit, ColorPath)
+			self:RegisterEvent('UNIT_THREAT_LIST_UPDATE', ColorPath)
+		end
+
+		if(element.colorHappiness and GameVersion.Forever and unit == 'pet' and playerClass == 'HUNTER') then
+			self:RegisterEvent('UNIT_HAPPINESS', ColorPath)
 		end
 
 		if(element.HealingAll or element.HealingPlayer or element.HealingOther or element.OverHealIndicator) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_HEAL_PREDICTION', self.unit, Path)
+			self:RegisterEvent('UNIT_HEAL_PREDICTION', Path)
 		end
 
 		if(element.DamageAbsorb or element.OverDamageAbsorbIndicator) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_ABSORB_AMOUNT_CHANGED', self.unit, Path)
+			self:RegisterEvent('UNIT_ABSORB_AMOUNT_CHANGED', Path)
 		end
 
 		if(element.HealAbsorb or element.OverHealAbsorbIndicator) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_HEAL_ABSORB_AMOUNT_CHANGED', self.unit, Path)
+			self:RegisterEvent('UNIT_HEAL_ABSORB_AMOUNT_CHANGED', Path)
 		end
 
 		if(element.TempLoss) then
-			Private.SmartRegisterUnitEvent(self, 'UNIT_MAX_HEALTH_MODIFIERS_CHANGED', self.unit, Path)
+			self:RegisterEvent('UNIT_MAX_HEALTH_MODIFIERS_CHANGED', Path)
 		end
 
 		if(element:IsObjectType('StatusBar') and not element:GetStatusBarTexture()) then
@@ -567,24 +555,32 @@ local function Enable(self, unit)
 		end
 
 		if(element.HealingAll) then
+			element.HealingAll:Show()
+
 			if(element.HealingAll:IsObjectType('StatusBar') and not element.HealingAll:GetStatusBarTexture()) then
 				element.HealingAll:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
 			end
 		end
 
 		if(element.HealingPlayer) then
+			element.HealingPlayer:Show()
+
 			if(element.HealingPlayer:IsObjectType('StatusBar') and not element.HealingPlayer:GetStatusBarTexture()) then
 				element.HealingPlayer:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
 			end
 		end
 
 		if(element.HealingOther) then
+			element.HealingOther:Show()
+
 			if(element.HealingOther:IsObjectType('StatusBar') and not element.HealingOther:GetStatusBarTexture()) then
 				element.HealingOther:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
 			end
 		end
 
 		if(element.OverHealIndicator) then
+			element.OverHealIndicator:Show()
+
 			if(element.OverHealIndicator:IsObjectType('Texture') and not element.OverHealIndicator:GetTexture()) then
 				element.OverHealIndicator:SetTexture([[Interface\RaidFrame\Shield-Overshield]])
 				element.OverHealIndicator:SetBlendMode('ADD')
@@ -592,18 +588,24 @@ local function Enable(self, unit)
 		end
 
 		if(element.DamageAbsorb) then
+			element.DamageAbsorb:Show()
+
 			if(element.DamageAbsorb:IsObjectType('StatusBar') and not element.DamageAbsorb:GetStatusBarTexture()) then
 				element.DamageAbsorb:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
 			end
 		end
 
 		if(element.HealAbsorb) then
+			element.HealAbsorb:Show()
+
 			if(element.HealAbsorb:IsObjectType('StatusBar') and not element.HealAbsorb:GetStatusBarTexture()) then
 				element.HealAbsorb:SetStatusBarTexture([[Interface\TargetingFrame\UI-StatusBar]])
 			end
 		end
 
 		if(element.OverDamageAbsorbIndicator) then
+			element.OverDamageAbsorbIndicator:Show()
+
 			if(element.OverDamageAbsorbIndicator:IsObjectType('Texture') and not element.OverDamageAbsorbIndicator:GetTexture()) then
 				element.OverDamageAbsorbIndicator:SetTexture([[Interface\RaidFrame\Shield-Overshield]])
 				element.OverDamageAbsorbIndicator:SetBlendMode('ADD')
@@ -611,6 +613,8 @@ local function Enable(self, unit)
 		end
 
 		if(element.OverHealAbsorbIndicator) then
+			element.OverHealAbsorbIndicator:Show()
+
 			if(element.OverHealAbsorbIndicator:IsObjectType('Texture') and not element.OverHealAbsorbIndicator:GetTexture()) then
 				element.OverHealAbsorbIndicator:SetTexture([[Interface\RaidFrame\Absorb-Overabsorb]])
 				element.OverHealAbsorbIndicator:SetBlendMode('ADD')
@@ -680,8 +684,8 @@ local function Disable(self)
 		self:UnregisterEvent('UNIT_HEAL_ABSORB_AMOUNT_CHANGED', Path)
 		self:UnregisterEvent('UNIT_MAX_HEALTH_MODIFIERS_CHANGED', Path)
 		self:UnregisterEvent('UNIT_CONNECTION', Path)
-		self:UnregisterEvent('PARTY_MEMBER_ENABLE', Path)
-		self:UnregisterEvent('PARTY_MEMBER_DISABLE', Path)
+		self:UnregisterEvent('PARTY_MEMBER_ENABLE', PartyMemberPath)
+		self:UnregisterEvent('PARTY_MEMBER_DISABLE', PartyMemberPath)
 		self:UnregisterEvent('UNIT_FACTION', ColorPath)
 		self:UnregisterEvent('UNIT_FLAGS', ColorPath)
 		self:UnregisterEvent('UNIT_THREAT_LIST_UPDATE', ColorPath)

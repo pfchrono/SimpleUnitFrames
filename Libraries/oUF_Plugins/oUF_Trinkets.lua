@@ -52,7 +52,7 @@ end
 local function UpdateTrinket(frame, unit)
 	local element = frame.Trinket
 
-	local spellID, startTime, duration = GetArenaCrowdControlInfo(unit or frame.unit)
+	local spellID, startTime, duration = GetArenaCrowdControlInfo(unit or frame.__unit)
 	UpdateSpell(element, spellID)
 
 	if startTime and duration > 0 then
@@ -72,7 +72,7 @@ local function ClearCooldowns(frame)
 end
 
 local function Update(frame, event, unit, arg2)
-	if (frame.isForced and event ~= 'ElvUI_UpdateAllElements') or (unit and frame.unit ~= unit) then return end
+	if (frame.isForced and event ~= 'ElvUI_UpdateAllElements') or (unit and frame.__unit ~= unit) then return end
 
 	local element = frame.Trinket
 	if frame.isForced then
@@ -102,7 +102,7 @@ local function Update(frame, event, unit, arg2)
 end
 
 local function ForceUpdate(element)
-	return Update(element.__owner, 'ForceUpdate', element.__owner.unit)
+	return Update(element.__owner, 'ForceUpdate', element.__owner.__unit)
 end
 
 local function Enable(frame)

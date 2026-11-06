@@ -28,11 +28,10 @@ This element updates by changing the texture.
 
 local _, ns = ...
 local oUF = ns.oUF
-local Private = oUF.Private
 
 local function Update(self, event)
 	local element = self.LeaderIndicator
-	local unit = self.unit
+	local unit = self.__unit
 
 	--[[ Callback: LeaderIndicator:PreUpdate()
 	Called before the element has been updated.
@@ -60,6 +59,10 @@ local function Update(self, event)
 		isLeader = UnitLeadsAnyGroup(unit)
 	end
 
+	if(issecretvalue(isLeader)) then
+		isLeader = false
+	end
+
 	if(isLeader) then
 		if(isInLFGInstance) then
 			element:SetAtlas('UI-HUD-UnitFrame-Player-Group-GuideIcon', element.useAtlasSize)
@@ -68,22 +71,8 @@ local function Update(self, event)
 		end
 
 		element:Show()
-		
-		-- Apply visual leader highlight effect using ObjectPool
-		-- Check global glow visibility setting before applying
-		local addon = _G.SimpleUnitFrames
-		local glowEnabled = addon and addon.db and addon.db.profile and addon.db.profile.visibility and addon.db.profile.visibility.enablePartyLeaderGlow ~= false
-		if addon and addon.IndicatorPoolManager and glowEnabled then
-			addon.IndicatorPoolManager:ApplyCustomGlow(self, 1, 1, 0.5, 0.6)  -- Golden glow for leader
-		end
 	else
 		element:Hide()
-		
-		-- Release leader highlight when not a leader
-		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:Release(self, "custom_glow")
-		end
 	end
 
 	--[[ Callback: LeaderIndicator:PostUpdate(isLeader)
@@ -119,7 +108,7 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		Private.SmartRegisterUnitEvent(self, 'UNIT_FLAGS', self.unit, Path)
+		self:RegisterEvent('UNIT_FLAGS', Path)
 		self:RegisterEvent('PARTY_LEADER_CHANGED', Path, true)
 		self:RegisterEvent('GROUP_ROSTER_UPDATE', Path, true)
 

@@ -803,6 +803,7 @@ local function BuildGlobalPageSpec()
 					{ type = "check", label = "Hide Blizzard Party Frames", get = function() return addon.db.profile.blizzardFrames.party ~= false end, set = function(v) addon.db.profile.blizzardFrames.party = v and true or false; addon:UpdateBlizzardFrames() end },
 					{ type = "check", label = "Hide Blizzard Raid Frames", get = function() return addon.db.profile.blizzardFrames.raid ~= false end, set = function(v) addon.db.profile.blizzardFrames.raid = v and true or false; addon:UpdateBlizzardFrames() end },
 					{ type = "check", label = "Hide Blizzard Boss Frames", get = function() return addon.db.profile.blizzardFrames.boss ~= false end, set = function(v) addon.db.profile.blizzardFrames.boss = v and true or false; addon:UpdateBlizzardFrames() end },
+					{ type = "check", label = "Hide Blizzard Objective Tracker (Quest List)", get = function() return addon.db.profile.blizzardFrames.objectiveTracker == true end, set = function(v) addon.db.profile.blizzardFrames.objectiveTracker = v and true or false; addon:UpdateBlizzardFrames() end },
 				},
 			},
 			{

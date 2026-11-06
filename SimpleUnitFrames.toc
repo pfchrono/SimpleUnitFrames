@@ -1,10 +1,11 @@
 ## Title: SimpleUnitFrames
-## Interface: 120005
-## Version: 1.34.2.42426
+## Interface: 120105, 120107, 16001
+## Version: 1.36.0.110626
 ## Author: |cFF8080FFGrevin|r
 ## Notes: Simple Unitframe replacement with WIP features.
 ## IconTexture: Interface\AddOns\SimpleUnitFrames\Media\AddonIcon
 ## SavedVariables: SimpleUnitFramesDB
+## AllowLoadGameType: standard, camelot
 ## OptionalDeps: PerformanceLib
 ## X-oUF: SimpleUnitFrames
 
@@ -57,6 +58,7 @@ Modules/UI/LibQTipHelper.lua
 Modules/UI/PerformanceMetricsHelper.lua
 Modules/UI/AuraTooltipHelper.lua
 Modules/UI/AuraTooltipManager.lua
+Modules/UI/UnitAuras.lua
 Modules/UI/DebugWindow.lua
 Modules/UI/TestPanel.lua
 

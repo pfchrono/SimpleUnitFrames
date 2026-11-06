@@ -25,9 +25,6 @@ A default texture will be applied if the widget is a Texture and doesn't have a 
 local _, ns = ...
 local oUF = ns.oUF
 
-local GetRaidTargetIndex = GetRaidTargetIndex
-local SetRaidTargetIconTexture = SetRaidTargetIconTexture
-
 local function Update(self, event)
 	local element = self.RaidTargetIndicator
 
@@ -40,24 +37,12 @@ local function Update(self, event)
 		element:PreUpdate()
 	end
 
-	local index = GetRaidTargetIndex(self.unit)
+	local index = GetRaidTargetIndex(self.__unit)
 	if(index) then
 		SetRaidTargetIconTexture(element, index)
 		element:Show()
-		
-		-- Apply visual raid target highlight effect using ObjectPool
-		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:ApplyHighlight(self, {0.2, 0.6, 1, 0.2})  -- Blue highlight
-		end
 	else
 		element:Hide()
-		
-		-- Release raid target highlight when target unmarked
-		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:Release(self, "highlight_overlay")
-		end
 	end
 
 	--[[ Callback: RaidTargetIndicator:PostUpdate(index)
@@ -82,7 +67,7 @@ local function Path(self, ...)
 end
 
 local function ForceUpdate(element)
-	if(not element.__owner.unit) then return end
+	if(not element.__owner.__unit) then return end
 	return Path(element.__owner, 'ForceUpdate')
 end
 

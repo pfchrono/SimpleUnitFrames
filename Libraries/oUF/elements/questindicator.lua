@@ -24,10 +24,9 @@ A default texture will be applied if the widget is a Texture and doesn't have a 
 
 local _, ns = ...
 local oUF = ns.oUF
-local Private = oUF.Private
 
 local function Update(self, event, unit)
-	if(unit ~= self.unit) then return end
+	if(unit ~= self.__unit) then return end
 
 	local element = self.QuestIndicator
 
@@ -40,25 +39,11 @@ local function Update(self, event, unit)
 		element:PreUpdate()
 	end
 
-	-- Don't show quest indicator for player units
-	local isPlayer = UnitIsPlayer(unit)
-	local isQuestBoss = not isPlayer and UnitIsQuestBoss(unit)
+	local isQuestBoss = UnitIsQuestBoss(unit)
 	if(isQuestBoss) then
 		element:Show()
-		
-		-- Apply visual highlight effect using ObjectPool for quest bosses
-		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:ApplyHighlight(self, {1, 0.8, 0.2, 0.25})  -- Golden highlight
-		end
 	else
 		element:Hide()
-		
-		-- Release highlight when unit is no longer a quest boss
-		local addon = _G.SimpleUnitFrames
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:Release(self, "highlight_overlay")
-		end
 	end
 
 	--[[ Callback: QuestIndicator:PostUpdate(isQuestBoss)
@@ -84,7 +69,7 @@ local function Path(self, ...)
 end
 
 local function ForceUpdate(element)
-	return Path(element.__owner, 'ForceUpdate', element.__owner.unit)
+	return Path(element.__owner, 'ForceUpdate', element.__owner.__unit)
 end
 
 local function Enable(self)
@@ -93,7 +78,7 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		Private.SmartRegisterUnitEvent(self, 'UNIT_CLASSIFICATION_CHANGED', self.unit, Path)
+		self:RegisterEvent('UNIT_CLASSIFICATION_CHANGED', Path)
 
 		if(element:IsObjectType('Texture') and not element:GetTexture()) then
 			element:SetTexture([[Interface\TargetingFrame\PortraitQuestBadge]])

@@ -126,7 +126,7 @@ function addon:GetUnitFrameMoverKey(frame)
 		return nil
 	end
 	if unitType == "party" then
-		return "unit_party_" .. tostring(frame.unit or frame:GetName() or "member")
+		return "unit_party_" .. tostring(frame.__unit or frame:GetName() or "member")
 	end
 	return "unit_" .. tostring(unitType)
 end

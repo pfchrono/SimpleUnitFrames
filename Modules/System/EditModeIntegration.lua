@@ -332,7 +332,9 @@ function EditModeIntegration:ApplyElementVisibility(frame, unitType)
 	end
 
 	-- Auras visibility (Frame or element; check for SetShown)
-	if frame.Auras and frame.Auras.SetShown then
+	if frame.Auras and addon.UnitAuras then
+		addon.UnitAuras:SetShown(frame, self:IsElementVisible(unitType, "auras"))
+	elseif frame.Auras and frame.Auras.SetShown then
 		frame.Auras:SetShown(self:IsElementVisible(unitType, "auras"))
 	end
 

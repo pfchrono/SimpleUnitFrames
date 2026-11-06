@@ -54,6 +54,8 @@ local _, ns = ...
 local oUF = ns.oUF
 local Private = oUF.Private
 
+local STATE = {}
+
 local unitIsUnit = Private.unitIsUnit
 local playerClass = UnitClassBase('player')
 
@@ -72,7 +74,7 @@ local function UpdateColor(self, event, unit, powerType)
 		color = self.colors.power[ADDITIONAL_POWER_BAR_INDEX]
 
 		if(element.colorPowerSmooth and color and color:GetCurve()) then
-			color = UnitPowerPercent(unit, ADDITIONAL_POWER_BAR_INDEX, true, color:GetCurve())
+			color = UnitPowerPercent(unit, nil, true, color:GetCurve())
 		end
 	end
 
@@ -109,9 +111,6 @@ local function Update(self, event, unit, powerType)
 	element:SetMinMaxValues(0, max)
 	element:SetValue(cur, element.smoothing)
 
-	element.cur = cur
-	element.max = max
-
 	--[[ Callback: AdditionalPower:PostUpdate(cur, max)
 	Called after the element has been updated.
 
@@ -125,7 +124,7 @@ local function Update(self, event, unit, powerType)
 end
 
 local function UpdatePrediction(self, event, unit)
-	if(self.unit ~= unit) then return end
+	if(self.__unit ~= unit) then return end
 
 	local element = self.AdditionalPower
 
@@ -185,19 +184,20 @@ end
 
 local function UpdatePredictionSize(self, event, unit)
 	local element = self.AdditionalPower
-	if(element.CostPrediction and element.__size) then
-		element.CostPrediction[element.__isHoriz and 'SetWidth' or 'SetHeight'](element.CostPrediction, element.__size)
+	if(element.CostPrediction and STATE[element].size) then
+		local method = STATE[element].horizontal and 'SetWidth' or 'SetHeight'
+		element.CostPrediction[method](element.CostPrediction, STATE[element].size)
 	end
 end
 
 local function shouldUpdatePredictionSize(self)
 	local element = self.AdditionalPower
 
-	local isHoriz = element:GetOrientation() == 'HORIZONTAL'
-	local newSize = element[isHoriz and 'GetWidth' or 'GetHeight'](element)
-	if(isHoriz ~= element.__isHoriz or newSize ~= element.__size) then
-		element.__isHoriz = isHoriz
-		element.__size = newSize
+	local horizontal = element:GetOrientation() == 'HORIZONTAL'
+	local size = horizontal and element:GetWidth() or element:GetHeight()
+	if(horizontal ~= STATE[element].horizontal or size ~= STATE[element].size) then
+		STATE[element].horizontal = horizontal
+		STATE[element].size = size
 
 		return true
 	end
@@ -257,23 +257,23 @@ local function ElementEnable(self)
 	local element = self.AdditionalPower
 
 	if(element.frequentUpdates) then
-		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_FREQUENT', 'player', Path)
+		self:RegisterEvent('UNIT_POWER_FREQUENT', Path)
 	else
-		Private.SmartRegisterUnitEvent(self, 'UNIT_POWER_UPDATE', 'player', Path)
+		self:RegisterEvent('UNIT_POWER_UPDATE', Path)
 	end
 
-	Private.SmartRegisterUnitEvent(self, 'UNIT_MAXPOWER', 'player', Path)
+	self:RegisterEvent('UNIT_MAXPOWER', Path)
 
 	element:Show()
 
 	if(element.CostPrediction) then
-		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_START', 'player', PredictionPath)
-		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_STOP', 'player', PredictionPath)
-		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_FAILED', 'player', PredictionPath)
-		Private.SmartRegisterUnitEvent(self, 'UNIT_SPELLCAST_SUCCEEDED', 'player', PredictionPath)
+		self:RegisterEvent('UNIT_SPELLCAST_START', PredictionPath)
+		self:RegisterEvent('UNIT_SPELLCAST_STOP', PredictionPath)
+		self:RegisterEvent('UNIT_SPELLCAST_FAILED', PredictionPath)
+		self:RegisterEvent('UNIT_SPELLCAST_SUCCEEDED', PredictionPath)
 	end
 
-	element.__isEnabled = true
+	STATE[element].enabled = true
 	Path(self, 'ElementEnable', 'player', ADDITIONAL_POWER_BAR_NAME)
 end
 
@@ -295,7 +295,7 @@ local function ElementDisable(self)
 		self:UnregisterEvent('UNIT_SPELLCAST_SUCCEEDED', PredictionPath)
 	end
 
-	element.__isEnabled = false
+	STATE[element].enabled = false
 	Path(self, 'ElementDisable', 'player', ADDITIONAL_POWER_BAR_NAME)
 end
 
@@ -312,7 +312,7 @@ local function Visibility(self, event, unit)
 		end
 	end
 
-	local isEnabled = element.__isEnabled
+	local isEnabled = STATE[element].enabled
 
 	if(shouldEnable and not isEnabled) then
 		ElementEnable(self)
@@ -349,10 +349,10 @@ local function VisibilityPath(self, ...)
 end
 
 local function ForceUpdate(element)
-	VisibilityPath(element.__owner, 'ForceUpdate', element.__owner.unit)
+	VisibilityPath(element.__owner, 'ForceUpdate', element.__owner.__unit)
 
-	if(element.__isEnabled and element.CostPrediction) then
-		PredictionPath(element.__owner, 'ForceUpdate', element.__owner.unit)
+	if(STATE[element].enabled and element.CostPrediction) then
+		PredictionPath(element.__owner, 'ForceUpdate', element.__owner.__unit)
 	end
 end
 
@@ -368,10 +368,10 @@ local function SetFrequentUpdates(element, state, isForced)
 		element.frequentUpdates = state
 		if(state) then
 			element.__owner:UnregisterEvent('UNIT_POWER_UPDATE', Path)
-			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_POWER_FREQUENT', element.__owner.unit, Path)
+			element.__owner:RegisterEvent('UNIT_POWER_FREQUENT', Path)
 		else
 			element.__owner:UnregisterEvent('UNIT_POWER_FREQUENT', Path)
-			Private.SmartRegisterUnitEvent(element.__owner, 'UNIT_POWER_UPDATE', element.__owner.unit, Path)
+			element.__owner:RegisterEvent('UNIT_POWER_UPDATE', Path)
 		end
 	end
 end
@@ -383,11 +383,13 @@ local function Enable(self, unit)
 		element.ForceUpdate = ForceUpdate
 		element.SetFrequentUpdates = SetFrequentUpdates
 
+		STATE[element] = {}
+
 		if(not element.smoothing) then
 			element.smoothing = Enum.StatusBarInterpolation.Immediate
 		end
 
-		Private.SmartRegisterUnitEvent(self, 'UNIT_DISPLAYPOWER', unit, VisibilityPath)
+		self:RegisterEvent('UNIT_DISPLAYPOWER', VisibilityPath)
 
 		if(not element.displayPairs) then
 			element.displayPairs = CopyTable(ALT_POWER_BAR_PAIR_DISPLAY_INFO)

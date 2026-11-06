@@ -58,6 +58,8 @@ local RangedID = GetInventoryItemID('player', 18)
 local meleeing, rangeing, lasthit
 
 local _, _, _, toc = GetBuildInfo()
+-- Forever (16xxx) runs the Mainline client, so it uses the modern combat log payload layout
+local modernCombatLog = toc >= 40200 or (toc >= 16000 and toc < 20000)
 
 local function GetSpellNameCompat(spellID)
 	if oUF and oUF.GetSpellInfo then
@@ -354,7 +356,7 @@ local Melee = function(self, event, _, subevent, _, GUID)
 end
 
 local ParryHaste = function(self, event, _, subevent, ...)
-	local tarGUID, _, missType = select(toc >= 40200 and 7 or 6, ...)
+	local tarGUID, _, missType = select(modernCombatLog and 7 or 6, ...)
 
 	if UnitGUID('player') ~= tarGUID or missType ~= 'PARRY' or not meleeing or not strfind(subevent, 'MISSED') then return end
 

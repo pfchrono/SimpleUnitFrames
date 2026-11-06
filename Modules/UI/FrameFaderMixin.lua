@@ -57,7 +57,7 @@ function FrameFaderMixin:InitFader(settings)
 	end
 
 	-- Initialize casting event listener if casting alpha is enabled
-	if self.faderSettings.casting and self.unit then
+	if self.faderSettings.casting and self.__unit then
 		if not self:IsEventRegistered("UNIT_SPELLCAST_START") then
 			self:RegisterEvent("UNIT_SPELLCAST_START")
 		end
@@ -101,17 +101,17 @@ function FrameFaderMixin:CalculateTargetAlpha()
 	end
 
 	-- Player target fade
-	if settings.playerTarget and self.unit and UnitIsUnit(self.unit, "player") then
+	if settings.playerTarget and self.__unit and UnitIsUnit(self.__unit, "player") then
 		shouldFade = false -- Always show player frame
 	end
 
 	-- Unit target fade (show when unit is player's target)
-	if settings.unitTarget and self.unit and UnitIsUnit(self.unit, "target") then
+	if settings.unitTarget and self.__unit and UnitIsUnit(self.__unit, "target") then
 		shouldFade = false
 	end
 
 	-- Action target fade (show when unit has active casting/action)
-	if settings.actionTarget and self.unit and self.__isCasting then
+	if settings.actionTarget and self.__unit and self.__isCasting then
 		shouldFade = false
 	end
 
@@ -173,12 +173,12 @@ function FrameFaderMixin:OnFaderEvent(event, unit)
 		self.__inCombat = true
 		self:UpdateFaderAlpha()
 	elseif event == "UNIT_SPELLCAST_START" then
-		if unit and unit == self.unit then
+		if unit and unit == self.__unit then
 			self.__isCasting = true
 			self:UpdateFaderAlpha()
 		end
 	elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_INTERRUPTED" then
-		if unit and unit == self.unit then
+		if unit and unit == self.__unit then
 			self.__isCasting = false
 			self:UpdateFaderAlpha()
 		end

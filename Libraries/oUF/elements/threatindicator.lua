@@ -34,12 +34,19 @@ local Private = oUF.Private
 
 local unitExists = Private.unitExists
 
+-- SUF: a frame with a distinct feedbackUnit (e.g. party frames tracking 'target') listens for
+-- threat events from both units plus target/combat changes, and shows no threat while the
+-- feedback unit doesn't exist instead of falling back to the unit's general threat state.
+local function hasDistinctFeedbackUnit(self, element)
+	return element.feedbackUnit and element.feedbackUnit ~= self.__unit
+end
+
 local function Update(self, event, unit)
 	local element = self.ThreatIndicator
-	local frameUnit = self.unit
-	local feedbackUnit = element.feedbackUnit or frameUnit
+	local feedbackUnit = element.feedbackUnit
+	if(unit and unit ~= self.__unit and unit ~= feedbackUnit) then return end
 
-	if(unit and unit ~= frameUnit and unit ~= feedbackUnit) then return end
+	unit = self.__unit
 
 	--[[ Callback: ThreatIndicator:PreUpdate(unit)
 	Called before the element has been updated.
@@ -48,31 +55,17 @@ local function Update(self, event, unit)
 	* unit - the unit for which the update has been triggered (string)
 	--]]
 	if(element.PreUpdate) then element:PreUpdate(unit) end
-	unit = unit or feedbackUnit
 
 	local status
-	-- Non-existent '*target' or '*pet' units can cause UnitThreatSituation() errors.
-	if(unitExists(frameUnit)) then
-		-- If using feedback unit (e.g., "target" for party frames), verify it exists before querying
-		local feedbackUnitExists = not feedbackUnit or feedbackUnit == frameUnit or unitExists(feedbackUnit)
-		
-		if(feedbackUnit and feedbackUnit ~= frameUnit and feedbackUnitExists) then
-			status = UnitThreatSituation(feedbackUnit, frameUnit)
-		elseif feedbackUnit and feedbackUnit ~= frameUnit and not feedbackUnitExists then
-			-- Feedback unit (e.g., target) doesn't exist - threat is irrelevant
-			-- Force threat to 0 by not setting status at all
-			status = nil
+	-- BUG: Non-existent '*target' or '*pet' units cause UnitThreatSituation() errors
+	if(unitExists(unit)) then
+		if(hasDistinctFeedbackUnit(self, element)) then
+			if(unitExists(feedbackUnit)) then
+				status = UnitThreatSituation(feedbackUnit, unit)
+			end
 		else
-			status = UnitThreatSituation(frameUnit)
+			status = UnitThreatSituation(unit)
 		end
-	end
-
-	-- Debug: Log all threat checks to understand what's happening
-	local addon = _G.SimpleUnitFrames
-	if addon and addon.DebugLog then
-		addon:DebugLog("ThreatIndicator", 
-			string.format("Threat update: frame=%s, unit=%s, frameUnit=%s, feedbackUnit=%s, status=%s", 
-				self:GetName() or "unnamed", tostring(unit), tostring(frameUnit), tostring(feedbackUnit), tostring(status)), 3)
 	end
 
 	local color
@@ -84,35 +77,8 @@ local function Update(self, event, unit)
 		end
 
 		element:Show()
-		
-		-- Apply visual threat glow effect using ObjectPool only for full threat.
-		-- Note: Pass self (the parent frame), not element (the texture)
-		-- Check global glow visibility setting before applying
-		local glowEnabled = addon and addon.db and addon.db.profile and addon.db.profile.visibility and addon.db.profile.visibility.enableThreatIndicatorGlow ~= false
-		if addon and addon.IndicatorPoolManager and status == 3 and glowEnabled then
-			addon.IndicatorPoolManager:ApplyThreatGlow(self, status)
-			if addon.DebugLog then
-				addon:DebugLog("ThreatIndicator", string.format("Applied threat glow for %s (unit=%s, status=%d, frame=%s)", 
-					self:GetName() or "unnamed", unit, status, tostring(self)), 3)
-			end
-		elseif addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:Release(self, "threat_glow")
-			if addon.DebugLog then
-				addon:DebugLog("ThreatIndicator", string.format("Released threat glow (status=%s) for %s (unit=%s)", 
-					tostring(status), self:GetName() or "unnamed", unit), 3)
-			end
-		end
 	else
 		element:Hide()
-		
-		-- Release threat glow when threat drops (returns frame to pool)
-		if addon and addon.IndicatorPoolManager then
-			addon.IndicatorPoolManager:Release(self, "threat_glow")
-			if addon.DebugLog then
-				addon:DebugLog("ThreatIndicator", string.format("Released threat glow for %s (unit=%s)", 
-					self:GetName() or "unnamed", unit), 3)
-			end
-		end
 	end
 
 	--[[ Callback: ThreatIndicator:PostUpdate(unit, status, color)
@@ -140,7 +106,7 @@ local function Path(self, ...)
 end
 
 local function ForceUpdate(element)
-	return Path(element.__owner, 'ForceUpdate', element.__owner.unit)
+	return Path(element.__owner, 'ForceUpdate', element.__owner.__unit)
 end
 
 local function Enable(self)
@@ -149,26 +115,14 @@ local function Enable(self)
 		element.__owner = self
 		element.ForceUpdate = ForceUpdate
 
-		local feedbackUnit = element.feedbackUnit
-		if(feedbackUnit and feedbackUnit ~= self.unit and self.RegisterUnitEvent and self.unit) then
-			-- For party/raid frames with feedbackUnit (target), register for events from both units
-			-- Must set event handler on frame before registering events
-			self['UNIT_THREAT_SITUATION_UPDATE'] = Path
-			self['UNIT_THREAT_LIST_UPDATE'] = Path
-			self:RegisterUnitEvent('UNIT_THREAT_SITUATION_UPDATE', self.unit, feedbackUnit)
-			self:RegisterUnitEvent('UNIT_THREAT_LIST_UPDATE', self.unit, feedbackUnit)
-		else
-			-- Standard single-unit registration
-			Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_SITUATION_UPDATE', self.unit, Path)
-			Private.SmartRegisterUnitEvent(self, 'UNIT_THREAT_LIST_UPDATE', self.unit, Path)
-		end
-
-		-- Keep threat visuals synchronized across combat state changes.
+		-- SUF: unitless when tracking a feedback unit, Update filters to both units
+		local unitless = hasDistinctFeedbackUnit(self, element)
+		self:RegisterEvent('UNIT_THREAT_SITUATION_UPDATE', Path, unitless)
+		self:RegisterEvent('UNIT_THREAT_LIST_UPDATE', Path, unitless)
 		self:RegisterEvent('PLAYER_REGEN_ENABLED', Path, true)
 		self:RegisterEvent('PLAYER_REGEN_DISABLED', Path, true)
 
-		-- Party/raid threat indicators using target feedback need refresh on retarget.
-		if feedbackUnit == 'target' then
+		if(element.feedbackUnit == 'target') then
 			self:RegisterEvent('PLAYER_TARGET_CHANGED', Path, true)
 		end
 

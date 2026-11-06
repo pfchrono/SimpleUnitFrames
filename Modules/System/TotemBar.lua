@@ -242,8 +242,8 @@ function TotemBar:PositionTotemBar()
 		return
 	end
 	
-	-- Position above player frame auras
-	local auraFrame = playerFrame.Auras
+	-- Position above player frame auras (the AuraContainer itself must not be anchored to)
+	local auraFrame = playerFrame.AurasAnchor
 	if auraFrame and auraFrame:IsVisible() then
 		tf:ClearAllPoints()
 		tf:SetPoint("BOTTOMLEFT", auraFrame, "TOPLEFT", 0, 4)

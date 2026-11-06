@@ -1,3 +1,31 @@
+## [1.36.0] - 2026-11-06
+
+### Added
+- WoW Forever support (1.60.1, game type `camelot`, interface 16001): TOC now lists `120105, 120107, 16001` with `AllowLoadGameType: standard, camelot`
+- Forever hunter pet happiness health coloring, target-bound combo points for ClassPower, and Forever-aware combat log parsing in `oUF_Swing`
+- "Hide Blizzard Objective Tracker (Quest List)" option under Blizzard frames, for use with quest addons such as QuestMaster (off by default; stays visible in Edit Mode; changes wait until combat ends)
+- `Modules/UI/UnitAuras.lua`: aura adapter over the oUF 14 AuraContainer (buff + debuff groups driven by the existing aura layout settings)
+
+### Changed
+- Embedded oUF upgraded from 13.3 (Mar 2026 base) to upstream 14.2.1; local patches are documented in `Libraries/oUF/SUF_PATCHES.md`
+- Auras now use Blizzard's AuraContainer (C-side filtering/sorting, secret-safe). Totems anchor to the new `frame.AurasAnchor` holder instead of the container
+- Castbar migrated to the oUF 14 callback set; time text uses a duration binding and pushback delay has its own `Castbar.Delay` text
+- Frame unit reads use oUF's `frame.__unit`; SUF no longer writes `frame.unit` (Blizzard reads it, which broke pings)
+- Indicator glows (resting, quest, leader, threat) moved out of oUF into `addon:AttachIndicatorEffects`
+- Coalesced `UNIT_AURA` updates no longer force aura rescans (the container updates itself)
+
+### Fixed
+- Castbar non-interruptible, failed and channel coloring callbacks used names oUF never called (`PostChannelStart`, `PostCastNotInterruptible`, `PostCastFailed`, `PostChannelUpdate`)
+- Coalesced `UNIT_SPELLCAST_CHANNEL_UPDATE` no longer force-restarts the castbar (it wiped channel pushback delay)
+- Removed `SmartRegisterUnitEvent`, which overwrote other handlers for the same event; oUF's own `RegisterEvent` already registers unit-scoped events
+
+### Notes
+- Aura tooltips now come from Blizzard's AuraButton (the LibQTip aura tooltip path is no longer used for unit frame auras)
+- Toggling "Show Stealable Buffs" applies to existing buttons via alpha; other aura button widgets are created once per button
+- Castbar "time decimals" is now whole seconds (0) or one decimal (1 or 2): the duration binding's SecondsFormatter has no finer control
+
+---
+
 ## [1.34.1] - 2026-04-24
 
 ### Changed

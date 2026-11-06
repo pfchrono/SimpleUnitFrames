@@ -33,11 +33,11 @@ function AuraTooltipManager:ShowAuraTooltip(widget, anchorType, offsetX, offsetY
     end
     
     local parent = widget:GetParent()
-    if not parent or not parent.__owner or not parent.__owner.unit then
+    if not parent or not parent.__owner or not parent.__owner.__unit then
         return false
     end
     
-    local unit = parent.__owner.unit
+    local unit = parent.__owner.__unit
     local auraInstanceID = widget.auraInstanceID
     
     -- Try LibQTip first (if AuraTooltipHelper available)

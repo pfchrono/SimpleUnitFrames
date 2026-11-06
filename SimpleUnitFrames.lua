@@ -305,6 +305,8 @@ local defaults = {
 			party = true,
 			raid = true,
 			boss = true,
+			-- opt-in: SUF doesn't replace the tracker, this just frees the space for quest addons
+			objectiveTracker = false,
 		},
 		blizzardSkin = {
 			enabled = false,
@@ -1212,6 +1214,12 @@ local function RoundNumber(value, decimals)
 	local mult = 10 ^ places
 	return math.floor((n * mult) + 0.5) / mult
 end
+
+-- WoW Forever (game type "camelot", interface 16xxx) shares the Mainline client and APIs, but only
+-- has the original classes, hunter pet happiness, and target-bound combo points.
+local CLIENT_INTERFACE_VERSION = select(4, GetBuildInfo()) or 0
+local IS_FOREVER = CLIENT_INTERFACE_VERSION >= 16000 and CLIENT_INTERFACE_VERSION < 20000
+addon.IsForever = IS_FOREVER
 
 ---Check if a value is marked as secret (WoW 12.0.0+ instance restriction)
 ---@param value any Potentially-secret value from WoW API
@@ -2533,7 +2541,7 @@ function addon:GetAbsorbTextForUnit(unit, useAbbrev)
 	local ouf = oUF or (self.oUF)
 	if ouf then
 		for _, f in pairs(ouf.objects or {}) do
-			if f.unit == unit and f.Health and f.Health.values then
+			if f.__unit == unit and f.Health and f.Health.values then
 				-- Get absorb from Health element's cached values (same source as Health Override uses)
 				local absorbAmount = f.Health.values:GetDamageAbsorbs()
 				rawAbsorbValue = absorbAmount
@@ -3319,8 +3327,8 @@ function addon:OpenUnitContextMenu(frame)
 		return false
 	end
 
-	local unit = frame.unit
-	-- For header-spawned frames (party/raid), try secure attribute if frame.unit is not set
+	local unit = frame.__unit
+	-- For header-spawned frames (party/raid), try secure attribute if frame.__unit is not set
 	if not unit and frame.GetAttribute then
 		unit = frame:GetAttribute('unit') or frame:GetAttribute('oUF-guessUnit')
 	end
@@ -3382,9 +3390,13 @@ function addon:IsFrameEventRelevant(frame, eventName)
 	end
 
 	if eventName == "UNIT_AURA" then
-		return frame.Auras ~= nil
+		-- oUF 14 Auras are a Blizzard AuraContainer that processes UNIT_AURA incrementally on its
+		-- own; pushing coalesced UpdateElement("Auras") calls would force full rescans.
+		return frame.Auras ~= nil and frame.__sufAuraGroups == nil
 	elseif eventName == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
-		return frame.Castbar ~= nil
+		-- oUF's Castbar handles this itself; a coalesced ForceUpdate would re-run CastStart and
+		-- wipe the pushback delay / hold time it just recorded.
+		return false
 	elseif eventName == "UNIT_HEALTH" or eventName == "UNIT_MAXHEALTH" or eventName == "UNIT_THREAT_SITUATION_UPDATE" or eventName == "UNIT_THREAT_LIST_UPDATE" or eventName == "UNIT_HEAL_PREDICTION" or eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED" then
 		return frame.Health ~= nil
 	elseif eventName == "UNIT_POWER_UPDATE" or eventName == "UNIT_MAXPOWER" or eventName == "UNIT_DISPLAYPOWER" or eventName == "RUNE_POWER_UPDATE" or eventName == "PLAYER_TOTEM_UPDATE" then
@@ -3481,8 +3493,6 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 			touched = SafeUpdateElement(frame, "ClassPower", eventName) or touched
 		elseif eventName == "UNIT_AURA" then
 			touched = SafeUpdateElement(frame, "Auras", eventName) or touched
-		elseif eventName == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
-			touched = SafeUpdateElement(frame, "Castbar", eventName) or touched
 		elseif eventName == "UNIT_PORTRAIT_UPDATE" or eventName == "UNIT_NAME_UPDATE" or eventName == "UNIT_FACTION" then
 			touched = self:RefreshPortraitFrame(frame) or touched
 		elseif eventName == "UNIT_FLAGS" or eventName == "UNIT_CONNECTION" or eventName == "PLAYER_FLAGS_CHANGED" or eventName == "RAID_TARGET_UPDATE" or eventName == "GROUP_ROSTER_UPDATE" or eventName == "PLAYER_ROLES_ASSIGNED" or eventName == "PARTY_LEADER_CHANGED" then
@@ -3625,7 +3635,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 		if all then
 			for i = 1, #all do
 				local frame = all[i]
-				local isSameUnit = frame and frame.unit and SafeAPICall(UnitIsUnit, unit, frame.unit)
+				local isSameUnit = frame and frame.__unit and SafeAPICall(UnitIsUnit, unit, frame.__unit)
 				if frame and not seen[frame] and isSameUnit then
 					seen[frame] = true
 					tracedHits = tracedHits + 1
@@ -4981,7 +4991,7 @@ function addon:ApplyTags(frame)
 		local absorbTag = self.db and self.db.profile and self.db.profile.absorbValueTag or "[suf:absorbs:abbr]"
 		
 		local frameName = frame:GetName() or "Unknown"
-		local unit = frame.unit or "nil"
+		local unit = frame.__unit or "nil"
 		if debugTags then
 			self:DebugLog("AbsorbTags", ("Applying tag to frame %s (unit=%s): tag='%s'"):format(
 				frameName,
@@ -5117,27 +5127,49 @@ local function PositionPredictionBarUUF(bar, frame, position, height, reverseRig
 	bar:SetWidth(healthWidth)
 end
 
-local function GetCastbarRemainingDuration(castbar, durationObject)
-	local remaining = durationObject and SafeNumber(SafeAPICall(durationObject.GetRemainingDuration, durationObject), nil)
-	if remaining ~= nil then
-		return math.max(0, remaining)
-	end
+local EMPTY_CAST_STATE = {}
 
-	local maxValue = SafeNumber(castbar and castbar.max, nil) or SafeNumber(castbar and castbar.maxValue, nil)
-	local value = SafeNumber(castbar and castbar.value, nil)
-	local duration = SafeNumber(castbar and castbar.duration, nil)
+-- oUF 14 keeps cast state internal; SUF's oUF patch exposes it read-only via Castbar:GetCastState().
+local function GetCastState(castbar)
+	local state = castbar and castbar.GetCastState and castbar:GetCastState()
+	return state or EMPTY_CAST_STATE
+end
 
-	if maxValue and duration then
-		return math.max(0, maxValue - duration)
-	end
-	if maxValue and value then
-		if castbar and castbar.channeling then
-			return math.max(0, value)
-		end
-		return math.max(0, maxValue - value)
-	end
+local function IsCastbarActive(castbar)
+	local state = GetCastState(castbar)
+	return (state.casting or state.channeling or state.empowering) and true or false
+end
 
-	return nil
+local function IsCastbarCastingOrChanneling(castbar)
+	local state = GetCastState(castbar)
+	return (state.casting or state.channeling) and true or false
+end
+
+-- Builds (or rebuilds when the decimals setting changes) the Time sub-widget's duration binding.
+-- oUF only creates a default binding when none exists, so assigning one before Enable wins, and
+-- swapping the formatter afterwards takes effect immediately.
+local function ApplyCastbarTimeFormatter(castbar, castbarCfg)
+	local time = castbar and castbar.Time
+	if not (time and C_StringUtil and C_StringUtil.CreateSecondsFormatter and C_DurationUtil and C_DurationUtil.CreateDurationTextBinding) then
+		return
+	end
+	local decimals = math.max(0, math.min(2, tonumber(castbarCfg and castbarCfg.timeDecimals) or 1))
+	if time.__sufFormatterDecimals == decimals and time.binding then
+		return
+	end
+	local formatter = C_StringUtil.CreateSecondsFormatter()
+	formatter:SetDefaultAbbreviation(Enum.SecondsFormatterAbbreviation.OneLetter)
+	formatter:SetStripIntervalWhitespace(true)
+	formatter:SetMinInterval(Enum.SecondsFormatterInterval.Seconds)
+	-- SecondsFormatter shows either whole seconds or one decimal; any timeDecimals > 0 means one
+	formatter:SetMillisecondsThreshold(decimals > 0 and 3600 or 0)
+	time.formatter = formatter
+	if not time.binding then
+		time.binding = C_DurationUtil.CreateDurationTextBinding()
+		time.binding:SetFontString(time)
+	end
+	time.binding:SetFormatter(formatter)
+	time.__sufFormatterDecimals = decimals
 end
 
 local function GetHealthPredictionWidgets(frame)
@@ -5197,7 +5229,7 @@ function addon:UpdateAbsorbValue(frame, unitToken)
 	
 	if shouldLog then
 		frame.__sufAbsorbLastDebugLog = now
-		local unit = unitToken or frame.unit or "unknown"
+		local unit = unitToken or frame.__unit or "unknown"
 		local unitType = (frame and frame.sufUnitType) or "unknown"
 		self:DebugLog("AbsorbEvents", ("UpdateAbsorbValue called: frame=%s unit=%s unitType=%s"):format(frame:GetName() or "unnamed", unit, unitType), 2)
 	end
@@ -5219,8 +5251,8 @@ function addon:UpdateAbsorbValue(frame, unitToken)
 		return
 	end
 
-	local unit = unitToken or frame.unit
-	-- For header-spawned frames (party/raid), try secure attribute if frame.unit is not set
+	local unit = unitToken or frame.__unit
+	-- For header-spawned frames (party/raid), try secure attribute if frame.__unit is not set
 	if not unit and frame.GetAttribute then
 		unit = frame:GetAttribute('unit') or frame:GetAttribute('oUF-guessUnit')
 	end
@@ -5446,7 +5478,7 @@ function addon:UpdateIncomingHealValue(frame, unitToken)
 		end
 		frame._sufIncomingDebugReason = reason
 		frame._sufIncomingDebugNext = now + 0.75
-		local unitName = tostring(frame.sufUnitType or frame.unit or "unknown")
+		local unitName = tostring(frame.sufUnitType or frame.__unit or "unknown")
 		self:DebugLog("IncomingText", ("IncomingText[%s]: %s%s"):format(unitName, tostring(reason), details and (" | " .. details) or ""), 2)
 	end
 	local function RawCall(fn, ...)
@@ -5482,7 +5514,7 @@ function addon:UpdateIncomingHealValue(frame, unitToken)
 		return
 	end
 
-	local unit = unitToken or frame.unit
+	local unit = unitToken or frame.__unit
 	if not unit or not UnitExists or not UnitExists(unit) then
 		frame.IncomingHealValue:SetText("")
 		frame.IncomingHealValue:Hide()
@@ -5829,7 +5861,7 @@ local function UpdateCastbarDirectionIndicator(castbar, cfg)
 		HideCastbarDirectionIndicator(castbar)
 		return
 	end
-	if not (castbar.casting or castbar.channeling) then
+	if not IsCastbarCastingOrChanneling(castbar) then
 		HideCastbarDirectionIndicator(castbar)
 		return
 	end
@@ -5858,11 +5890,13 @@ local function UpdateCastbarChannelTicks(castbar, cfg)
 	if not castbar then
 		return
 	end
-	if cfg.showChannelTicks ~= true or not castbar.channeling then
+	local castState = GetCastState(castbar)
+	if cfg.showChannelTicks ~= true or not castState.channeling then
 		HideCastbarChannelTicks(castbar)
 		return
 	end
-	local spellID = tonumber(castbar.spellID) or 0
+	-- spellID is secret for restricted units; ticks are only known for plain IDs
+	local spellID = (not IsSecretValue(castState.spellID) and tonumber(castState.spellID)) or 0
 	local tickCount = CHANNEL_TICK_COUNT_BY_SPELL_ID[spellID]
 	if not tickCount or tickCount <= 0 then
 		HideCastbarChannelTicks(castbar)
@@ -5938,12 +5972,12 @@ local function UpdateCastbarLatencyIndicator(castbar, cfg)
 		HideCastbarLatencyIndicator(castbar)
 		return
 	end
-	if not (castbar.casting or castbar.channeling) then
+	if not IsCastbarCastingOrChanneling(castbar) then
 		HideCastbarLatencyIndicator(castbar)
 		return
 	end
 	local owner = castbar.__owner
-	local unit = owner and owner.unit
+	local unit = owner and owner.__unit
 	if unit ~= "player" then
 		HideCastbarLatencyIndicator(castbar)
 		return
@@ -6269,7 +6303,7 @@ function addon:ApplyPluginElements(frame)
 			frame.Fader.__lastTargetAlpha = nil
 			frame:SetAlpha(1)
 			if self.UpdateAbsorbValue then
-				self:UpdateAbsorbValue(frame, frame.unit)
+				self:UpdateAbsorbValue(frame, frame.__unit)
 			end
 		end
 	end
@@ -6299,57 +6333,11 @@ function addon:ApplyMedia(frame)
 		SetStatusBarTexturePreserveLayer(frame.Power, texture)
 	end
 
-	if frame.Auras then
+	if frame.Auras and self.UnitAuras then
 		local auraCfg = self:GetUnitAuraLayoutSettings(frame.sufUnitType)
-		local spacingX = tonumber(auraCfg.spacingX) or 4
-		local spacingY = tonumber(auraCfg.spacingY) or 4
-		local maxCols = math.max(1, tonumber(auraCfg.maxCols) or 8)
-		local initialAnchor = tostring(auraCfg.initialAnchor or "BOTTOMLEFT")
-		local growthX = tostring(auraCfg.growthX or "RIGHT")
-		local growthY = tostring(auraCfg.growthY or "UP")
-		local sortMethod = tostring(auraCfg.sortMethod or "DEFAULT")
-		local sortDirection = tostring(auraCfg.sortDirection or "ASC")
-		local onlyShowPlayer = auraCfg.onlyShowPlayer == true
-		local showStealableBuffs = auraCfg.showStealableBuffs ~= false
-		local numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 8)
-		local numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 8)
-		local enabled = auraCfg.enabled ~= false
-		local layoutSig = table.concat({
-			spacingX, spacingY, maxCols, initialAnchor, growthX, growthY,
-			sortMethod, sortDirection, tostring(onlyShowPlayer), tostring(showStealableBuffs),
-			numBuffs, numDebuffs
-		}, "|")
+		self.UnitAuras:ApplyLayout(frame)
 
-		frame.Auras.tooltipAnchor = "ANCHOR_BOTTOMRIGHT"
-		frame.Auras.tooltipOffsetX = 0
-		frame.Auras.tooltipOffsetY = 0
-		frame.Auras.reanchorIfVisibleChanged = false
-		
-		-- Hook PostCreateButton to attach custom tooltip scripts to ALL aura buttons
-		if not frame.Auras.PostCreateButton then
-			frame.Auras.PostCreateButton = function(element, button)
-				AttachAuraTooltipScripts(button)
-			end
-		end
-
-		if frame.__sufAuraLayoutSig ~= layoutSig then
-			frame.Auras.spacingX = spacingX
-			frame.Auras.spacingY = spacingY
-			frame.Auras.maxCols = maxCols
-			frame.Auras.initialAnchor = initialAnchor
-			frame.Auras.growthX = growthX
-			frame.Auras.growthY = growthY
-			frame.Auras.sortMethod = sortMethod
-			frame.Auras.sortDirection = sortDirection
-			frame.Auras.onlyShowPlayer = onlyShowPlayer
-			frame.Auras.showStealableBuffs = showStealableBuffs
-			frame.Auras.numBuffs = numBuffs
-			frame.Auras.numDebuffs = numDebuffs
-			frame.Auras.needFullUpdate = true
-			frame.__sufAuraLayoutSig = layoutSig
-		end
-
-		local auraUnitToken = frame.unit
+		local auraUnitToken = frame.__unit
 		if frame.GetAttribute then
 			local attributeUnitToken = frame:GetAttribute("unit")
 			if type(attributeUnitToken) == "string" and attributeUnitToken ~= "" then
@@ -6357,21 +6345,7 @@ function addon:ApplyMedia(frame)
 			end
 		end
 		local hasAuraUnit = type(auraUnitToken) == "string" and auraUnitToken ~= "" and UnitExists and UnitExists(auraUnitToken)
-		local shouldShowAuras = enabled and hasAuraUnit and true or false
-
-		if frame.__sufAuraEnabled ~= shouldShowAuras then
-			frame.Auras:SetShown(shouldShowAuras)
-			frame.__sufAuraEnabled = shouldShowAuras
-		end
-
-		if not shouldShowAuras then
-			for i = 1, #frame.Auras do
-				local auraButton = frame.Auras[i]
-				if auraButton and auraButton.Hide then
-					auraButton:Hide()
-				end
-			end
-		end
+		self.UnitAuras:SetShown(frame, auraCfg.enabled ~= false and hasAuraUnit)
 	end
 
 	if frame.PowerBG then
@@ -6628,8 +6602,7 @@ function addon:ApplyMedia(frame)
 		local castbarEnabled = unitCastbarCfg.enabled ~= false
 		-- Don't override castbar visibility during active casts - let oUF element control it
 		-- Only apply configuration outside of active casting/channeling
-		local isCasting = frame.Castbar.casting or frame.Castbar.channeling or frame.Castbar.empowering
-		if not isCasting then
+		if not IsCastbarActive(frame.Castbar) then
 			frame.Castbar:SetShown(castbarEnabled)
 		end
 		if castbarEnabled then
@@ -6650,6 +6623,10 @@ function addon:ApplyMedia(frame)
 				frame.Castbar.Time:SetShown(unitCastbarCfg.showTime ~= false)
 				frame.Castbar.Time:SetFont(font, sizes.cast, "OUTLINE")
 			end
+			if frame.Castbar.Delay then
+				frame.Castbar.Delay:SetShown(unitCastbarCfg.showTime ~= false and castbarCfg.showDelay ~= false)
+				frame.Castbar.Delay:SetFont(font, math.max(6, sizes.cast - 1), "OUTLINE")
+			end
 			if frame.Castbar.Icon then
 				frame.Castbar.Icon:SetShown(castbarCfg.iconEnabled ~= false)
 				frame.Castbar.Icon:SetSize(castbarCfg.iconSize or 20, castbarCfg.iconSize or 20)
@@ -6663,7 +6640,7 @@ function addon:ApplyMedia(frame)
 			end
 			if frame.Castbar.SafeZone then
 				frame.Castbar.SafeZone:SetColorTexture(1, 0.2, 0.2, castbarCfg.safeZoneAlpha or 0.35)
-				frame.Castbar.SafeZone:SetShown(castbarCfg.showSafeZone ~= false and frame.unit == "player")
+				frame.Castbar.SafeZone:SetShown(castbarCfg.showSafeZone ~= false and frame.__unit == "player")
 			end
 			if frame.Castbar.Spark then
 				frame.Castbar.Spark:SetShown(castbarCfg.showSpark ~= false)
@@ -6675,16 +6652,17 @@ function addon:ApplyMedia(frame)
 			local enhancementCfg = self:GetEnhancementSettings()
 
 			local function UpdateInterruptVisual(castbar)
-				local isHostile = UnitCanAttack and castbar.unit and UnitCanAttack("player", castbar.unit)
+				local castUnit = castbar.__owner and castbar.__owner.__unit
+				local isHostile = UnitCanAttack and castUnit and UnitCanAttack("player", castUnit)
 				local isWatchedUnit = frame.sufUnitType == "target" or frame.sufUnitType == "boss"
-				local interruptible = self:GetUnitInterruptState(castbar.unit)
+				local interruptible = self:GetUnitInterruptState(castUnit)
 				if not isHostile or not isWatchedUnit or interruptible == nil then
 					StopCastbarNonInterruptGlow(castbar)
 					return
 				end
 
 				if interruptible then
-					local activeColor = castbar.channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
+					local activeColor = GetCastState(castbar).channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
 					activeColor = activeColor or { 1, 0.7, 0 }
 					castbar:SetStatusBarColor(activeColor[1] or 1, activeColor[2] or 0.7, activeColor[3] or 0)
 					StopCastbarNonInterruptGlow(castbar)
@@ -6705,110 +6683,61 @@ function addon:ApplyMedia(frame)
 				end
 			end
 
-			frame.Castbar.CustomTimeText = function(castbar, durationObject)
-				if not castbar.Time then
+			-- oUF 14 drives Time through a DurationTextBinding; the formatter decides the decimals.
+			ApplyCastbarTimeFormatter(frame.Castbar, castbarCfg)
+			frame.Castbar.CustomDelayText = function(castbar, delay, isChanneling)
+				if not castbar.Delay then
 					return
 				end
-				if unitCastbarCfg.showTime == false then
-					castbar.Time:SetText("")
+				if unitCastbarCfg.showTime == false or castbarCfg.showDelay == false then
+					castbar.Delay:SetText("")
 					return
 				end
-				local decimals = math.max(0, math.min(2, tonumber(castbarCfg.timeDecimals) or 1))
-				local fmt = "%." .. decimals .. "f"
-				local remaining = GetCastbarRemainingDuration(castbar, durationObject)
-				if remaining == nil then
-					castbar.Time:SetText("")
+				local delayValue = SafeNumber(delay, 0)
+				if delayValue <= 0 then
+					castbar.Delay:SetText("")
 					return
 				end
-				castbar.Time:SetFormattedText(fmt, remaining)
+				local decimals = math.max(1, math.min(3, (tonumber(castbarCfg.timeDecimals) or 1) + 1))
+				castbar.Delay:SetFormattedText("%s%." .. decimals .. "f", isChanneling and "-" or "+", delayValue)
 			end
-			frame.Castbar.CustomDelayText = function(castbar, durationObject)
-				if not castbar.Time then
-					return
-				end
-				if unitCastbarCfg.showTime == false then
-					castbar.Time:SetText("")
-					return
-				end
-				local decimals = math.max(0, math.min(2, tonumber(castbarCfg.timeDecimals) or 1))
-				local baseFmt = "%." .. decimals .. "f"
-				local delayFmt = "%." .. math.max(1, decimals + 1) .. "f"
-				local remaining = GetCastbarRemainingDuration(castbar, durationObject)
-				if remaining == nil then
-					castbar.Time:SetText("")
-					return
-				end
-				local delayValue = SafeNumber(castbar.delay, 0)
-				if castbarCfg.showDelay == false then
-					castbar.Time:SetFormattedText(baseFmt, remaining)
-					return
-				end
-				local sign = SafeBoolean(castbar.channeling, false) and "-" or "+"
-				castbar.Time:SetFormattedText(baseFmt .. "|cffff0000%s" .. delayFmt .. "|r", remaining, sign, delayValue)
-			end
-			frame.Castbar.PostCastStart = function(castbar)
-				local color = castbarColors.casting or { 1, 0.7, 0 }
+			frame.Castbar.PostCastStart = function(castbar, unit, spellID, notInterruptible, name)
+				local isChannel = GetCastState(castbar).channeling
+				local color = isChannel and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
+				color = color or { 1, 0.7, 0 }
 				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.7, color[3] or 0)
 				UpdateInterruptVisual(castbar)
-				if not castbar.Text then
-					return
+				if castbar.Delay then
+					castbar.Delay:SetText("")
 				end
-				if unitCastbarCfg.showText == false then
-					castbar.Text:SetText("")
-					return
+				if castbar.Text then
+					if unitCastbarCfg.showText == false or IsSecretValue(name) then
+						-- secret names can't be truncated; let oUF's own SetText(displayName) stand
+						if unitCastbarCfg.showText == false then
+							castbar.Text:SetText("")
+						end
+					else
+						local maxChars = math.max(6, tonumber(castbarCfg.spellMaxChars) or 18)
+						castbar.Text:SetText(TruncateUTF8(SafeText(name, ""), maxChars))
+					end
 				end
-				local maxChars = math.max(6, tonumber(castbarCfg.spellMaxChars) or 18)
-				local rawName = castbar.spellName or (castbar.Text and castbar.Text.GetText and castbar.Text:GetText()) or ""
-				if IsSecretValue(rawName) then
-					castbar.Text:SetText("")
-					return
-				end
-				local spellName = SafeText(rawName, "")
-				spellName = TruncateUTF8(spellName, maxChars)
-				castbar.Text:SetText(spellName)
-				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
-			end
-			frame.Castbar.PostChannelStart = function(castbar)
-				local color = castbarColors.channeling or castbarColors.casting or { 0.2, 0.6, 1 }
-				castbar:SetStatusBarColor(color[1] or 0.2, color[2] or 0.6, color[3] or 1)
-				UpdateInterruptVisual(castbar)
 				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
 			end
 			frame.Castbar.PostCastInterruptible = function(castbar)
-				local color = castbar.channeling and (castbarColors.channeling or castbarColors.casting) or castbarColors.casting
-				color = color or { 1, 0.7, 0 }
-				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.7, color[3] or 0)
-				StopCastbarNonInterruptGlow(castbar)
-				if castbar.Shield then
-					castbar.Shield:SetShown(false)
-				end
+				UpdateInterruptVisual(castbar)
 				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
 			end
-			frame.Castbar.PostCastNotInterruptible = function(castbar)
-				local color = castbarColors.nonInterruptible or { 0.75, 0.75, 0.75 }
-				castbar:SetStatusBarColor(color[1] or 0.75, color[2] or 0.75, color[3] or 0.75)
-				if enhancementCfg.castbarNonInterruptibleGlow ~= false then
-					StartCastbarNonInterruptGlow(castbar, { color[1] or 0.75, color[2] or 0.75, color[3] or 0.75, 0.90 }, enhancementCfg.castbarNonInterruptibleGlowStyle)
-				else
-					StopCastbarNonInterruptGlow(castbar)
-				end
-				if castbar.Shield then
-					castbar.Shield:SetShown(castbarCfg.showShield ~= false)
-				end
-				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
-			end
-			frame.Castbar.PostCastFailed = function(castbar)
+			frame.Castbar.PostCastFail = function(castbar)
 				local color = castbarColors.failed or { 1, 0.1, 0.1 }
 				castbar:SetStatusBarColor(color[1] or 1, color[2] or 0.1, color[3] or 0.1)
 				StopCastbarNonInterruptGlow(castbar)
 				HideCastbarEnhancementWidgets(castbar)
 			end
-			frame.Castbar.PostCastInterrupted = frame.Castbar.PostCastFailed
+			frame.Castbar.PostCastInterrupted = frame.Castbar.PostCastFail
 			frame.Castbar.PostCastUpdate = function(castbar)
 				UpdateInterruptVisual(castbar)
 				UpdateCastbarEnhancementWidgets(castbar, castbarCfg)
 			end
-			frame.Castbar.PostChannelUpdate = frame.Castbar.PostCastUpdate
 			frame.Castbar.PostCastStop = function(castbar)
 				local color = castbarColors.complete or { 0, 1, 0 }
 				castbar:SetStatusBarColor(color[1] or 0, color[2] or 1, color[3] or 0)
@@ -6823,6 +6752,9 @@ function addon:ApplyMedia(frame)
 			end
 			if frame.Castbar.Time then
 				frame.Castbar.Time:SetText("")
+			end
+			if frame.Castbar.Delay then
+				frame.Castbar.Delay:SetText("")
 			end
 		end
 	end
@@ -7010,7 +6942,7 @@ function addon:UpdateUnitFrameStatusIndicators(frame)
 		return
 	end
 
-	local unit = frame.unit
+	local unit = frame.__unit
 	if type(unit) ~= "string" or unit == "" then
 		StopTargetSelectionGlow(frame)
 		if frame.RoleIndicator then frame.RoleIndicator:Hide() end
@@ -7178,7 +7110,7 @@ function addon:RefreshPortraitFrame(frame)
 	if not frame then
 		return false
 	end
-	local unit = frame.unit
+	local unit = frame.__unit
 	if type(unit) ~= "string" or unit == "" then
 		return false
 	end
@@ -7528,9 +7460,10 @@ function addon:ApplySize(frame)
 		frame.Castbar:ClearAllPoints()
 		if anchorMode == "ABOVE_FRAME" then
 			frame.Castbar:SetPoint("BOTTOM", frame, "TOP", 0, offsetY)
-		elseif anchorMode == "BELOW_CLASSPOWER" and frame.ClassPowerAnchor then
-			frame.Castbar:SetPoint("TOP", frame.ClassPowerAnchor, "BOTTOM", 0, offsetY)
 		else
+			-- BELOW_CLASSPOWER: ClassPowerAnchor sits *above* the frame (over AdditionalPower), so
+			-- hanging the castbar from its bottom drew it over the frame. Class power is part of the
+			-- frame stack, so "below class power" means below the whole stack, like BELOW_FRAME.
 			local bottomAnchor = frame.Power or frame
 			frame.Castbar:SetPoint("TOP", bottomAnchor, "BOTTOM", 0, offsetY)
 		end
@@ -7584,8 +7517,7 @@ function addon:ApplySize(frame)
 		frame.Stagger:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -4)
 	end
 
-	if frame.Auras then
-		local auraSize = self:GetUnitAuraSize(frame.sufUnitType)
+	if frame.Auras and self.UnitAuras then
 		local topAnchor = frame
 		if frame.AdditionalPower and frame.AdditionalPower.IsShown and frame.AdditionalPower:IsShown() then
 			topAnchor = frame.AdditionalPower
@@ -7593,18 +7525,7 @@ function addon:ApplySize(frame)
 		if frame.ClassPowerAnchor and HasVisibleClassPower(frame) then
 			topAnchor = frame.ClassPowerAnchor
 		end
-		local anchorSig = tostring(topAnchor) .. "|" .. tostring(auraSize)
-		if frame.__sufAuraAnchorSig ~= anchorSig then
-			frame.Auras.size = auraSize
-			frame.Auras.width = auraSize
-			frame.Auras.height = auraSize
-			frame.Auras:SetHeight(auraSize + 2)
-			frame.Auras:ClearAllPoints()
-			frame.Auras:SetPoint("BOTTOMLEFT", topAnchor, "TOPLEFT", 0, 4)
-			frame.Auras:SetPoint("BOTTOMRIGHT", topAnchor, "TOPRIGHT", 0, 4)
-			frame.Auras.needFullUpdate = true
-			frame.__sufAuraAnchorSig = anchorSig
-		end
+		self.UnitAuras:SetTopAnchor(frame, topAnchor, self:GetUnitAuraSize(frame.sufUnitType))
 	end
 
 	if frame.Totems and frame.TotemAnchor then
@@ -7612,8 +7533,8 @@ function addon:ApplySize(frame)
 		-- with fallback to ClassPowerAnchor/AdditionalPower if auras disabled/hidden.
 		-- This ensures totems remain visible and properly positioned regardless of aura state.
 		local totemAnchor = frame
-		if frame.Auras and frame.Auras:IsShown() then
-			totemAnchor = frame.Auras
+		if frame.AurasAnchor and frame.AurasAnchor:IsShown() then
+			totemAnchor = frame.AurasAnchor
 		elseif frame.ClassPowerAnchor and HasVisibleClassPower(frame) then
 			totemAnchor = frame.ClassPowerAnchor
 		elseif frame.AdditionalPower and frame.AdditionalPower:IsShown() then
@@ -7780,19 +7701,15 @@ function addon:ReleaseFramePooledResources(frame)
 	end
 	frame.TextOverlay = nil
 
+	-- AuraContainers can't be pooled or destroyed; disable the element and hide it.
 	if frame.Auras then
-		for i = 1, #frame.Auras do
-			local button = frame.Auras[i]
-			if button and button.__sufPooledFrame and self.performanceLib and self.performanceLib.ReleaseFrame then
-				pcall(self.performanceLib.ReleaseFrame, self.performanceLib, button)
-			end
-			frame.Auras[i] = nil
+		if frame.IsElementEnabled and frame:IsElementEnabled("Auras") then
+			pcall(frame.DisableElement, frame, "Auras")
 		end
 	end
-	if frame.Auras and frame.Auras.__sufPooledFrame and self.performanceLib and self.performanceLib.ReleaseFrame then
-		pcall(self.performanceLib.ReleaseFrame, self.performanceLib, frame.Auras)
+	if addon.UnitAuras then
+		addon.UnitAuras:SetShown(frame, false)
 	end
-	frame.Auras = nil
 
 	if frame.RaidDebuffs then
 		StopRaidDebuffGlow(frame.RaidDebuffs)
@@ -7842,6 +7759,12 @@ local function CreateCastbar(self, height, anchor)
 	Time:SetPoint("RIGHT", Castbar, "RIGHT", -4, 0)
 	Time:SetJustifyH("RIGHT")
 
+	-- oUF 14 renders pushback delay into its own sub-widget (see CustomDelayText)
+	local Delay = CreateFontString(Castbar, 9, "OUTLINE")
+	Delay:SetPoint("RIGHT", Time, "LEFT", -2, 0)
+	Delay:SetJustifyH("RIGHT")
+	Delay:SetTextColor(1, 0.2, 0.2)
+
 	local Bg = Castbar:CreateTexture(nil, "BACKGROUND")
 	Bg:SetAllPoints(Castbar)
 	Bg:SetTexture(DEFAULT_TEXTURE)
@@ -7876,6 +7799,7 @@ local function CreateCastbar(self, height, anchor)
 
 	Castbar.Text = Text
 	Castbar.Time = Time
+	Castbar.Delay = Delay
 	Castbar.Bg = Bg
 	Castbar.Icon = Icon
 	Castbar.SafeZone = SafeZone
@@ -8052,7 +7976,7 @@ local function CreateHealthPrediction(self)
 		bar._sufIncomingHooked = true
 		bar:HookScript("OnValueChanged", function()
 			if addon and addon.UpdateIncomingHealValue then
-				addon:UpdateIncomingHealValue(self, self.unit)
+				addon:UpdateIncomingHealValue(self, self.__unit)
 			end
 		end)
 	end
@@ -8076,128 +8000,12 @@ local function CreateHealthPrediction(self)
 	self.Health.incomingHealOverflow = 1.05
 end
 
-local function AttachAuraTooltipScripts(button)
-	-- Prevent duplicate attachment
-	if button.__sufTooltipScriptsAttached then
-		return
-	end
-	
-	-- Ensure button is mouse-enabled
-	if not button:IsMouseEnabled() then
-		button:EnableMouse(true)
-	end
-	
-	button.UpdateTooltip = function(widget)
-		-- Tooltip handled by AuraTooltipManager (called in OnEnter)
-	end
-	button:SetScript("OnEnter", function(widget)
-		if widget:IsVisible() and addon.AuraTooltipManager then
-			local parent = widget:GetParent()
-			local anchorType = (parent and parent.tooltipAnchor) or "ANCHOR_BOTTOMRIGHT"
-			local offsetX = (parent and parent.tooltipOffsetX) or 0
-			local offsetY = (parent and parent.tooltipOffsetY) or 0
-			addon.AuraTooltipManager:ShowAuraTooltip(widget, anchorType, offsetX, offsetY)
-		end
-	end)
-	button:SetScript("OnLeave", function()
-		if addon.AuraTooltipManager then
-			addon.AuraTooltipManager:HideAuraTooltip()
-		end
-	end)
-	
-	button.__sufTooltipScriptsAttached = true
-end
-
+-- Auras use the oUF 14 AuraContainer element; see Modules/UI/UnitAuras.lua.
+-- Must run inside Style: oUF enables elements right after the style function returns.
 local function CreateAuras(self)
-	local owner = addon
-	local Auras = owner:AcquireRuntimeFrame("Frame", self, "SUF_AuraContainer")
-	local auraSize = owner:GetUnitAuraSize(self.sufUnitType)
-	local auraCfg = owner:GetUnitAuraLayoutSettings(self.sufUnitType)
-	
-	-- Raise frame strata and level to be above Blizzard frames
-	-- Blizzard frames are in MEDIUM strata, so we use HIGH to receive mouse events
-	Auras:SetFrameStrata("HIGH")
-	Auras:SetFrameLevel(600)
-	
-	Auras:Show()
-	Auras:SetPoint("BOTTOMLEFT", self, "TOPLEFT", 0, 4)
-	Auras:SetPoint("BOTTOMRIGHT", self, "TOPRIGHT", 0, 4)
-	Auras:SetHeight(auraSize + 2)
-	Auras.size = auraSize
-	Auras.width = auraSize
-	Auras.height = auraSize
-	Auras.spacingX = tonumber(auraCfg.spacingX) or 4
-	Auras.spacingY = tonumber(auraCfg.spacingY) or 4
-	Auras.maxCols = math.max(1, tonumber(auraCfg.maxCols) or 8)
-	Auras.initialAnchor = tostring(auraCfg.initialAnchor or "BOTTOMLEFT")
-	Auras.growthX = tostring(auraCfg.growthX or "RIGHT")
-	Auras.growthY = tostring(auraCfg.growthY or "UP")
-	Auras.sortMethod = tostring(auraCfg.sortMethod or "DEFAULT")
-	Auras.sortDirection = tostring(auraCfg.sortDirection or "ASC")
-	Auras.onlyShowPlayer = auraCfg.onlyShowPlayer == true
-	Auras.showStealableBuffs = auraCfg.showStealableBuffs ~= false
-	Auras.reanchorIfVisibleChanged = false
-	Auras.numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 8)
-	Auras.numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 8)
-	Auras.disableCooldown = false
-	Auras.tooltipAnchor = "ANCHOR_BOTTOMRIGHT"
-	Auras.createdButtons = 0
-	SetMousePassthrough(Auras)
-	Auras.CreateButton = function(element, position)
-		local button = owner:AcquireRuntimeFrame("Button", element, "SUF_AuraButton")
-		button:SetParent(element)
-		button:SetID(position or 0)
-		button:SetSize(element.size or 18, element.size or 18)
-		button:Show()
-		if button.EnableMouse then
-			button:EnableMouse(true)
-		end
-
-		if not button.Cooldown then
-			local cd = CreateFrame("Cooldown", nil, button, "CooldownFrameTemplate")
-			cd:SetAllPoints()
-			button.Cooldown = cd
-		end
-		button.Cooldown:SetScale(0.86)
-
-		if not button.Icon then
-			local icon = button:CreateTexture(nil, "BORDER")
-			icon:SetAllPoints()
-			button.Icon = icon
-		end
-
-		if not button.Count then
-			local countFrame = CreateFrame("Frame", nil, button)
-			countFrame:SetAllPoints(button)
-			countFrame:SetFrameLevel((button.Cooldown and button.Cooldown:GetFrameLevel() or button:GetFrameLevel()) + 1)
-			local count = countFrame:CreateFontString(nil, "OVERLAY", "NumberFontNormalSmall")
-			count:SetPoint("BOTTOMRIGHT", countFrame, "BOTTOMRIGHT", -1, 0)
-			button.Count = count
-		end
-
-		if not button.Overlay then
-			local overlay = button:CreateTexture(nil, "OVERLAY")
-			overlay:SetTexture([[Interface\Buttons\UI-Debuff-Overlays]])
-			overlay:SetAllPoints()
-			overlay:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-			button.Overlay = overlay
-		end
-
-		if not button.Stealable then
-			local stealable = button:CreateTexture(nil, "OVERLAY")
-			stealable:SetTexture([[Interface\TargetingFrame\UI-TargetingFrame-Stealable]])
-			stealable:SetPoint("TOPLEFT", -3, 3)
-			stealable:SetPoint("BOTTOMRIGHT", 3, -3)
-			stealable:SetBlendMode("ADD")
-			button.Stealable = stealable
-		end
-
-		AttachAuraTooltipScripts(button)
-
-		element.createdButtons = (element.createdButtons or 0) + 1
-		return button
+	if addon.UnitAuras then
+		addon.UnitAuras:Create(self)
 	end
-	self.Auras = Auras
 end
 
 function addon:SetupClassPowerCallbacks(frame)
@@ -8615,7 +8423,7 @@ function addon:ConfigureHealthElementOverrides(frame)
 	end
 
 	element.UpdateColor = function(owner, eventName, unit)
-		if not unit or owner.unit ~= unit then
+		if not unit or owner.__unit ~= unit then
 			return
 		end
 
@@ -8636,18 +8444,25 @@ function addon:ConfigureHealthElementOverrides(frame)
 			if threatStatus and owner.colors and owner.colors.threat then
 				color = owner.colors.threat[threatStatus]
 			end
+		elseif element.colorHappiness and IS_FOREVER and unit == "pet" and C_PetInfo and C_PetInfo.GetPetHappiness
+			and C_PetInfo.GetPetHappiness() and owner.colors and owner.colors.happiness then
+			color = owner.colors.happiness[(C_PetInfo.GetPetHappiness())]
 		elseif (element.colorClass and (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
 			or (element.colorClassNPC and not (UnitIsPlayer(unit) or UnitInPartyIsAI(unit)))
 			or (element.colorClassPet and UnitPlayerControlled(unit) and not UnitIsPlayer(unit)) then
-			local classToken
+			local classToken, rawToken
 			if UnitClass then
 				local ok, _, token = pcall(UnitClass, unit)
 				if ok then
+					rawToken = token
 					classToken = SafeText(token, nil)
 				end
 			end
 			if classToken and owner.colors and owner.colors.class then
 				color = owner.colors.class[classToken]
+			elseif IsSecretValue(rawToken) and C_ClassColor and C_ClassColor.GetClassColor then
+				-- custom class colors can't be keyed by a secret token; use Blizzard's (oUF#873)
+				color = C_ClassColor.GetClassColor(rawToken)
 			end
 		elseif element.colorSelection then
 			local selectionType = SafeNumber(GetUnitSelectionTypeSafe(unit, element.considerSelectionInCombatHostile), nil)
@@ -8675,7 +8490,7 @@ function addon:ConfigureHealthElementOverrides(frame)
 	end
 
 	element.Override = function(owner, eventName, unit)
-		if not unit or owner.unit ~= unit then
+		if not unit or owner.__unit ~= unit then
 			return
 		end
 
@@ -8784,7 +8599,7 @@ end
 -- Custom tooltip handler for header-spawned frames that intelligently determines the unit
 local function SUF_UpdateTooltip(frame)
 	-- Try to get a valid unit token
-	local unitToken = frame.unit
+	local unitToken = frame.__unit
 	
 	-- Fallback: try secure attribute
 	if not unitToken or (unitToken == 'party' or unitToken:match('^party%d+$')) and UnitExists(unitToken) == false then
@@ -8855,6 +8670,104 @@ local function HookTooltipHoverProxy(widget, ownerFrame)
 	end
 end
 
+-- Pooled glow/highlight effects layered on oUF indicator elements through their callbacks.
+-- (These used to be patched into the oUF element files; keeping them here keeps oUF syncable.)
+local function ChainPostUpdate(element, hook)
+	local original = element.PostUpdate
+	element.PostUpdate = function(widget, ...)
+		if original then
+			original(widget, ...)
+		end
+		hook(widget, ...)
+	end
+end
+
+local function IsVisibilityGlowEnabled(key)
+	local visibility = addon.db and addon.db.profile and addon.db.profile.visibility
+	return not visibility or visibility[key] ~= false
+end
+
+function addon:AttachIndicatorEffects(frame)
+	if not frame or frame.__sufIndicatorEffects then
+		return
+	end
+	frame.__sufIndicatorEffects = true
+
+	local function pool()
+		return addon.IndicatorPoolManager
+	end
+
+	if frame.RestingIndicator then
+		ChainPostUpdate(frame.RestingIndicator, function(_, isResting)
+			local manager = pool()
+			if not manager then
+				return
+			end
+			if isResting then
+				manager:ApplyHighlight(frame, { 0.3, 0.7, 1, 0.2 })
+			else
+				manager:Release(frame, "highlight_overlay")
+			end
+		end)
+	end
+
+	if frame.QuestIndicator then
+		ChainPostUpdate(frame.QuestIndicator, function(element, isQuestBoss)
+			-- quest boss flags only matter for NPCs
+			local unit = frame.__unit
+			if isQuestBoss and unit and UnitIsPlayer(unit) then
+				isQuestBoss = false
+				element:Hide()
+			end
+			local manager = pool()
+			if not manager then
+				return
+			end
+			if isQuestBoss then
+				manager:ApplyHighlight(frame, { 1, 0.8, 0.2, 0.25 })
+			else
+				manager:Release(frame, "highlight_overlay")
+			end
+		end)
+	end
+
+	if frame.LeaderIndicator then
+		ChainPostUpdate(frame.LeaderIndicator, function(_, isLeader)
+			local manager = pool()
+			if not manager then
+				return
+			end
+			if isLeader and IsVisibilityGlowEnabled("enablePartyLeaderGlow") then
+				manager:ApplyCustomGlow(frame, 1, 1, 0.5, 0.6)
+			else
+				manager:Release(frame, "custom_glow")
+			end
+		end)
+	end
+
+	if frame.ThreatIndicator then
+		ChainPostUpdate(frame.ThreatIndicator, function(_, _, status)
+			local manager = pool()
+			if not manager then
+				return
+			end
+			if status == 3 and IsVisibilityGlowEnabled("enableThreatIndicatorGlow") then
+				manager:ApplyThreatGlow(frame, status)
+			else
+				manager:Release(frame, "threat_glow")
+			end
+		end)
+	end
+
+	-- oUF 14 added a TargetIndicator element under the same key SUF already uses; route its
+	-- PLAYER_TARGET_CHANGED updates through SUF's own target-glow logic instead of SetShown.
+	if frame.TargetIndicator then
+		frame.TargetIndicator.Override = function(owner)
+			addon:UpdateUnitFrameStatusIndicators(owner)
+		end
+	end
+end
+
 function addon:Style(frame, unit)
 	local styleUnitToken = nil
 	if type(unit) == "string" and unit ~= "" then
@@ -8866,7 +8779,7 @@ function addon:Style(frame, unit)
 		end
 	end
 
-	frame.unit = styleUnitToken
+	-- oUF owns frame.__unit (set before Style runs); don't write frame.unit, Blizzard reads it.
 	frame.sufUnitType = ResolveStyleUnitType(frame, styleUnitToken)
 	frame.__isSimpleUnitFrames = true
 	local unitLayout = self:GetUnitLayoutSettings(frame.sufUnitType)
@@ -8881,7 +8794,7 @@ function addon:Style(frame, unit)
 	self:QueueOrRun(function()
 		frame:SetAttribute("type2", "togglemenu")
 		frame:SetAttribute("*type2", "togglemenu")
-	end, "frame-menu-" .. tostring(frame:GetName() or frame.sufUnitType or frame.unit or "unknown"))
+	end, "frame-menu-" .. tostring(frame:GetName() or frame.sufUnitType or frame.__unit or "unknown"))
 	if not frame.__sufLegacyMenu then
 		frame.__sufLegacyMenu = frame.menu or UnitPopup_ShowMenu
 	end
@@ -8945,6 +8858,10 @@ function addon:Style(frame, unit)
 		Health.colorClass = true
 		Health.colorReaction = true
 		self:DebugLog("ColorCurve", ("  Setting colorSmooth=false, colorClass=true, colorReaction=true for %s"):format(frame:GetName() or "unknown"), 2)
+		-- Forever: hunter pets show happiness color (oUF registers UNIT_HAPPINESS when set)
+		if IS_FOREVER and frame.sufUnitType == "pet" then
+			Health.colorHappiness = true
+		end
 	end
 	SetMousePassthrough(Health)
 	frame.Health = Health
@@ -9179,6 +9096,7 @@ function addon:Style(frame, unit)
 	StatusIndicator:SetDrawLayer("OVERLAY", 7)
 	StatusIndicator:SetText("")
 	frame.StatusIndicator = StatusIndicator
+	self:AttachIndicatorEffects(frame)
 
 	-- Add SetAlphaFromBoolean method for Range element
 	if not frame.SetAlphaFromBoolean then
@@ -9204,7 +9122,7 @@ function addon:Style(frame, unit)
 		-- Override Range element for non-party frames to work with target/tot/focus/boss
 		frame.Range.Override = function(self, event)
 			local element = self.Range
-			local unit = self.unit
+			local unit = self.__unit
 			
 			if element.PreUpdate then
 				element:PreUpdate()
@@ -9343,23 +9261,6 @@ function addon:Style(frame, unit)
 			CreateAuras(frame)
 		end
 		
-		-- Ensure PostCreateButton hook is set for ALL aura elements (including oUF-created ones)
-		if frame.Auras and not frame.Auras.PostCreateButton then
-			frame.Auras.PostCreateButton = function(element, button)
-				AttachAuraTooltipScripts(button)
-			end
-		end
-		
-		-- Retrofit existing buttons that were created before the hook was set
-		-- oUF stores buttons in the element array (element[1], element[2], etc.)
-		if frame.Auras then
-			for i = 1, #frame.Auras do
-				local button = frame.Auras[i]
-				if button and not button.__sufTooltipScriptsAttached then
-					AttachAuraTooltipScripts(button)
-				end
-			end
-		end
 	end
 
 	self:ApplyTags(frame)
@@ -9575,7 +9476,7 @@ function addon:SpawnFrames()
 			end
 			
 			for _, frame in ipairs(self.frames) do
-				local unit = frame.unit or (frame.GetAttribute and frame:GetAttribute("unit"))
+				local unit = frame.__unit or (frame.GetAttribute and frame:GetAttribute("unit"))
 				local hasUnitToken = type(unit) == "string" and unit ~= ""
 				local isHeaderUnit = hasUnitToken and (unit:match("^party") or unit:match("^raid"))
 
@@ -9764,9 +9665,9 @@ function addon:GetPartyHeaderYOffset()
 		local maxCols = math.max(1, tonumber(auraCfg.maxCols) or 1)
 		local numBuffs = math.max(0, tonumber(auraCfg.numBuffs) or 0)
 		local numDebuffs = math.max(0, tonumber(auraCfg.numDebuffs) or 0)
-		local maxVisibleAuras = math.max(numBuffs, numDebuffs)
-		if maxVisibleAuras > 0 then
-			local auraRows = math.max(1, math.ceil(maxVisibleAuras / maxCols))
+		-- buffs and debuffs are separate AuraContainer groups; debuffs start a new row
+		local auraRows = math.ceil(numBuffs / maxCols) + math.ceil(numDebuffs / maxCols)
+		if auraRows > 0 then
 			local auraSize = tonumber(partyUnitCfg and partyUnitCfg.auraSize) or self:GetUnitAuraSize("party") or 18
 			local spacingY = math.max(0, tonumber(auraCfg.spacingY) or 4)
 			auraExtraHeight = 8 + (auraRows * auraSize) + ((auraRows - 1) * spacingY)
@@ -10308,7 +10209,7 @@ function addon:OnClassResourceContextChanged()
 			if frame.ClassPower and frame.ClassPower.ForceUpdate then
 				pcall(frame.ClassPower.ForceUpdate, frame.ClassPower)
 			elseif frame.ForceUpdate then
-				pcall(frame.ForceUpdate, frame, frame.unit)
+				pcall(frame.ForceUpdate, frame, frame.__unit)
 			end
 			if frame.AdditionalPower and frame.AdditionalPower.ForceUpdate then
 				pcall(frame.AdditionalPower.ForceUpdate, frame.AdditionalPower)
@@ -10460,6 +10361,61 @@ end
 
 function addon:UpdateBlizzardFrames()
 	self:SetFramesVisible(self:IsEditModeActive())
+	self:UpdateObjectiveTrackerVisibility()
+end
+
+-- Hides Blizzard's Objective Tracker (quest list) when blizzardFrames.objectiveTracker is set, so a
+-- third-party quest addon can use the space. Blizzard re-shows the tracker as quests update, so an
+-- OnShow hook keeps it hidden. It holds secure quest-item buttons, so changes wait until after combat.
+-- Edit Mode still shows it, so its saved position can be adjusted.
+function addon:ShouldHideObjectiveTracker()
+	local cfg = self.db and self.db.profile and self.db.profile.blizzardFrames
+	return cfg and cfg.objectiveTracker == true and not self:IsEditModeActive()
+end
+
+function addon:UpdateObjectiveTrackerVisibility()
+	local tracker = _G.ObjectiveTrackerFrame
+	if not tracker then
+		return
+	end
+
+	if InCombatLockdown() then
+		if not self._objectiveTrackerRegenFrame then
+			local regenFrame = CreateFrame("Frame")
+			regenFrame:SetScript("OnEvent", function(frame)
+				frame:UnregisterEvent("PLAYER_REGEN_ENABLED")
+				addon:UpdateObjectiveTrackerVisibility()
+			end)
+			self._objectiveTrackerRegenFrame = regenFrame
+		end
+		self._objectiveTrackerRegenFrame:RegisterEvent("PLAYER_REGEN_ENABLED")
+		return
+	end
+
+	if not self._objectiveTrackerHooked then
+		self._objectiveTrackerHooked = true
+		tracker:HookScript("OnShow", function(frame)
+			if addon:ShouldHideObjectiveTracker() then
+				if InCombatLockdown() then
+					addon:UpdateObjectiveTrackerVisibility()
+				else
+					frame:Hide()
+				end
+			end
+		end)
+	end
+
+	if self:ShouldHideObjectiveTracker() then
+		tracker:Hide()
+		self._objectiveTrackerHiddenBySUF = true
+	elseif self._objectiveTrackerHiddenBySUF then
+		self._objectiveTrackerHiddenBySUF = nil
+		tracker:Show()
+		-- let Blizzard decide whether it has anything to display
+		if tracker.Update then
+			pcall(tracker.Update, tracker)
+		end
+	end
 end
 
 

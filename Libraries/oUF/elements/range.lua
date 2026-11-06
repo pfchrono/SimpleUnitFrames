@@ -27,11 +27,10 @@ Offline units are handled as if they are in range.
 
 local _, ns = ...
 local oUF = ns.oUF
-local Private = oUF.Private
 
 local function Update(self, event)
 	local element = self.Range
-	local unit = self.unit
+	local unit = self.__unit
 
 	--[[ Callback: Range:PreUpdate()
 	Called before the element has been updated.
@@ -81,11 +80,11 @@ local function Enable(self, unit)
 		element.insideAlpha = element.insideAlpha or 1
 		element.outsideAlpha = element.outsideAlpha or 0.55
 
-		Private.SmartRegisterUnitEvent(self, 'UNIT_IN_RANGE_UPDATE', self.unit, Path)
+		self:RegisterEvent('UNIT_IN_RANGE_UPDATE', Path)
 		self:RegisterEvent('UNIT_CONNECTION', Path)
 
 		if(unit == 'party' or unit == 'raid') then
-			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path, true)
+			self:RegisterEvent('PARTY_MEMBER_ENABLE', Path, true) -- SUF: can fire without a unit
 			self:RegisterEvent('PARTY_MEMBER_DISABLE', Path, true)
 		end
 
