@@ -70,7 +70,12 @@ local function TestDiagnostics()
 	end
 	
 	AddTestOutput("")
-	AddTestOutput(COLORS.INFO .. "Memory Usage: " .. string.format("%.1f MB", collectgarbage("count") / 1024) .. COLORS.RESET)
+	-- collectgarbage("count") is the Lua heap of every addon; report SUF's own share separately
+	if UpdateAddOnMemoryUsage and GetAddOnMemoryUsage then
+		UpdateAddOnMemoryUsage()
+		AddTestOutput(COLORS.INFO .. "SUF Memory: " .. string.format("%.1f MB", (GetAddOnMemoryUsage("SimpleUnitFrames") or 0) / 1024) .. COLORS.RESET)
+	end
+	AddTestOutput(COLORS.INFO .. "Lua Memory (all addons): " .. string.format("%.1f MB", collectgarbage("count") / 1024) .. COLORS.RESET)
 	AddTestOutput(COLORS.INFO .. "Active Frames: " .. #(addon.frames or {}) .. COLORS.RESET)
 end
 

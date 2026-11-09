@@ -73,7 +73,7 @@ function addon:AddLauncherTooltipLines(tooltip)
 	tooltip:AddLine(" ")
 	tooltip:AddDoubleLine("FPS:", tostring(fps), 0.82, 0.82, 0.82, 1, 1, 1)
 	tooltip:AddDoubleLine("MS:", string.format("H:%d  W:%d", homeLatency or 0, worldLatency or 0), 0.82, 0.82, 0.82, 1, 1, 1)
-	tooltip:AddDoubleLine("Lua Mem:", string.format("%.1f MB", memMB), 0.82, 0.82, 0.82, 1, 1, 1)
+	tooltip:AddDoubleLine("Lua (all addons):", string.format("%.1f MB", memMB), 0.82, 0.82, 0.82, 1, 1, 1)
 end
 
 function addon:ShowLauncherMenu(anchorFrame)

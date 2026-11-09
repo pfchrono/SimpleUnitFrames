@@ -2511,7 +2511,7 @@ function addon:RegisterNewDataTextProviders()
 			tooltip:AddDoubleLine("Home Latency", ("%dms"):format(home), 0.82, 0.82, 0.82, 1, 1, 1)
 			tooltip:AddDoubleLine("World Latency", ("%dms"):format(world), 0.82, 0.82, 0.82, 1, 1, 1)
 			local memMB = (collectgarbage("count") or 0) / 1024
-			tooltip:AddDoubleLine("Addon Memory", ("%.1f MB"):format(memMB), 0.82, 0.82, 0.82, 1, 1, 1)
+			tooltip:AddDoubleLine("Lua (all addons)", ("%.1f MB"):format(memMB), 0.82, 0.82, 0.82, 1, 1, 1)
 		end,
 	})
 end

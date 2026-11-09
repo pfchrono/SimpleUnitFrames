@@ -1,3 +1,14 @@
+## [1.36.3] - 2026-11-08
+
+### Changed
+- Memory readouts (launcher tooltip, System datatext tooltip, Test panel) now say "Lua (all addons)": `collectgarbage("count")` is every addon's Lua heap, not SUF's. The Test panel also reports SUF's own memory
+- Bundled PerformanceLib dashboard shows the client (Retail/Forever, version and build) and per-addon memory for PerformanceLib and SUF, with the shared Lua heap labelled separately
+
+### Notes
+- Checked WoW Forever builds 70840/70862: no API or unit-frame changes. oUF upstream has no commits after 14.2.1
+
+---
+
 ## [1.36.2] - 2026-11-06
 
 ### Fixed
