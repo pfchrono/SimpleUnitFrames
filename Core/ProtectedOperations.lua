@@ -212,7 +212,7 @@ function ProtectedOperations:FlushQueue(maxOps)
         if not op then break end
         
         --- Clear dedup index ---
-        if op.key and self._index[key] then
+        if op.key and self._index[op.key] then
             self._index[op.key] = nil
         end
         

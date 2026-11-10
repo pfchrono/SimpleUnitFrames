@@ -1,3 +1,19 @@
+## [1.36.4] - 2026-11-10
+
+### Fixed
+- Protected operations: the dedup index was never cleared after an operation ran (typo: `self._index[key]` instead of `op.key`), so any keyed operation deferred during combat was skipped as "already queued" for the rest of the session
+- Profile migration called `CopyTableDeep` as a global that doesn't exist, so migrations that copy unit defaults or movers errored
+- Blizzard skin: group addons never loaded on 12.x/Forever because the removed globals `LoadAddOn`/`IsAddOnLoaded` were required; now uses `C_AddOns`
+- Options window tag list could call an undefined `GetOuf` when `addon.oUF` wasn't set yet
+
+### Changed
+- Bundled PerformanceLib: frame-time percentiles reuse a scratch table instead of allocating one every 30 frames; `Architecture.SafeValue` returns the fallback for secret values instead of calling a non-existent API
+
+### Notes
+- Audited every global and `C_*` function SUF, oUF, the oUF plugins and PerformanceLib call against the WoW Forever (1.60.1.70862) and Retail (12.1.5.70783) UI source: nothing exists on Retail that is missing on Forever. No new client builds and no oUF commits after 14.2.1 since the last check
+
+---
+
 ## [1.36.3] - 2026-11-08
 
 ### Changed

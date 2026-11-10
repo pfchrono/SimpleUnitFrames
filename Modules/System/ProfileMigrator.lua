@@ -12,6 +12,10 @@ end
 
 -- Migration registry: maps from version → migration function
 -- Each migration function receives (addon, profile, fromVersion) and modifies profile in-place
+-- CopyTableDeep is a local in SimpleUnitFrames.lua, exported on addon._core (it was called as a
+-- nil global here, so migrations that copy defaults errored)
+local CopyTableDeep = (addon and addon._core and addon._core.CopyTableDeep) or CopyTable
+
 local migrations = {}
 
 -- Current profile schema version - increment when making breaking changes

@@ -709,7 +709,7 @@ function addon:ApplyHealthCurve(frame, config)
 		return 
 	end
 	
-	local healthConfig = config or DEFAULT_HEALTH_PREDICTION or {}
+	local healthConfig = config or {}
 	self:DebugLog("ColorCurve", ("ApplyHealthCurve called: frame=%s config.smooth=%s"):format(
 		frame:GetName() or "unknown",
 		tostring(healthConfig.smooth)
@@ -1501,6 +1501,7 @@ addon._core.SafeArithmetic = SafeArithmetic
 addon._core.SafeToNumber = SafeToNumber
 addon._core.SafeToString = SafeToString
 addon._core.CopyTableDeep = CopyTableDeep
+addon._core.GetOuf = GetOuf
 addon._core.MergeDefaults = MergeDefaults
 addon._core.addonName = addonName
 addon._core.ICON_PATH = ICON_PATH

@@ -1141,6 +1141,10 @@ local function ApplyScrollBarSweep(root, report)
 	Walk(root, 0)
 end
 
+-- The global LoadAddOn/IsAddOnLoaded were removed; without C_AddOns the group addons never loaded
+local LoadAddOn = (C_AddOns and C_AddOns.LoadAddOn) or _G.LoadAddOn
+local IsAddOnLoaded = (C_AddOns and C_AddOns.IsAddOnLoaded) or _G.IsAddOnLoaded
+
 local function TryLoadGroupAddons(groupKey, report)
 	if not (LoadAddOn and IsAddOnLoaded) then
 		return

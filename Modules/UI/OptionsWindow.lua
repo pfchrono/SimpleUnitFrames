@@ -1159,7 +1159,7 @@ function addon:ShowOptions()
 			return (labels and labels[unitKey]) or tostring(unitKey)
 		end
 		local function CollectOUFTags()
-			local ouf = self.oUF or GetOuf()
+			local ouf = self.oUF or (addon._core and addon._core.GetOuf and addon._core.GetOuf())
 			if not (ouf and ouf.Tags and ouf.Tags.Methods) then
 				return {}
 			end
