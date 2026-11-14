@@ -3522,6 +3522,30 @@ function addon:UpdateFrameFromDirtyEvents(frame, dirtyEvents)
 	end
 end
 
+-- Events whose only effect in the dirty path is re-running an oUF element that handles the
+-- same event itself. Queuing them for a frame oUF is already updating would do the work twice.
+local OUF_NATIVE_VALUE_EVENTS = {
+	UNIT_HEALTH = true,
+	UNIT_MAXHEALTH = true,
+	UNIT_HEAL_PREDICTION = true,
+	UNIT_ABSORB_AMOUNT_CHANGED = true,
+	UNIT_HEAL_ABSORB_AMOUNT_CHANGED = true,
+	UNIT_POWER_UPDATE = true,
+	UNIT_MAXPOWER = true,
+	UNIT_DISPLAYPOWER = true,
+}
+
+---True when oUF itself receives this event on the frame, so a coalesced re-update is redundant.
+---Frames for eventless units (targettarget, focustarget, ...) never have unit events
+---registered, so they still get the coalesced update.
+function addon:IsCoalescedEventHandledByOuf(frame, eventName)
+	if not OUF_NATIVE_VALUE_EVENTS[eventName] or not frame.IsEventRegistered then
+		return false
+	end
+	local ok, registered = pcall(frame.IsEventRegistered, frame, eventName)
+	return ok and registered and true or false
+end
+
 function addon:ShouldBypassPerformanceDirty(frame, eventName)
 	if not frame then
 		return false
@@ -3540,6 +3564,12 @@ function addon:ShouldBypassPerformanceDirty(frame, eventName)
 	return false
 end
 
+local DIRTY_QUEUE_STALE_SECONDS = 1
+
+---Queue a coalesced event for a frame. The frame is handed to PerformanceLib's
+---DirtyFlagManager, which later calls frame:Update() to apply everything queued.
+---@param frame table Unit frame
+---@param eventName string Event that made the frame dirty
 function addon:MarkFrameDirty(frame, eventName)
 	if not frame then
 		return
@@ -3548,6 +3578,9 @@ function addon:MarkFrameDirty(frame, eventName)
 		return
 	end
 	if self:ShouldBypassPerformanceDirty(frame, eventName) then
+		return
+	end
+	if self:IsCoalescedEventHandledByOuf(frame, eventName) then
 		return
 	end
 
@@ -3570,22 +3603,46 @@ function addon:MarkFrameDirty(frame, eventName)
 
 	frame.__sufDirtyEvents = frame.__sufDirtyEvents or {}
 	frame.__sufDirtyEvents[eventName or "UNKNOWN"] = true
+
+	local now = GetTime()
 	if frame.__sufDirtyQueued then
+		-- The queue normally calls back within a fraction of a second. If it hasn't (the
+		-- manager was disabled while this frame was waiting), flush here instead of leaving
+		-- the frame stuck as "queued" forever.
+		if (now - (frame.__sufDirtyQueuedAt or now)) < DIRTY_QUEUE_STALE_SECONDS then
+			return
+		end
+		self:FlushFrameDirtyEvents(frame)
 		return
 	end
-	frame.__sufDirtyQueued = true
 
-	local priority = self:GetDirtyPriorityForEvent(eventName, frame)
-	local dirtyManager = self.performanceLib and self.performanceLib.DirtyFlagManager
+	local dirtyManager = self:IsPerformanceIntegrationEnabled() and self.performanceLib and self.performanceLib.DirtyFlagManager
 	if dirtyManager and dirtyManager.MarkDirty then
-		dirtyManager:MarkDirty(frame, priority)
-	else
-		local events = frame.__sufDirtyEvents
-		frame.__sufDirtyQueued = false
-		frame.__sufDirtyEvents = {}
-		self:UpdateFrameFromDirtyEvents(frame, events)
-		ClearTableInPlace(events)
+		frame.__sufDirtyQueued = true
+		frame.__sufDirtyQueuedAt = now
+		local priority = self:GetDirtyPriorityForEvent(eventName, frame)
+		-- MarkDirty returns false when it refuses the frame (manager disabled)
+		if dirtyManager:MarkDirty(frame, priority) ~= false then
+			return
+		end
 	end
+	self:FlushFrameDirtyEvents(frame)
+end
+
+---Apply and clear a frame's pending dirty events now.
+function addon:FlushFrameDirtyEvents(frame)
+	local events = frame and frame.__sufDirtyEvents
+	if not frame then
+		return
+	end
+	frame.__sufDirtyQueued = false
+	frame.__sufDirtyQueuedAt = nil
+	if type(events) ~= "table" or next(events) == nil then
+		return
+	end
+	frame.__sufDirtyEvents = {}
+	self:UpdateFrameFromDirtyEvents(frame, events)
+	ClearTableInPlace(events)
 end
 
 function addon:HandleCoalescedUnitEvent(eventName, unit)
@@ -3596,7 +3653,6 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 	local traceAbsorb = (eventName == "UNIT_ABSORB_AMOUNT_CHANGED" or eventName == "UNIT_HEAL_ABSORB_AMOUNT_CHANGED")
 		and (unit == "target" or unit == "tot" or unit == "targettarget")
 	local tracedHits = 0
-	local priority = PERF_EVENT_PRIORITY[eventName] or 3
 
 	local index = self:EnsureFrameEventIndex()
 	local seen = {}
@@ -3610,7 +3666,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				seen[frame] = true
 				hasDirectMatch = true
 				tracedHits = tracedHits + 1
-				self:MarkFrameDirty(frame, priority)
+				self:MarkFrameDirty(frame, eventName)
 			end
 		end
 	end
@@ -3624,7 +3680,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				if frame and not seen[frame] then
 					seen[frame] = true
 					tracedHits = tracedHits + 1
-					self:MarkFrameDirty(frame, priority)
+					self:MarkFrameDirty(frame, eventName)
 				end
 			end
 		end
@@ -3640,7 +3696,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				if frame and not seen[frame] and isSameUnit then
 					seen[frame] = true
 					tracedHits = tracedHits + 1
-					self:MarkFrameDirty(frame, priority)
+					self:MarkFrameDirty(frame, eventName)
 				end
 			end
 		end
@@ -3654,7 +3710,7 @@ function addon:HandleCoalescedUnitEvent(eventName, unit)
 				if frame and not seen[frame] then
 					seen[frame] = true
 					tracedHits = tracedHits + 1
-					self:MarkFrameDirty(frame, priority)
+					self:MarkFrameDirty(frame, eventName)
 				end
 			end
 		end
@@ -3796,8 +3852,7 @@ function addon:HandleCoalescedEvent(eventName, ...)
 
 	for _, frame in ipairs(self.frames or {}) do
 		if frame then
-			local framePriority = (eventConfig and eventConfig.priority) or PERF_EVENT_PRIORITY[eventName] or 3
-			self:MarkFrameDirty(frame, framePriority)
+			self:MarkFrameDirty(frame, eventName)
 		end
 	end
 end
@@ -4638,11 +4693,12 @@ function addon:GetFrameUpdatePriority(frame)
 	end
 end
 
----Mark single frame as dirty (deferred update via DirtyFlagManager)
+---Queue a frame with DirtyFlagManager at an explicit priority, with no event attached.
+---(Was also named MarkFrameDirty, which silently replaced the event-based version above.)
 ---@param frame table Frame to mark dirty
 ---@param priority? integer Priority level (defaults based on unit type)
 ---@return boolean True if marked, false if DirtyFlagManager unavailable
-function addon:MarkFrameDirty(frame, priority)
+function addon:MarkFrameDirtyWithPriority(frame, priority)
 	if not frame or not self:IsPerformanceIntegrationEnabled() then
 		return false
 	end
@@ -9272,11 +9328,7 @@ function addon:Style(frame, unit)
 	self:UpdateUnitFrameUnlockHandle(frame)
 	self:UpdateUnitFrameStatusIndicators(frame)
 	local function FlushQueuedDirtyEvents(widget)
-		local events = widget.__sufDirtyEvents
-		widget.__sufDirtyQueued = false
-		widget.__sufDirtyEvents = {}
-		addon:UpdateFrameFromDirtyEvents(widget, events)
-		ClearTableInPlace(events)
+		addon:FlushFrameDirtyEvents(widget)
 	end
 	local function ShouldAllowFullRefreshPassthrough(eventName)
 		if type(eventName) ~= "string" then
@@ -9322,8 +9374,9 @@ function addon:Style(frame, unit)
 			end
 			local events = widget.__sufDirtyEvents
 			if widget.__sufDirtyQueued and type(events) == "table" and next(events) ~= nil then
+				-- Apply what was queued, then carry on: returning here would swallow this
+				-- refresh (for example the full update on a target change).
 				FlushQueuedDirtyEvents(widget)
-				return
 			end
 			if ShouldApplyAntiFlickerGuards(unitType) then
 				if not ShouldAllowFullRefreshPassthrough(eventName) then
@@ -9346,8 +9399,9 @@ function addon:Style(frame, unit)
 			end
 			local events = widget.__sufDirtyEvents
 			if widget.__sufDirtyQueued and type(events) == "table" and next(events) ~= nil then
+				-- Apply what was queued, then carry on: returning here would swallow this
+				-- refresh (for example the full update on a target change).
 				FlushQueuedDirtyEvents(widget)
-				return
 			end
 			if ShouldApplyAntiFlickerGuards(unitType) then
 				if not ShouldAllowFullRefreshPassthrough(eventName) then

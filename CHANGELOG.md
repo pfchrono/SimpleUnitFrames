@@ -1,3 +1,23 @@
+## [1.36.5] - 2026-11-13
+
+### Fixed
+- Coalesced dirty updates were inert since v1.24.0: a second `addon:MarkFrameDirty(frame, priority)` replaced the event-based one, so queued frames were handed to PerformanceLib with nothing to apply. The event-based version is live again (the priority variant is now `MarkFrameDirtyWithPriority`). This restores coalesced status-indicator, threat, portrait and eventless-unit updates when performance integration is on
+- Coalesced health and power events are no longer queued for frames where oUF already handles the same event, so restoring the path does not update those elements twice
+- A refresh arriving while dirty events were queued (for example the full update on a target change) was swallowed after the queue flush; it now runs
+- A frame can no longer stay marked as queued forever if the dirty manager is disabled or refuses it: marks older than one second are applied directly
+- Bundled PerformanceLib, dirty-frame queue: the queue used the Lua length operator on a table with nil holes, so it could lose queued frames and leave its OnUpdate running forever. Heads and tails are now tracked explicitly
+- Bundled PerformanceLib, dirty-frame queue: it passed its own priority numbers (4 = critical) to the frame-time budget, which ranks them the other way round (1 = critical), so non-critical queues were skipped unless the frame rate was very high. Priorities are translated, and a queue held back by the budget is processed after at most 0.08-0.25s
+- Bundled PerformanceLib, dirty-frame queue: priority decay moved every waiting frame straight to critical in one step; frames now climb one level per decay
+
+### Changed
+- Bundled PerformanceLib: marking a frame dirty is O(1) instead of a linear scan, processing a frame no longer allocates a closure, and the per-frame budget read no longer allocates a table (new `FrameTimeBudget:GetLoadSample()`)
+- Bundled PerformanceLib, event coalescer: registered events reuse one argument buffer instead of allocating a table per event, and payloads carry an explicit argument count
+
+### Notes
+- Checked WoW Forever builds 70888 and 70938 (party invites gain a cross-shard flag, battle-pet target icon and nameplate crowd-control anchoring changes): nothing SUF, oUF or PerformanceLib calls is affected. Retail is unchanged at 12.1.5.70783 and oUF upstream has no commits after 14.2.1
+
+---
+
 ## [1.36.4] - 2026-11-10
 
 ### Fixed
